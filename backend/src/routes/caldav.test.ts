@@ -351,8 +351,8 @@ describe('CalDAV calendar objects', () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'calendar-1', sync_token: 'sync-3', sync_version: 3 }] })
       .mockResolvedValueOnce({ rows: [
-        { uid: 'updated', recurrence_id: '', etag: 'etag-2', deleted: false, raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' },
-        { uid: 'deleted', recurrence_id: '', etag: null, deleted: true, raw_ical: null },
+        { sync_version: '3', sync_min_version: '0', resource: { uid: 'updated', dav_filename: 'updated.ics', recurrence_id: '', etag: 'etag-2', deleted: false, raw_ical: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n' } },
+        { sync_version: '3', sync_min_version: '0', resource: { uid: 'deleted', dav_filename: 'deleted.ics', recurrence_id: '', etag: null, deleted: true, raw_ical: null } },
       ] });
 
     const response = await fetch(`${base}/caldav/user-1/calendar-1/`, {
@@ -368,7 +368,9 @@ describe('CalDAV calendar objects', () => {
     expect(xml).toContain('404 Not Found');
     expect(xml).toContain('<D:sync-token>sync-3</D:sync-token>');
     expect(query.mock.calls[1][0]).toContain('calendar_sync_changes');
-    expect(query.mock.calls[1][1]).toEqual(['calendar-1', 1]);
+    expect(query.mock.calls[1][0]).toContain('j.version <= o.sync_version');
+    expect(query.mock.calls[1][0]).toContain('o.sync_min_version');
+    expect(query.mock.calls[1][1]).toEqual(['calendar-1', 'user-1', 1]);
   });
 
   it('returns only explicitly requested resources for calendar-multiget', async () => {

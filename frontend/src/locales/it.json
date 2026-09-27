@@ -976,7 +976,8 @@
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
       "groupAdmin": "Amministrazione",
       "plugins": "Plugin",
-      "davCredentials": "Accesso DAV"
+      "davCredentials": "Accesso DAV",
+      "performance": "Prestazioni"
     },
     "title": "Impostazioni",
     "users": {
@@ -1042,6 +1043,44 @@
       "maxModeReadWrite": "Lettura e scrittura",
       "maxModeReadOnly": "Solo lettura",
       "mode": "Accesso: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Precaricamento del contenuto dei messaggi",
+      "description": "Impostazione amministrativa per tutti gli utenti. Prepara il contenuto dei primi messaggi nell’elenco della cartella corrente tramite IMAP, Gmail API o Microsoft Graph.",
+      "limitLabel": "Messaggi da precaricare",
+      "hint": "Valore predefinito: 25. Inserisci 0–100; 0 disattiva il precaricamento. Le modifiche valgono per i nuovi gruppi senza riavviare il server.",
+      "policy": "I messaggi vengono scaricati in sequenza per account, non tutti insieme. Il contenuto già in cache viene saltato; restano attivi i limiti di concorrenza, le attese del provider e il limite di cache per messaggio. La posta già memorizzata non viene eliminata.",
+      "environmentOff": "Il precaricamento è disattivato dall’impostazione del server MAIL_BODY_PREFETCH=off. Il numero verrà salvato, ma sarà applicato solo dopo la rimozione di questa impostazione prioritaria.",
+      "invalid": "Inserisci un numero intero da 0 a 100.",
+      "loadError": "Impossibile caricare le impostazioni di precaricamento.",
+      "saveError": "Impossibile salvare le impostazioni di precaricamento.",
+      "saved": "Impostazione di precaricamento salvata."
+    },
+    "retention": {
+      "title": "Conservazione dei dati",
+      "description": "Impostazioni globali dell’amministratore per tutti gli utenti. Periodi in giorni; i nuovi gruppi di pulizia usano le modifiche senza riavvio.",
+      "cacheSafety": "Scadono solo testo/HTML locale e immagini incorporate. I messaggi restano nell’elenco e sul provider; riaprirli scarica il contenuto. Bozze, copie locali senza origine e operazioni in attesa sono protette. Non è un archivio offline.",
+      "mail_body_cache_days": "Durata della cache dei contenuti (giorni)",
+      "mail_body_cache_days_hint": "Predefinito: 30. 7 per una settimana, 30 per un mese, 0 senza scadenza. Dall’ultima apertura o memorizzazione; sincronizzazione e precaricamento non contano come apertura. La cache esistente inizia un nuovo periodo all’aggiornamento.",
+      "dav_history_days": "Cronologia modifiche DAV (giorni)",
+      "dav_history_days_hint": "Predefinito: 30. Eliminare la cronologia CalDAV/CardDAV non elimina eventi o contatti. I token vecchi richiedono una sincronizzazione completa.",
+      "dav_history_max_entries": "Voci DAV per calendario/rubrica",
+      "dav_history_max_entries_hint": "Predefinito: 10.000; intervallo: 100–100.000. Ultimi metadati o marcatore di eliminazione, non copie complete ripetute.",
+      "auth_log_days": "Registri di autenticazione (giorni)",
+      "auth_log_days_hint": "Predefinito: 90. Cronologia degli accessi e dell’autenticazione.",
+      "conversation_audit_days": "Audit di ricostruzione conversazioni (giorni)",
+      "conversation_audit_days_hint": "Predefinito: 30. Elimina i vecchi rapporti, non le conversazioni.",
+      "resolved_ingest_error_days": "Errori di elaborazione risolti (giorni)",
+      "resolved_ingest_error_days_hint": "Predefinito: 7. Gli errori irrisolti e le riparazioni in attesa restano.",
+      "completed_outbox_payload_days": "Contenuto degli eventi interni completati (giorni)",
+      "completed_outbox_payload_days_hint": "Predefinito: 7. Elimina i dati degli eventi completati; conserva le chiavi anti-duplicazione e le operazioni in attesa o incerte.",
+      "policy": "La pulizia avviene in piccoli gruppi. Un periodo più breve può eliminare la cronologia al prossimo passaggio; allungarlo non ripristina i registri. Il testo fuori cache non viene cercato localmente fino al nuovo download. PostgreSQL può riutilizzare lo spazio senza ridurre subito i file.",
+      "docker": "I log stdout/stderr di Docker sono separati: Compose standard ruota 3 × 10 MiB per servizio. Configura il tuo Compose sul server; questo modulo non lo modifica.",
+      "paused": "Manutenzione sospesa da STORAGE_MAINTENANCE_ENABLED=false. La pulizia cache/DAV è sospesa; la conservazione dei registri operativi e di sicurezza resta attiva.",
+      "invalid": "Inserisci interi negli intervalli indicati. Solo la cache accetta 0 senza scadenza.",
+      "loadError": "Impossibile caricare le impostazioni di conservazione.",
+      "saveError": "Impossibile salvare le impostazioni di conservazione.",
+      "saved": "Impostazioni di conservazione salvate."
     }
   },
   "blockList": {

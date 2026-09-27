@@ -45,7 +45,8 @@
       "groupSecurityIntegrations": "Zabezpečení a integrace",
       "groupAdmin": "Správa",
       "plugins": "Pluginy",
-      "davCredentials": "Přístup DAV"
+      "davCredentials": "Přístup DAV",
+      "performance": "Výkon"
     },
     "categories": {
       "title": "Kategorie e-mailů",
@@ -1026,6 +1027,44 @@
       "maxModeReadWrite": "Čtení i zápis",
       "maxModeReadOnly": "Pouze pro čtení",
       "mode": "Přístup: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Předběžné načítání zpráv",
+      "description": "Nastavení správce pro všechny uživatele. Načítá obsah prvních zpráv v aktuálně zobrazeném seznamu složky přes IMAP, Gmail API nebo Microsoft Graph.",
+      "limitLabel": "Počet předem načítaných zpráv",
+      "hint": "Výchozí hodnota: 25. Zadejte 0–100; 0 předběžné načítání vypne. Změny platí pro nové dávky bez restartu serveru.",
+      "policy": "Zprávy se v rámci účtu načítají postupně, nikoli všechny najednou. Obsah v mezipaměti se přeskakuje; limity souběžnosti, čekání požadované poskytovatelem a limit mezipaměti na zprávu zůstávají aktivní. Stávající pošta v mezipaměti se nemaže.",
+      "environmentOff": "Předběžné načítání je vypnuto nastavením serveru MAIL_BODY_PREFETCH=off. Níže uvedená hodnota se uloží, ale použije se až po zrušení tohoto nastavení.",
+      "invalid": "Zadejte celé číslo od 0 do 100.",
+      "loadError": "Nastavení předběžného načítání se nepodařilo načíst.",
+      "saveError": "Nastavení předběžného načítání se nepodařilo uložit.",
+      "saved": "Nastavení předběžného načítání bylo uloženo."
+    },
+    "retention": {
+      "title": "Uchovávání dat",
+      "description": "Globální nastavení správce pro všechny uživatele. Doby jsou ve dnech; změny platí pro nové dávky čištění bez restartu.",
+      "cacheSafety": "Maže se pouze místní text/HTML a vložené obrázky. Zprávy zůstanou v seznamu i u poskytovatele; otevření obsah znovu stáhne. Koncepty, místní kopie bez zdroje a čekající operace jsou chráněny. Nejde o offline archiv.",
+      "mail_body_cache_days": "Životnost mezipaměti obsahu (dny)",
+      "mail_body_cache_days_hint": "Výchozí: 30. Zadejte 7 pro týden, 30 pro měsíc nebo 0 bez vypršení. Od posledního otevření nebo uložení obsahu; synchronizace a přednačítání nejsou otevřením. Stávající mezipaměť dostane novou lhůtu od aktualizace.",
+      "dav_history_days": "Historie změn DAV (dny)",
+      "dav_history_days_hint": "Výchozí: 30. Mazání historie CalDAV/CardDAV nemaže události ani kontakty. Starší token vyžádá úplnou synchronizaci.",
+      "dav_history_max_entries": "Záznamy DAV na kalendář/adresář",
+      "dav_history_max_entries_hint": "Výchozí: 10 000; rozsah: 100–100 000. Uchovává poslední metadata nebo informaci o smazání, nikoli opakované celé kopie.",
+      "auth_log_days": "Protokoly ověřování (dny)",
+      "auth_log_days_hint": "Výchozí: 90. Historie přihlášení a ověřování.",
+      "conversation_audit_days": "Audit obnovy konverzací (dny)",
+      "conversation_audit_days_hint": "Výchozí: 30. Maže staré zprávy o obnově, ne konverzace.",
+      "resolved_ingest_error_days": "Vyřešené chyby zpracování (dny)",
+      "resolved_ingest_error_days_hint": "Výchozí: 7. Nevyřešené chyby a čekající opravy zůstávají.",
+      "completed_outbox_payload_days": "Obsah dokončených událostí fronty (dny)",
+      "completed_outbox_payload_days_hint": "Výchozí: 7. Maže obsah dokončených interních událostí. Klíče proti opakovanému odeslání a čekající či nejisté operace zůstávají.",
+      "policy": "Čištění běží na pozadí v malých dávkách. Kratší lhůta může odstranit starší historii při dalším průchodu; delší lhůta protokoly neobnoví. Obsah mimo mezipaměť se do opětovného stažení nehledá místně. PostgreSQL může místo znovu využít bez okamžitého zmenšení souborů.",
+      "docker": "Protokoly Docker stdout/stderr jsou oddělené: standardní Compose rotuje 3 × 10 MiB na službu. Vlastní Compose nastavte na serveru; tento formulář jej nemění.",
+      "paused": "Údržba dat je pozastavena pomocí STORAGE_MAINTENANCE_ENABLED=false. Čištění mezipaměti/DAV neběží; uchovávání bezpečnostních a provozních protokolů zůstává aktivní.",
+      "invalid": "Zadejte celá čísla v uvedených mezích. Pouze mezipaměť obsahu dovoluje 0 bez vypršení.",
+      "loadError": "Nastavení uchovávání se nepodařilo načíst.",
+      "saveError": "Nastavení uchovávání se nepodařilo uložit.",
+      "saved": "Nastavení uchovávání uloženo."
     }
   },
   "blockList": {

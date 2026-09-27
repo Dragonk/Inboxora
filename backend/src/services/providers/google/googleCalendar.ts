@@ -323,8 +323,8 @@ function buildVEventLines(event: GoogleCalendarEvent, input: { defaultTimeZone: 
 
   const lines = ['BEGIN:VEVENT', `UID:${escapeICalendarText(uid)}`];
   const stamp = event.updated || event.created;
-  const stampDate = stamp ? new Date(stamp) : new Date();
-  lines.push(`DTSTAMP:${formatICalendarUtc(Number.isNaN(stampDate.getTime()) ? new Date() : stampDate)}`);
+  const stampDate = stamp ? new Date(stamp) : new Date(0);
+  lines.push(`DTSTAMP:${formatICalendarUtc(Number.isNaN(stampDate.getTime()) ? new Date(0) : stampDate)}`);
   if (typeof event.sequence === 'number' && event.sequence > 0) lines.push(`SEQUENCE:${event.sequence}`);
 
   if (input.override) {

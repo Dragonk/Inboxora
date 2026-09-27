@@ -59,3 +59,11 @@ The tab title shows `(N) Inboxora` when unread indicators are enabled. Supported
 No new database migration or service is introduced. The existing migration endpoint remains `0145_graph_consistency.sql`. PR13's legacy DAV/ICS cleanup and the existing Graph identity/removal protections remain unchanged.
 
 Validation before release: execute the new PostgreSQL/WebSocket regressions (not skipped), the full backend/frontend suites and the live-browser test. Then verify Graph, Gmail and IMAP with a continuously open tab, disabled notifications, read/unread on another device, lost WS events, search/threaded views, and an installed PWA's actual OS badge. Build success alone does not establish live-mailbox correctness.
+
+## Superseded storage follow-up
+
+The manual-only storage follow-up originally proposed against 4.1.1 was extended into
+the automatic background repair planned for [4.1.2](Release-notes-4.1.2.md).
+The published 4.1.1 image does not contain that repair. The 4.1.2 draft documents the
+new migration order, DAV token cutover, automatic journal space release, resumable
+header repair and the retained read-only/manual diagnostic commands.

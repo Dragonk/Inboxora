@@ -78,4 +78,16 @@ describeOrSkip('unedited contact data remains unchanged', () => {
     );
     expect(books.rows).toContainEqual({ source: 'carddav', name: 'DAV Contacts', count: '1' });
   });
+  it('keeps the same contact tuple and DAV version when the source card is unchanged', async () => {
+    const { syncUser } = await import('./carddavSync.js');
+    await expect(syncUser(userId)).resolves.toMatchObject({ ok: true });
+    const snapshot = async () => (await query(
+      `SELECT c.id, c.ctid::text AS tuple, c.vcard, b.sync_version::text AS version
+         FROM contacts c JOIN address_books b ON b.id=c.address_book_id
+        WHERE c.user_id=$1 AND b.source='carddav' ORDER BY c.id`, [userId])).rows;
+    const before = await snapshot(); expect(before).toHaveLength(1);
+    await expect(syncUser(userId)).resolves.toMatchObject({ ok: true }); await expect(syncUser(userId)).resolves.toMatchObject({ ok: true });
+    expect(await snapshot()).toEqual(before);
+  });
+
 });

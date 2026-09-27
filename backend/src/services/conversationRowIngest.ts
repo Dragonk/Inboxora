@@ -1,17 +1,17 @@
-import { query } from './db.js';
+import { query, withTransaction } from './db.js';
 import { toAppError } from '../utils/errors.js';
 import { conversationPersistedFields, resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
-import { upsertConversationCopy } from './conversationPersistence.js';
+import { _upsertConversationCopyWithClient, conversationSerializeKey } from './conversationPersistence.js';
 import { recordConversationIngestFailure } from './conversationIngestFailures.js';
 import { recordReplyDiagnostic } from './diagnosticsRing.js';
 
 /**
  * Project one persisted message row into the conversation engine.
  *
- * Moved out of `imapManager` unchanged, so a provider adapter can call it without
+ * Kept outside `imapManager`, so a provider adapter can call it without
  * importing the mail manager — `graphMailSync` needs this and importing `imapManager`
  * would create a cycle, since `imapManager` now imports the Graph sync for
- * `ensureFolder`. The body is the shipped one: the persisted row is authoritative for
+ * `ensureFolder`. The persisted row is authoritative for
  * delivery/provider/Sender metadata, and the caller must invoke this **outside** its own
  * transaction, because the conversation engine opens one of its own.
  */
@@ -40,36 +40,47 @@ interface RawConversationEnvelope {
 export async function persistConversationCopyForRow(rowId: string, account: ConversationAccountRow, rawMessage?: unknown): Promise<void> {
   const raw = (rawMessage ?? {}) as RawConversationEnvelope & Record<string, unknown>;
   try {
-    const result = await query(`
-      SELECT m.*, a.user_id
-        FROM messages m
-        JOIN email_accounts a ON a.id = m.account_id
-       WHERE m.id = $1 AND a.id = $2`, [rowId, account.id]);
-    if (result.rows.length !== 1) return;
-    // Sent/upsert and retry paths may provide only a partial raw envelope. The
-    // persisted row is authoritative for delivery/provider/Sender metadata, so
-    // merge it before deriving provider identity and own-address resolution.
-    // This keeps live ingest, Sent ingest, retry, and rebuild on the same input
-    // contract instead of silently dropping delivery_addresses or provider IDs.
-    const persistenceMessage = { ...result.rows[0], ...raw };
-    // `imap_host` is nullable on the account row and the metadata contract wants
-    // `string | undefined`, so it is normalised at this boundary rather than widening
-    // the contract for one caller.
-    const metadataAccount = { id: account.id, user_id: account.user_id, imap_host: account.imap_host ?? undefined, mail_transport: account.mail_transport ?? null };
-    const envelope = conversationPersistedFields(persistenceMessage, metadataAccount);
-    envelope.identities = await resolveOwnIdentityAddresses({ query }, account.id, persistenceMessage);
-    await query(`UPDATE messages SET conversation_raw_headers = COALESCE($1, conversation_raw_headers), conversation_thread_index = COALESCE($2, conversation_thread_index), conversation_thread_topic = COALESCE($3, conversation_thread_topic) WHERE id = $4`, [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId]);
-    await upsertConversationCopy({ ...result.rows[0], ...envelope }, {
-      identities: envelope.identities,
-      provider: envelope.provider,
-      // Explicit authenticated tenant context; never infer ownership from the
-      // persisted/message payload in the conversation persistence layer.
-      userId: account.user_id,
-    });
+    // Take the same account lock as retry/rebuild BEFORE reading or updating
+    // headers. The former standalone UPDATE raced with SERIALIZABLE projections
+    // despite their advisory lock, and survived a failed projection's rollback.
+    const persisted = await withTransaction(async client => {
+      const result = await client.query(`
+        SELECT m.*, a.user_id
+          FROM messages m
+          JOIN email_accounts a ON a.id = m.account_id
+         WHERE m.id = $1 AND a.id = $2 AND a.user_id = $3
+         FOR UPDATE OF m`, [rowId, account.id, account.user_id]);
+      if (result.rows.length !== 1) return null;
+      // The persisted row remains authoritative when the caller has only a
+      // partial envelope (Sent, provider flag updates and recovery paths).
+      const persistenceMessage = { ...result.rows[0], ...raw };
+      const metadataAccount = { id: account.id, user_id: account.user_id, imap_host: account.imap_host ?? undefined, mail_transport: account.mail_transport ?? null };
+      const envelope = conversationPersistedFields(persistenceMessage, metadataAccount);
+      envelope.identities = await resolveOwnIdentityAddresses(client, account.id, persistenceMessage);
+      // Avoid creating dead tuples/WAL when a replay supplies unchanged headers
+      // or no new header fields at all. NULL still means "keep the stored value".
+      await client.query(`
+        UPDATE messages
+           SET conversation_raw_headers = COALESCE($1, conversation_raw_headers),
+               conversation_thread_index = COALESCE($2, conversation_thread_index),
+               conversation_thread_topic = COALESCE($3, conversation_thread_topic)
+         WHERE id = $4 AND account_id = $5
+           AND (conversation_raw_headers IS DISTINCT FROM COALESCE($1, conversation_raw_headers)
+             OR conversation_thread_index IS DISTINCT FROM COALESCE($2, conversation_thread_index)
+             OR conversation_thread_topic IS DISTINCT FROM COALESCE($3, conversation_thread_topic))`,
+      [envelope.conversation_raw_headers, envelope.conversation_thread_index, envelope.conversation_thread_topic, rowId, account.id]);
+      await _upsertConversationCopyWithClient(client, result.rows[0], {
+        identities: envelope.identities,
+        provider: envelope.provider,
+        userId: account.user_id,
+      });
+      return result.rows[0];
+    }, { serializable: true, serializeKey: conversationSerializeKey(account.user_id, account.id) });
+    if (!persisted) return;
     // Diagnostic observation must never downgrade a successful projection into
     // an ingest failure or queue an unnecessary repair.
     try {
-      const parentHeader = typeof result.rows[0].in_reply_to === 'string' ? result.rows[0].in_reply_to : null;
+      const parentHeader = typeof persisted.in_reply_to === 'string' ? persisted.in_reply_to : null;
       if (parentHeader) {
       const verdict = await query<{
         legacy_thread_matched: boolean; conversation_matched: boolean; provider_thread_matched: boolean;
@@ -97,7 +108,7 @@ export async function persistConversationCopyForRow(rowId: string, account: Conv
       recordReplyDiagnostic({
         event: 'mail_reply_ingested', accountId: account.id, transport, sendKind: 'reply',
         replyParentPresent: true, parentRfcMessageIdPresent: true,
-        referencesCount: (String(result.rows[0].thread_references || '').match(/<[^<>\r\n]+>/g) || []).length,
+        referencesCount: (String(persisted.thread_references || '').match(/<[^<>\r\n]+>/g) || []).length,
         providerParentResolved: state?.provider_thread_matched === true,
         providerResolution: transport === 'microsoft_graph' ? 'direct' : 'not_applicable',
         transportReplyMode: transport === 'microsoft_graph' ? 'graph_create_reply' : 'rfc_headers',

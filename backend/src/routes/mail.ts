@@ -87,6 +87,7 @@ interface ReadMessageRow {
   provider_message_id?: string | null;
   mail_transport?: string | null;
   gmail_reader_body_complete?: boolean;
+  graph_reader_body_complete?: boolean;
   gmail_attachment_metadata_complete?: boolean;
   graph_attachment_metadata_complete?: boolean;
   snippet?: string | null;
@@ -456,13 +457,29 @@ function fetchWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// A UI cache hit is still an opening; Seen and sync timestamps are independent.
+router.post('/messages/:id/body-access', async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+  const touched = await query(`UPDATE messages m SET body_last_opened_at=clock_timestamp()
+    FROM email_accounts a WHERE m.id=$1 AND m.account_id=a.id AND a.user_id=$2
+    RETURNING m.id`, [id,req.session.userId]);
+  if (!touched.rows.length) return res.status(404).json({ error: 'Message not found' });
+  res.json({ ok: true });
+});
+
 // Get full message body + attachments list
 router.get('/messages/:id/body', async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query<ReadMessageRow>(`
-    SELECT m.*, a.user_id, a.mail_transport, u.preferences, ci.message_id AS calendar_invitation_id FROM messages m
+    WITH accessed AS (
+      UPDATE messages m SET body_last_opened_at=clock_timestamp()
+      FROM email_accounts owner WHERE m.id=$1 AND m.account_id=owner.id AND owner.user_id=$2
+      RETURNING m.*
+    )
+    SELECT m.*, a.user_id, a.mail_transport, u.preferences, ci.message_id AS calendar_invitation_id FROM accessed m
     JOIN email_accounts a ON m.account_id = a.id
     JOIN users u ON u.id = a.user_id
     LEFT JOIN inbound_calendar_invitations ci ON ci.message_id = m.id
@@ -1661,7 +1678,10 @@ async function respondWithGraphBody(
   try {
     // The body is independently useful. An attachments-list failure must not turn a readable message into a
     // false 404/503, nor may it overwrite a previously complete attachment cache with an empty list.
-    const body = await fetchGraphMessageBody(api, providerMessageId);
+    const cachedBody = message.body_html || message.body_text;
+    const body = message.graph_reader_body_complete === true && cachedBody && !/\bcid:/i.test(message.body_html ?? '')
+      ? { contentType: message.body_html ? 'html' : 'text', content: cachedBody }
+      : await fetchGraphMessageBody(api, providerMessageId);
     let attachments: Awaited<ReturnType<typeof fetchGraphAttachments>> = [];
     let attachmentProblem: GraphApiError | null = null;
     try {
@@ -1693,9 +1713,10 @@ async function respondWithGraphBody(
             SET body_html = $1, body_text = $2,
                 attachments = CASE WHEN $3::jsonb IS NULL THEN attachments ELSE $3::jsonb END,
                 graph_attachment_metadata_complete = CASE WHEN $6::boolean THEN true ELSE graph_attachment_metadata_complete END,
+                graph_reader_body_complete = graph_reader_body_complete OR $7::boolean,
                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
           WHERE id = $4`,
-        [html, text, visibleAttachments ? JSON.stringify(visibleAttachments) : null, message.id, snip, attachmentProblem === null]
+        [html, text, visibleAttachments ? JSON.stringify(visibleAttachments) : null, message.id, snip, attachmentProblem === null, body !== null]
       );
     }
 

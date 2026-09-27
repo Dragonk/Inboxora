@@ -510,8 +510,8 @@ function buildVEventLines(event: GraphEvent, input: { defaultTimeZone: string | 
 
   const lines = ['BEGIN:VEVENT', `UID:${escapeICalendarText(uid)}`];
   const modified = event.lastModifiedDateTime ?? event.createdDateTime;
-  const modifiedDate = modified ? new Date(modified) : new Date();
-  lines.push(`DTSTAMP:${formatICalendarUtc(Number.isNaN(modifiedDate.getTime()) ? new Date() : modifiedDate)}`);
+  const modifiedDate = modified ? new Date(modified) : new Date(0);
+  lines.push(`DTSTAMP:${formatICalendarUtc(Number.isNaN(modifiedDate.getTime()) ? new Date(0) : modifiedDate)}`);
 
   if (input.override) {
     const original = event.originalStart

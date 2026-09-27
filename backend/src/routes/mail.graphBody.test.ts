@@ -179,6 +179,18 @@ describe('a Graph message body is read from the provider and cached', () => {
     expect(cache?.[1]?.[5]).toBe(true);
   });
 
+  it('reuses a complete prefetched Graph body but still loads attachment metadata on open', async () => {
+    mocks.query
+      .mockResolvedValueOnce({ rows: [messageRow({ body_text: 'warm body', mail_transport: 'microsoft_graph', graph_reader_body_complete: true, graph_attachment_metadata_complete: false })], rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, user_id: 'user-1', mail_transport: 'microsoft_graph', provider_connection_id: 'connection-1' }], rowCount: 1 });
+    mocks.fetchGraphAttachments.mockResolvedValue([{ id: 'att-2', name: 'later.pdf', contentType: 'application/pdf', size: 12 }]);
+    const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/body`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ text: 'warm body', attachmentsIncomplete: false });
+    expect(mocks.fetchGraphMessageBody).not.toHaveBeenCalled();
+    expect(mocks.fetchGraphAttachments).toHaveBeenCalledTimes(1);
+  });
+
   it('does not fall through to IMAP for a Graph account', async () => {
     mocks.query
       .mockResolvedValueOnce({ rows: [messageRow()], rowCount: 1 })

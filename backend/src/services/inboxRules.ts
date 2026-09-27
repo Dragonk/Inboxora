@@ -1,3 +1,4 @@
+import { hydrateRequiredImapRuleBody } from './imapRuleBody.js';
 import { query } from './db.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import type { FolderMappings } from '../utils/mailUtils.js';
@@ -253,7 +254,23 @@ export async function applyInboxRules<T extends RuleMessage>(
       for (const msg of messages) {
         const body = byId[msg.id]?.body_text;
         if (typeof body === 'string') msg._bodyText = body;
-        else console.warn(`inboxRules: body_text not yet available for message ${msg.id} — body rules deferred safely`);
+        else {
+          delete msg._bodyText;
+          // Native accounts already have a durable provider-rule hydration path.
+          // IMAP rules need an explicit read when metadata-first sync did not
+          // cache the body; never depend on a user opening the message first.
+          if (byId[msg.id] && (!account.mail_transport || account.mail_transport === 'imap_smtp')
+            && typeof mailActions.fetchMessageBody === 'function') {
+            try {
+              msg._bodyText = await hydrateRequiredImapRuleBody({ messageId: msg.id,
+                accountId: account.id, userId: account.user_id, uid: msg.uid, folder: msg.folder,
+                read: mailActions.fetchMessageBody.bind(mailActions) });
+            } catch (error) {
+              console.warn('inboxRules: required IMAP body unavailable:', toAppError(error).code ?? 'READ_FAILED');
+            }
+          }
+          if (msg._bodyText === undefined) console.warn(`inboxRules: body unavailable for message ${msg.id} — body conditions remain unknown`);
+        }
       }
     } catch (caught) {
       const err = toAppError(caught);

@@ -290,3 +290,16 @@ describe('Google Calendar API calls', () => {
     expect(url).not.toContain('timeMax');
   });
 });
+
+
+it('does not invent a new DTSTAMP when the unchanged provider object lacks timestamps', () => {
+  vi.useFakeTimers();
+  try {
+    const event = { id:'stable',start:{dateTime:'2026-09-27T09:00:00Z'},end:{dateTime:'2026-09-27T10:00:00Z'} };
+    vi.setSystemTime(new Date('2026-09-27T00:00:00Z'));
+    const first = buildGoogleEventICalendar(event);
+    vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+    expect(buildGoogleEventICalendar(event)).toBe(first);
+    expect(first).toContain('DTSTAMP:19700101T000000Z');
+  } finally { vi.useRealTimers(); }
+});

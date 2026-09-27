@@ -48,8 +48,20 @@ jobs:
       - name: Assert exact tested SHA
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - name: Validate the compose files
-        run: docker compose -f docker-compose.yml config -q
+      - name: Validate compose files and bounded log retention
+        run: |
+          python3 - <<'PYTEST'
+          import json
+          import subprocess
+          expected = {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}
+          for filename in ("docker-compose.yml", "docker-compose.ghcr.yml"):
+              config = json.loads(subprocess.check_output([
+                  "docker", "compose", "-f", filename, "--profile", "https", "config", "--format", "json"
+              ]))
+              for name, service in config["services"].items():
+                  assert service.get("logging") == expected, (filename, name, "missing bounded log retention")
+              print(filename, "validated logging for", ", ".join(sorted(config["services"])))
+          PYTEST
 
       - name: Start the bundled ntfy service
         run: docker compose -f docker-compose.yml up -d ntfy

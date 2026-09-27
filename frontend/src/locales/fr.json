@@ -976,7 +976,8 @@
       "groupSecurityIntegrations": "Sécurité et intégrations",
       "groupAdmin": "Administration",
       "plugins": "Extensions",
-      "davCredentials": "Accès DAV"
+      "davCredentials": "Accès DAV",
+      "performance": "Performances"
     },
     "title": "Paramètres",
     "users": {
@@ -1042,6 +1043,44 @@
       "maxModeReadWrite": "Lecture et écriture",
       "maxModeReadOnly": "Lecture seule",
       "mode": "Accès : {{mode}}"
+    },
+    "prefetch": {
+      "title": "Préchargement du contenu des messages",
+      "description": "Paramètre administrateur pour tous les utilisateurs. Prépare le contenu des premiers messages de la liste du dossier actuel via IMAP, Gmail API ou Microsoft Graph.",
+      "limitLabel": "Nombre de messages à précharger",
+      "hint": "Valeur par défaut : 25. Saisissez 0–100 ; 0 désactive le préchargement. Les changements concernent les nouveaux lots sans redémarrage du serveur.",
+      "policy": "Les messages sont téléchargés successivement par compte, pas tous à la fois. Le contenu déjà en cache est ignoré ; les limites de concurrence, les délais du fournisseur et le budget de cache par message sont conservés. Les messages déjà en cache ne sont pas supprimés.",
+      "environmentOff": "Le préchargement est désactivé par le paramètre serveur MAIL_BODY_PREFETCH=off. Le nombre ci-dessous sera enregistré, mais ne sera appliqué qu’après la suppression de cette priorité.",
+      "invalid": "Saisissez un nombre entier de 0 à 100.",
+      "loadError": "Impossible de charger les paramètres de préchargement.",
+      "saveError": "Impossible d’enregistrer les paramètres de préchargement.",
+      "saved": "Paramètre de préchargement enregistré."
+    },
+    "retention": {
+      "title": "Conservation des données",
+      "description": "Paramètres administrateur globaux pour tous les utilisateurs. Durées en jours ; les nouveaux lots utilisent les changements sans redémarrage.",
+      "cacheSafety": "Seuls le texte/HTML local et les images intégrées expirent. Les messages restent dans la liste et chez le fournisseur ; leur ouverture recharge le contenu. Brouillons, copies locales sans source et opérations en attente sont protégés. Ce n’est pas une archive hors ligne.",
+      "mail_body_cache_days": "Durée du cache du contenu (jours)",
+      "mail_body_cache_days_hint": "Par défaut : 30. 7 pour une semaine, 30 pour un mois, 0 sans expiration. Depuis la dernière ouverture ou mise en cache ; la synchronisation et le préchargement ne sont pas des ouvertures. Le cache existant commence une nouvelle période à la mise à jour.",
+      "dav_history_days": "Historique des changements DAV (jours)",
+      "dav_history_days_hint": "Par défaut : 30. Supprimer l’historique CalDAV/CardDAV ne supprime ni événements ni contacts. Les anciens jetons nécessitent une synchronisation complète.",
+      "dav_history_max_entries": "Entrées DAV par calendrier/carnet",
+      "dav_history_max_entries_hint": "Par défaut : 10 000 ; plage : 100–100 000. Dernières métadonnées ou marqueur de suppression, sans copies intégrales répétées.",
+      "auth_log_days": "Journaux d’authentification (jours)",
+      "auth_log_days_hint": "Par défaut : 90. Historique de connexion et d’authentification.",
+      "conversation_audit_days": "Audit de reconstruction des conversations (jours)",
+      "conversation_audit_days_hint": "Par défaut : 30. Supprime les anciens rapports, pas les conversations.",
+      "resolved_ingest_error_days": "Erreurs de traitement résolues (jours)",
+      "resolved_ingest_error_days_hint": "Par défaut : 7. Les erreurs non résolues et réparations en attente restent conservées.",
+      "completed_outbox_payload_days": "Contenu des événements internes terminés (jours)",
+      "completed_outbox_payload_days_hint": "Par défaut : 7. Supprime les données des événements terminés ; conserve les clés anti-doublon et opérations en attente ou incertaines.",
+      "policy": "Le nettoyage fonctionne par petits lots. Raccourcir une durée peut supprimer l’historique au prochain passage ; l’allonger ne restaure rien. Le texte hors cache n’est pas recherché localement avant son rechargement. PostgreSQL peut réutiliser l’espace sans réduire immédiatement les fichiers.",
+      "docker": "Les journaux Docker stdout/stderr sont distincts : Compose standard conserve 3 × 10 MiB par service. Configurez votre Compose sur le serveur ; ce formulaire ne le modifie pas.",
+      "paused": "Maintenance suspendue par STORAGE_MAINTENANCE_ENABLED=false. Le nettoyage cache/DAV est suspendu ; la conservation des journaux opérationnels et de sécurité reste active.",
+      "invalid": "Saisissez des entiers dans les limites indiquées. Seul le cache accepte 0 sans expiration.",
+      "loadError": "Impossible de charger les paramètres de conservation.",
+      "saveError": "Impossible d’enregistrer les paramètres de conservation.",
+      "saved": "Paramètres de conservation enregistrés."
     }
   },
   "blockList": {

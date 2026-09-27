@@ -960,7 +960,8 @@
       "groupSecurityIntegrations": "安全与集成",
       "groupAdmin": "管理",
       "plugins": "插件",
-      "davCredentials": "DAV 访问"
+      "davCredentials": "DAV 访问",
+      "performance": "性能"
     },
     "title": "设置",
     "users": {
@@ -1026,6 +1027,44 @@
       "maxModeReadWrite": "读写",
       "maxModeReadOnly": "只读",
       "mode": "访问权限：{{mode}}"
+    },
+    "prefetch": {
+      "title": "邮件正文预加载",
+      "description": "适用于所有用户的管理员设置。通过 IMAP、Gmail API 或 Microsoft Graph 预先加载当前文件夹列表中靠前邮件的正文。",
+      "limitLabel": "预加载邮件数量",
+      "hint": "默认值：25。输入 0–100；0 表示关闭预加载。更改对新批次生效，无需重启服务器。",
+      "policy": "每个账户按顺序加载邮件，不会同时加载全部邮件。已缓存的正文将跳过；并发限制、服务商要求的等待时间以及每封邮件的缓存大小限制仍然有效。不会删除已有邮件缓存。",
+      "environmentOff": "服务器设置 MAIL_BODY_PREFETCH=off 已关闭预加载。下方数量会保存，但只有取消该强制设置后才会生效。",
+      "invalid": "请输入 0 到 100 之间的整数。",
+      "loadError": "无法加载预加载设置。",
+      "saveError": "无法保存预加载设置。",
+      "saved": "预加载设置已保存。"
+    },
+    "retention": {
+      "title": "数据保留",
+      "description": "适用于所有用户的全局管理员设置。期限以天计；新清理批次会直接使用更改，无需重启。",
+      "cacheSafety": "仅清理本地邮件正文、HTML 和内嵌图片。邮件仍在列表和服务商处；再次打开会重新下载正文。草稿、没有远程来源的本地副本和待处理操作受到保护。这不是离线存档。",
+      "mail_body_cache_days": "正文缓存保留天数",
+      "mail_body_cache_days_hint": "默认：30。7 表示一周，30 表示一个月，0 表示永不过期。从最近打开或填充缓存时开始计时；同步和预加载不算打开。升级后，现有缓存获得一个新的完整保留期。",
+      "dav_history_days": "DAV 变更历史保留天数",
+      "dav_history_days_hint": "默认：30。清理 CalDAV/CardDAV 历史不会删除日程或联系人。旧同步令牌将要求完整同步。",
+      "dav_history_max_entries": "每个日历/通讯录的 DAV 条目数",
+      "dav_history_max_entries_hint": "默认：10,000；范围：100–100,000。仅保留每个资源的最新元数据或删除标记，而不是重复的完整副本。",
+      "auth_log_days": "身份验证日志保留天数",
+      "auth_log_days_hint": "默认：90。登录及身份验证审计历史。",
+      "conversation_audit_days": "会话重建审计保留天数",
+      "conversation_audit_days_hint": "默认：30。删除旧重建报告，不删除会话。",
+      "resolved_ingest_error_days": "已解决处理错误保留天数",
+      "resolved_ingest_error_days_hint": "默认：7。未解决的错误和待处理修复会保留。",
+      "completed_outbox_payload_days": "已完成内部事件内容保留天数",
+      "completed_outbox_payload_days_hint": "默认：7。清理已完成事件的数据，保留防重复发送标识以及待处理或结果不确定的操作。",
+      "policy": "清理以小批次在后台进行。缩短期限可能在下次清理时删除符合条件的历史；延长期限不会恢复日志。已过期正文重新下载前不参与本地正文搜索。PostgreSQL 可重复利用空间，但文件不一定立即缩小。",
+      "docker": "Docker stdout/stderr 日志单独管理：标准 Compose 每个服务轮换 3 × 10 MiB。自定义 Compose 请在服务器配置，此表单不会修改它。",
+      "paused": "STORAGE_MAINTENANCE_ENABLED=false 已暂停数据维护。缓存及 DAV 清理暂停；操作与安全日志保留策略仍然运行。",
+      "invalid": "请输入范围内的整数。仅正文缓存允许用 0 表示永不过期。",
+      "loadError": "无法加载保留设置。",
+      "saveError": "无法保存保留设置。",
+      "saved": "保留设置已保存。"
     }
   },
   "blockList": {

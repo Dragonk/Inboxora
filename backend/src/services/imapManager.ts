@@ -1,3 +1,4 @@
+import { prefetchVisibleBodies, readNativePrefetchBody } from './mailBodyPrefetch.js';
 import { ImapFlow } from 'imapflow';
 import type { FolderMappings } from '../utils/mailUtils.js';
 import type { MailboxObject } from 'imapflow';
@@ -3184,18 +3185,11 @@ export class ImapManager {
     }
   }
 
-  // prefetchBody: fetch and cache message bodies during sync.
-  // Set to false for the initial connect sync to avoid stalling on slow IMAP servers
-  // (e.g. purelymail.com times out fetching 8 body parts × 50 messages).
-  // Periodic interval syncs set this to true so bodies get cached incrementally.
-  //
-  // Gmail is treated specially: body parts are never fetched during sync because Gmail
-  // throttles heavily on BODY[] requests.  Messages still appear in the list (metadata
-  // comes from ENVELOPE); snippets and bodies are populated by the backfill instead.
-  // noBodyParts: skip ALL body part fetches (uid/flags/envelope/bodyStructure only).
-  // Used for the periodic sync interval so slow servers like purelymail.com don't time out
-  // fetching 3+ body parts × 50 messages.  Snippets come from backfill or on-demand fetches.
-  async syncMessages(account: EmailAccountRow, client: ImapClient, folder = 'INBOX', limit = 50, prefetchBody = true, noBodyParts = false) {
+  // Synchronization is metadata-first. Body warming belongs to the bounded
+  // visible-folder path shared with Gmail/Graph, not to historical backfill.
+  // The explicit prefetchBody argument remains for callers that actually need
+  // body data during ingestion; ordinary sync call sites keep it false.
+  async syncMessages(account: EmailAccountRow, client: ImapClient, folder = 'INBOX', limit = 50, prefetchBody = false, noBodyParts = false) {
     const provider = providerProfile(account);
 
     try {
@@ -3284,7 +3278,7 @@ export class ImapManager {
           internalDate: true,
           headers: true,
         }, providerCapabilitiesFromClient(client));
-        if (provider.fetchBody && !noBodyParts) {
+        if (prefetchBody && provider.fetchBody && !noBodyParts) {
           fetchQuery.bodyParts = BODY_PREFETCH_PARTS;
         }
 
@@ -3521,19 +3515,7 @@ export class ImapManager {
             ).then(r => dispatch(r.rows[0]?.total ?? 0))
               .catch(() => dispatch());
           }
-          // Pre-warm the body cache for newly arrived messages so clicking one
-          // immediately after receipt doesn't require a live IMAP fetch.
-          // Only do this for small batches (periodic new mail, not initial bulk sync),
-          // and let provider profiles cap or disable the work when BODY[] is sensitive.
-          const prefetchProfile = providerProfile(account);
-          if (newMessages.length <= 5 && prefetchProfile.prefetchNewBodies !== false) {
-            const warmLimit = Math.max(1, Number(prefetchProfile.prefetchNewBodiesLimit) || newMessages.length);
-            const msgsToCache = newMessages.slice(-warmLimit);
-            setImmediate(() => {
-              manager.prefetchNewMessageBodies(account, msgsToCache)
-                .catch(err => console.warn(`Body prefetch error for ${logAccount(account)}:`, err.message));
-            });
-          }
+          // Visible-folder warming is shared by all transports.
 
           // Auto-learn senders from new inbound mail (fire-and-forget).
           // Only runs for INBOX; skips bulk and robot senders.
@@ -3880,12 +3862,9 @@ export class ImapManager {
         synced: dbCount, total: serverTotal,
       }, account.user_id);
 
-      // Step 4 — fetch missing UIDs in batches using UID FETCH (stable, regardless of
-      // concurrent deletions).  For non-Gmail providers also fetch and cache the full
-      // message body so opening old emails doesn't need a live IMAP connection.
-      // For Gmail (cfg.fetchBody=false): skip ALL body parts to avoid IMAP throttling.
-      // Messages still appear in the list via envelope metadata; bodies load on-demand.
-      const bodyParts = cfg.fetchBody ? BODY_PREFETCH_PARTS : [];
+      // Step 4 — fetch missing metadata, newest-first. Do not prefetch full
+      // historical bodies; foreground reads/visible warming populate the cache.
+      const bodyParts: string[] = []; // history is metadata-only; bodies are read/warmed on demand
       let consecutiveErrors = 0;
       let i = 0;
       // Count rows this backfill actually wrote so GTD section data can be
@@ -3951,7 +3930,7 @@ export class ImapManager {
                 }
                 let safeHtml: string | null = null; let bodyText: string | null = null; let atts: unknown[] = [];
 
-                if (cfg.fetchBody) {
+                if (bodyParts.length > 0) {
                   const body = extractBodyFromMsg(msg);
                   safeHtml = body.html ? sanitizeEmail(body.html) : null;
                   bodyText = body.text;
@@ -4327,7 +4306,7 @@ export class ImapManager {
   // Processes most-recent messages first so the most useful results are indexed quickly.
   async startSnippetIndexer(account: EmailAccountRow) {
     const cfg = providerProfile(account);
-    if (!cfg.snippetIndex) return;
+    if (!cfg.snippetIndex || process.env.IMAP_HISTORICAL_SNIPPETS !== 'true') return;
 
     if (this.snippetIndexerRunning.has(account.id)) return;
     // Honor the HOST-level circuit breaker for every caller (scheduler, post-connect, post-sync):
@@ -4830,57 +4809,14 @@ export class ImapManager {
   // Skipped for providers that throttle background body fetching (e.g. Gmail).
   async prefetchFolderBodies(accountId: string, messageIds: Array<string | number>) {
     if (!messageIds.length) return;
-
-    const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-    if (!accountResult.rows.length) return;
-    const account = accountResult.rows[0];
-    // A native account has no IMAP session to prefetch over: its bodies are read on
-    // demand, by the transport-aware body route. The guard lives here rather than at
-    // the call site so every caller is covered — the message-list route fires this
-    // fire-and-forget on each listing, and on a Graph account it could only open a
-    // connection that fails.
-    if (account.mail_transport && account.mail_transport !== 'imap_smtp') return;
-    if (!providerProfile(account).snippetIndex) return;
-
-    const uncachedResult = await query<{ id: string; uid: number; folder: string }>(
-      `SELECT id, uid, folder FROM messages
-       WHERE id = ANY($1::uuid[]) AND body_html IS NULL AND body_text IS NULL`,
-      [messageIds]
-    );
-    if (!uncachedResult.rows.length) return;
-
-    for (const msg of uncachedResult.rows) {
-      const quietFor = Date.now() - (this.lastUserActivity.get(accountId) || 0);
-      if (quietFor < QUIET_WINDOW_MS) {
-        await new Promise(r => setTimeout(r, QUIET_WINDOW_MS - quietFor));
-      }
-
-      try {
-        const existing = await query<{ id: string }>(
-          'SELECT id FROM messages WHERE id = $1 AND (body_html IS NOT NULL OR body_text IS NOT NULL)',
-          [msg.id]
-        );
-        if (existing.rows.length) continue;
-
-        const { html, text, attachments } = await this.fetchMessageBody(account, msg.uid, msg.folder);
-        const safeHtml = html ? sanitizeEmail(html) : null;
-        if (safeHtml || text) {
-          const snippetSource = text ?? safeHtml;
-          if (snippetSource === null) throw new Error('Snippet source invariant violated');
-          const snip = snippetFromBody(snippetSource, text === null ? html : safeHtml || html);
-          await query(
-            `UPDATE messages
-             SET body_html = $1, body_text = $2, attachments = $3,
-                 snippet = CASE WHEN $5 != '' THEN $5 ELSE snippet END
-             WHERE id = $4`,
-            [sanitizeStr(safeHtml), sanitizeStr(text), JSON.stringify(attachments || []), msg.id, sanitizeStr(snip)]
-          );
-        }
-      } catch (caught) {
-        const err = toAppError(caught);
-        console.warn(`Folder body prefetch failed for uid ${msg.uid}:`, err.message);
-      }
-    }
+    const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
+    const account = result.rows[0];
+    if (!account) return;
+    const native = account.mail_transport === 'gmail_api' || account.mail_transport === 'microsoft_graph';
+    if (!native && !providerProfile(account).snippetIndex) return; // respect provider refusal/backoff profiles
+    await prefetchVisibleBodies(account, messageIds.map(String), native
+      ? message => readNativePrefetchBody(account, message)
+      : message => this.fetchMessageBody(account, message.uid, message.folder));
   }
 
   // Uses a fresh connection to avoid lock contention with sync connection.

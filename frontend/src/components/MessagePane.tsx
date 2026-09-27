@@ -562,6 +562,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     const cached = bodyCache.current[selectedMessageId];
     if (cached && (cached.html || cached.text)) {
       if (!wantsImages || !cached.hasBlockedRemoteImages) {
+        void api.touchMessageBody(selectedMessageId).catch(() => console.warn('Could not record message cache access'));
         setBody(cached);
         setBodyError(null);
         setLoadingBody(false);

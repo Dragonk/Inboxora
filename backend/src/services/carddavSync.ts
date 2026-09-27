@@ -220,6 +220,8 @@ async function upsertCardavContact(client: PoolClient, bookId: string, userId: s
       urls = EXCLUDED.urls, instant_messages = EXCLUDED.instant_messages,
       categories = EXCLUDED.categories, addresses = EXCLUDED.addresses,
       photo_data = EXCLUDED.photo_data, updated_at = NOW()
+    WHERE (contacts.vcard, contacts.etag, contacts.display_name, contacts.first_name, contacts.last_name, contacts.primary_email, contacts.emails, contacts.phones, contacts.organization, contacts.notes, contacts.birthday, contacts.anniversary, contacts.contact_dates, contacts.title, contacts.role, contacts.nickname, contacts.urls, contacts.instant_messages, contacts.categories, contacts.addresses, contacts.photo_data)
+      IS DISTINCT FROM (EXCLUDED.vcard, EXCLUDED.etag, EXCLUDED.display_name, EXCLUDED.first_name, EXCLUDED.last_name, EXCLUDED.primary_email, EXCLUDED.emails, EXCLUDED.phones, EXCLUDED.organization, EXCLUDED.notes, EXCLUDED.birthday, EXCLUDED.anniversary, EXCLUDED.contact_dates, EXCLUDED.title, EXCLUDED.role, EXCLUDED.nickname, EXCLUDED.urls, EXCLUDED.instant_messages, EXCLUDED.categories, EXCLUDED.addresses, EXCLUDED.photo_data)
     RETURNING id
   `, [
     bookId, userId, c.uid, c.vcard, etag,
@@ -228,7 +230,10 @@ async function upsertCardavContact(client: PoolClient, bookId: string, userId: s
     c.organization, c.notes, c.birthday, c.anniversary, JSON.stringify(c.contactDates), c.photoData,
     c.title, c.role, c.nickname, JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses),
   ]);
-  return inserted.rows[0]?.id ?? null;
+  if (inserted.rows[0]) return inserted.rows[0].id;
+  const unchanged = await client.query<{ id: string }>(
+    'SELECT id FROM contacts WHERE address_book_id = $1 AND user_id = $2 AND uid = $3', [bookId, userId, c.uid]);
+  return unchanged.rows[0]?.id ?? null;
 }
 
 /**

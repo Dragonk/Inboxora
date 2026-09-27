@@ -1,3 +1,4 @@
+import { readDavSyncSnapshot } from '../services/davSyncSnapshot.js';
 // CalDAV server — RFC 4791 discovery surface for DAVx5 and compatible clients.
 // Auth: HTTP Basic with dedicated, revocable DAV application passwords only.
 
@@ -329,7 +330,7 @@ router.proppatch('/:userId/:calendarId/', async (req: Request, res: Response) =>
 
 router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
   if (req.params.userId !== req.caldavUserId) return res.status(403).end();
-  const calendarResult = await query<{ sync_version: number; dav_mode?: string | null; [key: string]: unknown }>(
+  const calendarResult = await query<{ id: string; sync_version: number; dav_mode?: string | null; [key: string]: unknown }>(
     'SELECT id, sync_token, sync_version, dav_mode FROM calendars WHERE id = $1 AND user_id = $2',
     [req.params.calendarId, req.caldavUserId],
   );
@@ -356,22 +357,11 @@ router.report('/:userId/:calendarId/', async (req: Request, res: Response) => {
       // DAV:valid-sync-token precondition, which tells the client to resynchronise.
       return sendXml(res, 403, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
     }
-    if (requestedToken) {
-      const changes = await query<CalendarEventRow>(
-        `SELECT DISTINCT ON (uid, recurrence_id) uid, recurrence_id, etag, deleted, raw_ical, dav_filename
-         FROM calendar_sync_changes
-         WHERE calendar_id = $1 AND version > $2
-         ORDER BY uid, recurrence_id, version DESC`,
-        [calendar.id, requestedVersion],
-      );
-      events = changes.rows;
-    } else {
-      const current = await query<CalendarEventRow>(
-        "SELECT uid, recurrence_id, etag, false AS deleted, raw_ical, dav_filename FROM calendar_events WHERE calendar_id = $1 AND recurrence_id = $2 ORDER BY uid ASC",
-        [calendar.id, ''],
-      );
-      events = current.rows;
-    }
+    const snapshot = await readDavSyncSnapshot('calendar', calendar.id, req.caldavUserId!, requestedToken ? requestedVersion : null);
+    if (snapshot.status === 'missing') return res.status(404).end();
+    if (snapshot.status === 'expired') return sendXml(res, 403, `<?xml version="1.0" encoding="UTF-8"?><D:error xmlns:D="${DAV_NS}"><D:valid-sync-token/></D:error>`);
+    events = snapshot.resources;
+    calendar.sync_token = snapshot.token;
   } else if (isCalendarMultiget) {
     const requestedUids = [...body.matchAll(/<(?:[A-Za-z][\w.-]*:)?href(?:\s[^>]*)?>([^<]+)<\/(?:[A-Za-z][\w.-]*:)?href>/g)]
       .map((match) => uidFromCalendarHref(match[1]))

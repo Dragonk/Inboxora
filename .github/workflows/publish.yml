@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: "Optional immutable commit SHA reachable from origin/dev (defaults to the selected dev revision)"
+        description: "Optional immutable commit SHA reachable from the selected repository branch"
         required: false
         type: string
 
@@ -12,96 +12,176 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: inboxora-dev-image
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
 jobs:
-  publish:
-    runs-on: ubuntu-latest
-
-    concurrency:
-      group: inboxora-dev-image
-      cancel-in-progress: false
-
+  source:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      owner: ${{ steps.source.outputs.owner }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 0
-
-      - name: Assert a dev-reachable immutable source revision
+      - name: Validate immutable source and branch ancestry
+        id: source
         env:
           REQUESTED_SHA: ${{ inputs.source_sha }}
           SELECTED_SHA: ${{ github.sha }}
+          SELECTED_REF: ${{ github.ref_name }}
+          SELECTED_REF_TYPE: ${{ github.ref_type }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          source_sha="${REQUESTED_SHA:-$SELECTED_SHA}"
-          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$source_sha"
-          git fetch origin dev
-          git merge-base --is-ancestor "$source_sha" origin/dev
-          echo "SOURCE_SHA=$source_sha" >> "$GITHUB_ENV"
-
+          bash scripts/validate-dev-image-source.sh
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "owner=${REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
       - name: Translation release gate
         uses: ./.github/actions/translation-gate
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+  build:
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.sha }}
+      IMAGE_OWNER: ${{ needs.source.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+      - run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # ── Backend ─────────────────────────────────────────────────────────────
-
-      - name: Extract metadata (backend)
-        id: meta-backend
+      - name: Backend labels (no mutable tag is pushed by matrix jobs)
+        id: backend-labels
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/inboxora-backend
-          tags: |
-            type=raw,value=dev
-
-      - name: Build and push backend
+          images: ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-backend
+          tags: type=raw,value=dev
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Build backend by immutable digest
+        id: backend
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./backend/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-backend,push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.backend-labels.outputs.labels }}
           provenance: false
           build-args: |
             BUILD_SHA=${{ env.SOURCE_SHA }}
             APP_VERSION=dev
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # ── Frontend ─────────────────────────────────────────────────────────────
-
-      - name: Extract metadata (frontend)
-        id: meta-frontend
+          cache-from: type=gha,scope=backend-${{ matrix.arch }}
+          cache-to: type=gha,scope=backend-${{ matrix.arch }},mode=max
+      - name: Frontend labels
+        id: frontend-labels
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/inboxora-frontend
-          tags: |
-            type=raw,value=dev
-
-      - name: Build and push frontend
+          images: ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-frontend
+          tags: type=raw,value=dev
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Build frontend by immutable digest
+        id: frontend
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./frontend/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-frontend,push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.frontend-labels.outputs.labels }}
           provenance: false
-          build-args: |
-            VITE_BUILD_SHA=${{ env.SOURCE_SHA }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: VITE_BUILD_SHA=${{ env.SOURCE_SHA }}
+          cache-from: type=gha,scope=frontend-${{ matrix.arch }}
+          cache-to: type=gha,scope=frontend-${{ matrix.arch }},mode=max
+      - name: Verify the backend maintenance entry points in the built image
+        env:
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+        run: |
+          image="ghcr.io/$IMAGE_OWNER/inboxora-backend@$BACKEND_DIGEST"
+          docker run --rm "$image" node dist/scripts/repairConversationHeaders.js --help
+          docker run --rm "$image" node dist/scripts/storageMaintenanceStatus.js --help
+      - name: Record verified platform digests
+        env:
+          ARCH: ${{ matrix.arch }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          mkdir -p digests
+          python3 - <<'PY'
+          import json, os, re
+          for key in ('BACKEND_DIGEST', 'FRONTEND_DIGEST'):
+              assert re.fullmatch(r'sha256:[0-9a-f]{64}', os.environ[key])
+          with open('digests/' + os.environ['ARCH'] + '.json', 'w') as output:
+              json.dump({key: os.environ[key] for key in ('ARCH','SOURCE_SHA','BACKEND_DIGEST','FRONTEND_DIGEST')}, output)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev-digests-${{ matrix.arch }}
+          path: digests/*.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [source, build]
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.sha }}
+      IMAGE_OWNER: ${{ needs.source.outputs.owner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dev-digests-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Validate both architectures before updating shared dev tags
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+          root = pathlib.Path('digests')
+          assert sorted(path.name for path in root.glob('*.json')) == ['amd64.json','arm64.json']
+          records = [json.loads((root / (arch + '.json')).read_text()) for arch in ('amd64','arm64')]
+          for arch, record in zip(('amd64','arm64'), records):
+              assert record['ARCH'] == arch and record['SOURCE_SHA'] == os.environ['SOURCE_SHA']
+              for key in ('BACKEND_DIGEST','FRONTEND_DIGEST'):
+                  assert re.fullmatch(r'sha256:[0-9a-f]{64}', record[key])
+          candidates = []
+          for component in ('backend','frontend'):
+              image = 'ghcr.io/' + os.environ['IMAGE_OWNER'] + '/inboxora-' + component
+              candidate = image + ':dev-build-' + os.environ['SOURCE_SHA']
+              digests = [image + '@' + record[component.upper() + '_DIGEST'] for record in records]
+              subprocess.run(['docker','buildx','imagetools','create','--tag',candidate,*digests], check=True)
+              manifest = json.loads(subprocess.check_output(['docker','buildx','imagetools','inspect','--raw',candidate]))
+              platforms = {(item['platform']['os'],item['platform']['architecture']) for item in manifest['manifests']}
+              assert platforms == {('linux','amd64'),('linux','arm64')}, platforms
+              candidates.append((image, candidate))
+          # Both complete manifests are verified before either shared tag moves.
+          # Registries do not offer a transaction spanning two image repositories.
+          for image, candidate in candidates:
+              subprocess.run(['docker','buildx','imagetools','create','--tag',image + ':dev',candidate], check=True)
+          PY

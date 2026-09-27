@@ -45,7 +45,8 @@
       "groupSecurityIntegrations": "Bezpieczeństwo i integracje",
       "groupAdmin": "Administracja",
       "plugins": "Wtyczki",
-      "davCredentials": "Dostęp DAV"
+      "davCredentials": "Dostęp DAV",
+      "performance": "Wydajność"
     },
     "rules": {
       "valuePlaceholder": "Wartość",
@@ -1026,6 +1027,44 @@
       "maxModeReadWrite": "Odczyt i zapis",
       "maxModeReadOnly": "Tylko odczyt",
       "mode": "Dostęp: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Pobieranie treści z wyprzedzeniem",
+      "description": "Ustawienie administratora dla wszystkich użytkowników. Przygotuj treść pierwszych wiadomości z aktualnie wyświetlanej listy folderu przez IMAP, Gmail API lub Microsoft Graph.",
+      "limitLabel": "Liczba wiadomości pobieranych z wyprzedzeniem",
+      "hint": "Domyślnie: 25. Wpisz 0–100; 0 wyłącza prefetch. Zmiana obejmuje nowe partie bez restartu serwera.",
+      "policy": "Wiadomości są pobierane kolejno w ramach konta, a nie wszystkie naraz. Zapisane treści są pomijane; limity współbieżności, przerwy wymagane przez dostawcę i limit cache na wiadomość pozostają aktywne. Istniejący cache poczty nie jest usuwany.",
+      "environmentOff": "Prefetch jest wyłączony ustawieniem serwera MAIL_BODY_PREFETCH=off. Poniższa liczba zostanie zapisana, ale zadziała dopiero po usunięciu tego wymuszenia.",
+      "invalid": "Wpisz liczbę całkowitą od 0 do 100.",
+      "loadError": "Nie udało się wczytać ustawień prefetchu.",
+      "saveError": "Nie udało się zapisać ustawień prefetchu.",
+      "saved": "Ustawienie prefetchu zostało zapisane."
+    },
+    "retention": {
+      "title": "Przechowywanie danych",
+      "description": "Globalne ustawienia administratora dla wszystkich użytkowników. Okresy podawane są w dniach; nowe partie czyszczenia korzystają ze zmian bez restartu.",
+      "cacheSafety": "Wygasa tylko lokalna treść tekstowa/HTML i osadzone obrazki. Wiadomości pozostają na liście i u dostawcy; ponowne otwarcie pobierze treść. Szkice, lokalne kopie bez źródła i oczekujące operacje są chronione. To nie jest archiwum offline.",
+      "mail_body_cache_days": "Czas przechowywania cache’u treści (dni)",
+      "mail_body_cache_days_hint": "Domyślnie: 30. Wpisz 7 na tydzień, 30 na miesiąc lub 0 — bez wygasania. Czas liczony od ostatniego otwarcia albo zapisania treści; synchronizacja i prefetch nie oznaczają otwarcia. Istniejący cache otrzymuje nowy okres od aktualizacji.",
+      "dav_history_days": "Historia zmian DAV (dni)",
+      "dav_history_days_hint": "Domyślnie: 30. Usuwanie historii CalDAV/CardDAV nie usuwa wydarzeń ani kontaktów. Starszy token wymusi pełną synchronizację.",
+      "dav_history_max_entries": "Liczba wpisów DAV na kalendarz/książkę",
+      "dav_history_max_entries_hint": "Domyślnie: 10 000; zakres: 100–100 000. Ostatnie metadane lub informacja o usunięciu zasobu zamiast kolejnych pełnych kopii wydarzenia/kontaktu.",
+      "auth_log_days": "Logi uwierzytelniania (dni)",
+      "auth_log_days_hint": "Domyślnie: 90. Historia logowania i zdarzeń uwierzytelniania.",
+      "conversation_audit_days": "Historia przebudowy rozmów (dni)",
+      "conversation_audit_days_hint": "Domyślnie: 30. Usuwa stare raporty przebudowy, nie same rozmowy.",
+      "resolved_ingest_error_days": "Rozwiązane błędy przetwarzania (dni)",
+      "resolved_ingest_error_days_hint": "Domyślnie: 7. Nierozwiązane błędy i oczekujące naprawy pozostają.",
+      "completed_outbox_payload_days": "Treść zakończonych zdarzeń kolejki (dni)",
+      "completed_outbox_payload_days_hint": "Domyślnie: 7. Usuwa treść zakończonych zdarzeń wewnętrznych. Klucze zapobiegające powtórnej wysyłce oraz operacje oczekujące/niepewne pozostają.",
+      "policy": "Czyszczenie działa w tle małymi partiami. Skrócenie okresu może usunąć kwalifikującą się historię przy kolejnym przebiegu; wydłużenie nie przywraca logów. Wygasła treść nie uczestniczy w lokalnym wyszukiwaniu po treści do ponownego pobrania. PostgreSQL może ponownie wykorzystać miejsce bez natychmiastowego zmniejszenia plików.",
+      "docker": "Logi stdout/stderr Dockera są osobne: standardowy Compose rotuje 3 × 10 MiB na usługę. Własny Compose konfigurujesz na serwerze; ten formularz go nie zmienia.",
+      "paused": "Prace nad danymi są wstrzymane przez STORAGE_MAINTENANCE_ENABLED=false. Czyszczenie cache’u/DAV jest wstrzymane; retencja logów operacyjnych i bezpieczeństwa nadal działa.",
+      "invalid": "Wpisz liczby całkowite w podanych zakresach. Tylko cache treści dopuszcza 0 — bez wygasania.",
+      "loadError": "Nie udało się wczytać ustawień retencji.",
+      "saveError": "Nie udało się zapisać ustawień retencji.",
+      "saved": "Ustawienia retencji zostały zapisane."
     }
   },
   "blockList": {

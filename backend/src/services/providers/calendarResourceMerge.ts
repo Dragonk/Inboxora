@@ -62,6 +62,9 @@ function copyOwnedProperties(target: ICAL.Component, source: ICAL.Component): vo
 export function mergeProviderCalendarResource(existingRaw: string | null | undefined, incomingRaw: string): string | null {
   const incoming = parse(incomingRaw);
   if (!incoming) return null;
+  // A replay of the exact provider resource is already complete. Re-serializing
+  // it would reorder VTIMEZONE/VEVENT blocks and change its ETag without a change.
+  if (existingRaw === incomingRaw) return existingRaw;
   const incomingMaster = incoming.getAllSubcomponents('vevent').find(event => !event.hasProperty('recurrence-id')) ?? null;
   const incomingOverrides = incoming.getAllSubcomponents('vevent').filter(event => event.hasProperty('recurrence-id'));
 

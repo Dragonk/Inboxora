@@ -291,7 +291,11 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
     const physicalCopyId = copy?.id;
     if (!physicalCopyId) return Promise.resolve();
     const currentStatus = statusRef.current[physicalCopyId];
-    if (!force && (bodiesRef.current[physicalCopyId] || currentStatus?.loading || currentStatus?.error)) return Promise.resolve();
+    if (!force && bodiesRef.current[physicalCopyId]) {
+      return api.touchMessageBody(physicalCopyId).then(() => undefined)
+        .catch(() => { console.warn('Could not record conversation cache access'); });
+    }
+    if (!force && (currentStatus?.loading || currentStatus?.error)) return Promise.resolve();
     aborters.current.get(physicalCopyId)?.abort();
     const controller = new AbortController();
     aborters.current.set(physicalCopyId, controller);

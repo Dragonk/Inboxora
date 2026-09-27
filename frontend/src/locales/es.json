@@ -976,7 +976,8 @@
       "groupSecurityIntegrations": "Seguridad e integraciones",
       "groupAdmin": "Administración",
       "plugins": "Complementos",
-      "davCredentials": "Acceso DAV"
+      "davCredentials": "Acceso DAV",
+      "performance": "Rendimiento"
     },
     "title": "Ajustes",
     "users": {
@@ -1042,6 +1043,44 @@
       "maxModeReadWrite": "Lectura y escritura",
       "maxModeReadOnly": "Solo lectura",
       "mode": "Acceso: {{mode}}"
+    },
+    "prefetch": {
+      "title": "Precarga del contenido de mensajes",
+      "description": "Ajuste del administrador para todos los usuarios. Prepara el contenido de los primeros mensajes de la lista de la carpeta actual mediante IMAP, Gmail API o Microsoft Graph.",
+      "limitLabel": "Mensajes que se precargan",
+      "hint": "Valor predeterminado: 25. Introduce 0–100; 0 desactiva la precarga. Los cambios se aplican a nuevos lotes sin reiniciar el servidor.",
+      "policy": "Los mensajes se descargan secuencialmente por cuenta, no todos a la vez. Se omite el contenido ya almacenado; se mantienen los límites de concurrencia, las esperas del proveedor y el límite de caché por mensaje. No se elimina el correo ya almacenado.",
+      "environmentOff": "La precarga está desactivada por el ajuste del servidor MAIL_BODY_PREFETCH=off. El número se guardará, pero solo se aplicará cuando se retire esa anulación.",
+      "invalid": "Introduce un número entero entre 0 y 100.",
+      "loadError": "No se pudieron cargar los ajustes de precarga.",
+      "saveError": "No se pudieron guardar los ajustes de precarga.",
+      "saved": "Ajuste de precarga guardado."
+    },
+    "retention": {
+      "title": "Retención de datos",
+      "description": "Ajustes globales del administrador para todos los usuarios. Periodos en días; los nuevos lotes de limpieza usan los cambios sin reiniciar.",
+      "cacheSafety": "Solo caducan el texto/HTML local y las imágenes incrustadas. Los mensajes siguen en la lista y en el proveedor; al abrirlos se descarga el contenido. Se protegen borradores, copias locales sin origen y operaciones pendientes. No es un archivo sin conexión.",
+      "mail_body_cache_days": "Duración de la caché de contenido (días)",
+      "mail_body_cache_days_hint": "Predeterminado: 30. 7 para una semana, 30 para un mes, 0 sin caducidad. Desde la última apertura o almacenamiento; la sincronización y precarga no cuentan como apertura. Las cachés existentes empiezan un periodo nuevo al actualizar.",
+      "dav_history_days": "Historial de cambios DAV (días)",
+      "dav_history_days_hint": "Predeterminado: 30. Borrar el historial CalDAV/CardDAV no elimina eventos ni contactos. Los tokens antiguos requieren una sincronización completa.",
+      "dav_history_max_entries": "Entradas DAV por calendario/libreta",
+      "dav_history_max_entries_hint": "Predeterminado: 10 000; rango: 100–100 000. Últimos metadatos o marcador de eliminación, no copias completas repetidas.",
+      "auth_log_days": "Registros de autenticación (días)",
+      "auth_log_days_hint": "Predeterminado: 90. Historial de acceso y autenticación.",
+      "conversation_audit_days": "Auditoría de reconstrucción de conversaciones (días)",
+      "conversation_audit_days_hint": "Predeterminado: 30. Elimina informes antiguos, no conversaciones.",
+      "resolved_ingest_error_days": "Errores de procesamiento resueltos (días)",
+      "resolved_ingest_error_days_hint": "Predeterminado: 7. Se conservan errores sin resolver y reparaciones pendientes.",
+      "completed_outbox_payload_days": "Contenido de eventos internos completados (días)",
+      "completed_outbox_payload_days_hint": "Predeterminado: 7. Elimina cargas de eventos completados; conserva claves contra envíos duplicados y operaciones pendientes o inciertas.",
+      "policy": "La limpieza funciona en lotes pequeños. Acortar el periodo puede borrar historial en el siguiente ciclo; ampliarlo no restaura registros. El texto sin caché no participa en búsquedas locales hasta descargarse otra vez. PostgreSQL puede reutilizar espacio sin reducir los archivos de inmediato.",
+      "docker": "Los registros stdout/stderr de Docker son independientes: Compose estándar rota 3 × 10 MiB por servicio. Configura tu Compose en el servidor; este formulario no lo modifica.",
+      "paused": "Mantenimiento pausado por STORAGE_MAINTENANCE_ENABLED=false. La limpieza de caché/DAV está pausada; la retención de registros operativos y de seguridad sigue activa.",
+      "invalid": "Introduce enteros dentro de los límites. Solo la caché permite 0 sin caducidad.",
+      "loadError": "No se pudieron cargar los ajustes de retención.",
+      "saveError": "No se pudieron guardar los ajustes de retención.",
+      "saved": "Ajustes de retención guardados."
     }
   },
   "blockList": {

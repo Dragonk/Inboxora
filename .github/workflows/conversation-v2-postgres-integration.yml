@@ -116,7 +116,7 @@ jobs:
           node --import tsx --test src/services/conversationCopyScopesReal.integration.ts | tee ../artifacts-copy-scopes-real.log
           node --import tsx --test src/services/conversationPostgresIntegrationReal.integration.ts | tee ../artifacts-postgres-real.log
           node --import tsx --test src/services/conversationRebuildIdempotencyReal.integration.ts | tee ../artifacts-rebuild-idempotency-real.log
-          npx vitest run src/services/conversationPgRegression.integration.test.ts | tee ../artifacts-pg-regression.log
+          npx vitest run --no-file-parallelism --maxWorkers=1 src/services/conversationPgRegression.integration.test.ts src/services/conversationStorage.integration.test.ts | tee ../artifacts-pg-regression.log
 
 
       - name: PostgreSQL EXPLAIN scale gate
