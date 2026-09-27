@@ -4,6 +4,35 @@
 production deployment is part of this change. Release only after the maintainer's
 existing database test and the original #16 reporter's confirmation.
 
+## Thread expansion and read state
+
+Mailbox pagination does not limit the number of children in an expanded native thread.
+A stale frontend expansion could nevertheless show 14 cached messages after the mailbox
+list had refreshed to 17; marking the whole thread read could then act on only those
+14 cached IDs and leave the three newer replies unread.
+
+Expanded membership is now reconciled when the current list row no longer matches its
+cache. Explicit whole-thread read and unread actions fetch a current server membership
+snapshot rather than trusting an older expansion. Their intent and completion follow
+the account-local thread even when an unread/filter refresh changes its representative
+message. Superseded expansion responses cannot overwrite the action's membership, and
+late loads are checked against their authenticated view and component lifetime.
+Only an expanded row is automatically reconciled; collapsed mailbox rows do not each
+trigger a thread request. An inconsistent/transient server snapshot is retried on a
+later list snapshot or refresh hint, not in a render/request loop.
+
+These are frontend changes using the existing authorized thread/read endpoints; they
+add no migration, setting, provider resync, or mailbox-data rewrite. Replies arriving
+after the action's resolved snapshot are still new messages, not silently marked read.
+Existing folder-copy deduplication and provider read-write semantics are unchanged.
+
+Validation on ubuntu-dev includes a failing-before/passing-after browser reproduction
+of the 14/17 mismatch and incomplete read action, plus desktop/mobile regressions for
+read/unread cycles, delayed expansion responses, replacement representatives, bounded
+reconciliation and a 101-message expansion. These browser tests use synthetic mailbox
+responses against the built application; they do not claim validation against the
+maintainer's live Microsoft mailbox or provider-side delivery.
+
 ## Storage repair and bounded synchronization
 
 Two independent growth defects are addressed. IMAP binary headers were converted into

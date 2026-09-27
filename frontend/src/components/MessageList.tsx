@@ -16,7 +16,7 @@ import { senderColor } from '../themes.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.ts';
 import { useSwipeRow } from '../hooks/useSwipeRow.ts';
-import { isExpandableNativeThread, normalizedNativeThreadMembers, singletonNativeThreadTarget } from '../utils/nativeThreadMembership.ts';
+import { isExpandableNativeThread, nativeThreadCacheMatchesRow, normalizedNativeThreadMembers, singletonNativeThreadTarget } from '../utils/nativeThreadMembership.ts';
 import ContextMenu from './ContextMenu.tsx';
 import RowHoverActions from './RowHoverActions.tsx';
 import GtdTabList from './GtdTabList.tsx';
@@ -35,7 +35,7 @@ import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/p
 import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.ts';
 import { beginMutation, invalidateMutation, isLatestMutation } from '../utils/mutationIntent.ts';
 import { queuePerCopyMutation, isLatestPerCopyMutation, invalidatePerCopyMutation } from '../utils/perCopyMutation.ts';
-import { mergeThreadCacheField } from '../utils/threadCacheState.ts';
+import { mergeThreadCacheField, mergeThreadReadSnapshot } from '../utils/threadCacheState.ts';
 import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
 import { applyDeleteGuard, clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete, threadDeleteGuardKey } from '../utils/pendingDeletes.ts';
 import { toAppError } from '../utils/errors.ts';
@@ -47,7 +47,6 @@ import {
   archiveTargetGroupsForRows,
   archiveTargetsForFolder,
   archiveViewKey,
-  currentThreadLoadVersion,
   findVisibleArchiveMessage,
   invalidateThreadLoad,
   isCurrentThreadLoad,
@@ -238,7 +237,17 @@ export default function MessageList() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [listScrolled, setListScrolled] = useState(false);
   const [fabVisible, setFabVisible] = useState(true);
-  const threadLoadVersionsRef = useRef(new Map());
+  const threadLoadVersionsRef = useRef(new Map<string, number>());
+  const threadLoadLifetimeRef = useRef(0);
+  const reconciledThreadRowsRef = useRef(new WeakSet<StoreMessageRow>());
+  useEffect(() => () => { threadLoadLifetimeRef.current += 1; }, []);
+  const captureThreadScope = useCallback(() => {
+    const epoch = useStore.getState().authEpoch;
+    const view = archiveViewKeyRef.current;
+    const lifetime = threadLoadLifetimeRef.current;
+    return () => useStore.getState().authEpoch === epoch
+      && archiveViewKeyRef.current === view && threadLoadLifetimeRef.current === lifetime;
+  }, []);
   const archiveVisibleMessageRef = useRef<((message: StoreMessageRow, options?: { alreadyRemoved?: boolean; viewKey?: string | null; onResolution?: (version: string | number) => void; intentKey?: string; intentVersion?: number | null }) => Promise<void>) | null>(null);
   const setMessagesReadStateRef = useRef<((message: StoreMessageRow, read: boolean) => Promise<void>) | null>(null);
   const lastScrollTopRef = useRef(0);
@@ -872,7 +881,7 @@ export default function MessageList() {
     const tid = message.thread_id || message.id;
     const threadKey = message.thread_key || message.thread_id || message.id;
     if (!isThreadListRow(message)) return [message];
-    if (!forceRefresh && Array.isArray(threadMessages[tid]) && threadMessages[tid].length > 0) {
+    if (!forceRefresh && nativeThreadCacheMatchesRow(message, threadMessages[tid])) {
       return normalizedNativeThreadMembers(threadMessages[tid]);
     }
     const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
@@ -925,9 +934,21 @@ export default function MessageList() {
 
   const setMessagesReadState = useCallback(async (message: StoreMessageRow, read: boolean) => {
     const isThreadRow = isThreadListRow(message);
+    const tid = message.thread_id || message.id;
+    const intentId = isThreadRow ? `thread-read:${message.account_id || ''}:${tid}` : message.id;
+    // An unread-only refresh can replace the representative during the action.
+    const updateReadRow = (updates: Record<string, unknown>) => {
+      const currentRow = isThreadRow ? useStore.getState().messages.find(row => (
+        (row.thread_id || row.id) === tid && row.account_id === message.account_id
+      )) : undefined;
+      updateMessage(currentRow?.id || message.id, updates);
+    };
     // Reserve the logical intent before any asynchronous thread resolution. A
     // later click must invalidate this action even if this GET is still pending.
-    const resolution = queuePerCopyMutation(message.id, 'read', () => resolveMessagesForThreadAction(message));
+    const isCurrentScope = captureThreadScope();
+    // The user requested the whole thread, not only the children cached before
+    // new replies arrived. Resolve server membership for every explicit intent.
+    const resolution = queuePerCopyMutation(intentId, 'read', () => resolveMessagesForThreadAction(message, { forceRefresh: true }));
     const unreadCount = Number(message.unread_count);
     // Use the row's own unread_count as the immediate estimate.
     // For thread rows this is the aggregate already present on the row;
@@ -938,12 +959,12 @@ export default function MessageList() {
     // For unexpanded thread rows this avoids a visible delay caused by the
     // api.getThread call inside resolveMessagesForThreadAction.
     if (isThreadRow) {
-      updateMessage(message.id, { is_read: read, unread_count: read ? 0 : estimatedDelta });
+      updateReadRow({ is_read: read, unread_count: read ? 0 : estimatedDelta });
       // setCachedThreadRead intentionally deferred until after resolution so
       // that actionMessages still reflects the pre-update sub-message states,
       // letting us compute the exact delta for any needed correction.
     } else {
-      updateMessage(message.id, { is_read: read, unread_count: read ? 0 : 1 });
+      updateReadRow({ is_read: read, unread_count: read ? 0 : 1 });
     }
     if (read) {
       if (estimatedDelta > 0) {
@@ -965,12 +986,12 @@ export default function MessageList() {
       actionMessages = await resolution.promise;
     } catch (err) {
       console.error('Failed to load thread for read state change:', toAppError(err).message);
-      if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+      if (!isCurrentScope() || !isLatestPerCopyMutation(intentId, resolution.version)) return;
       // Revert the optimistic update
       if (isThreadRow) {
-        updateMessage(message.id, { is_read: !read, unread_count: !read ? 0 : estimatedDelta });
+        updateReadRow({ is_read: !read, unread_count: !read ? 0 : estimatedDelta });
       } else {
-        updateMessage(message.id, { is_read: !read, unread_count: !read ? 0 : 1 });
+        updateReadRow({ is_read: !read, unread_count: !read ? 0 : 1 });
       }
       if (read && estimatedDelta > 0) { incrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, estimatedDelta); }
       else if (!read && estimatedDelta > 0) { decrementUnread(message.account_id, estimatedDelta); adjustCategoryCount(message.category, -estimatedDelta); }
@@ -980,7 +1001,7 @@ export default function MessageList() {
     // A native thread response is normalized, but retain one canonical action target
     // per physical ID if an older provider response contains a duplicate.
     actionMessages = [...new Map(actionMessages.map(msg => [String(msg.id), msg])).values()];
-    if (!isLatestPerCopyMutation(message.id, resolution.version)) return;
+    if (!isCurrentScope() || !isLatestPerCopyMutation(intentId, resolution.version)) return;
     // Compute exact delta from sub-message states (before mutating the cache).
     const actualDelta = read
       ? actionMessages.filter(msg => !msg.is_read).length
@@ -988,10 +1009,10 @@ export default function MessageList() {
 
     // Now update the thread cache and correct the parent row if our estimate was off.
     if (isThreadRow) {
-      setCachedThreadRead(message, read);
-      if (actualDelta !== estimatedDelta) {
-        updateMessage(message.id, { is_read: read, unread_count: read ? 0 : actionMessages.length });
-      }
+      invalidateThreadLoad(threadLoadVersionsRef.current, tid);
+      setThreadMessages(tid, mergeThreadReadSnapshot(useStore.getState().threadMessages[tid], actionMessages, read));
+      if (useStore.getState().loadingThread === tid) setLoadingThread(null);
+      updateReadRow({ message_count: actionMessages.length, is_read: read, unread_count: read ? 0 : actionMessages.length });
     }
 
     // Correct the sidebar badge if the estimate differed from the actual count.
@@ -1024,7 +1045,7 @@ export default function MessageList() {
         msg.id, read, targetRead => api.bulkRead([msg.id], targetRead),
       ) }));
       const results = await Promise.allSettled(mutations.map(({ mutation }) => mutation.promise));
-      if (!isLatestPerCopyMutation(message.id, resolution.version)
+      if (!isCurrentScope() || !isLatestPerCopyMutation(intentId, resolution.version)
         || mutations.some(({ msg, mutation }) => !isLatestReadStateMutation(msg.id, mutation.version))) return;
       const failedIds = new Set(results.flatMap((result, index) => (
         result.status === 'rejected' ? [String(mutations[index].msg.id)] : []
@@ -1037,7 +1058,7 @@ export default function MessageList() {
         const failedTransitionCount = actionMessages.filter(msg => (
           failedIds.has(String(msg.id)) && msg.is_read !== read
         )).length;
-        if (isThreadRow) updateMessage(message.id, { is_read: finalUnread === 0, unread_count: finalUnread });
+        if (isThreadRow) updateReadRow({ is_read: finalUnread === 0, unread_count: finalUnread });
         if (failedTransitionCount > 0) {
           if (read) {
             incrementUnread(message.account_id, failedTransitionCount);
@@ -1063,15 +1084,15 @@ export default function MessageList() {
       }
     } catch (err) {
       // Do not let a stale request roll back a newer explicit user intent.
-      const stale = !isLatestPerCopyMutation(message.id, resolution.version)
+      const stale = !isCurrentScope() || !isLatestPerCopyMutation(intentId, resolution.version)
         || mutations.some(({ msg, mutation }) => !isLatestReadStateMutation(msg.id, mutation.version));
       if (stale) return;
       console.error('markRead failed:', err);
       if (isThreadRow) {
-        updateMessage(message.id, { is_read: !read, unread_count: read ? actualDelta : 0 });
+        updateReadRow({ is_read: !read, unread_count: read ? actualDelta : 0 });
         setCachedThreadRead(message, !read);
       } else {
-        updateMessage(message.id, { is_read: !read, unread_count: read ? 1 : 0 });
+        updateReadRow({ is_read: !read, unread_count: read ? 1 : 0 });
       }
       if (read) {
         if (actualDelta > 0) { incrementUnread(message.account_id, actualDelta); adjustCategoryCount(message.category, actualDelta); }
@@ -1083,7 +1104,7 @@ export default function MessageList() {
     }
   }, [
     resolveMessagesForThreadAction, isThreadListRow, updateMessage, setCachedThreadRead,
-    setCachedThreadStates,
+    setCachedThreadStates, setThreadMessages, setLoadingThread, captureThreadScope,
     decrementUnread, incrementUnread, adjustCategoryCount,
   ]);
 
@@ -2668,59 +2689,76 @@ export default function MessageList() {
     return byDate || String(right.id).localeCompare(String(left.id));
   })[0] || null;
 
-  const loadThreadChildren = useCallback(async (message: StoreMessageRow) => {
+  const loadThreadChildren = useCallback(async (message: StoreMessageRow, { forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
     const tid = message.thread_id || message.id;
-    const cached = threadMessages[tid];
-    if (cached) return normalizedNativeThreadMembers(cached);
+    const cached = useStore.getState().threadMessages[tid];
+    if (!forceRefresh && nativeThreadCacheMatchesRow(message, cached)) return normalizedNativeThreadMembers(cached);
     const threadKey = message.thread_key || message.thread_id || message.id;
-    const loadVersion = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
-    setLoadingThread(tid);
+    const isCurrentScope = captureThreadScope();
+    const loadVersion = invalidateThreadLoad(threadLoadVersionsRef.current, tid);
+    // Keep already-visible children while reconciling a stale expansion.
+    if (!cached) setLoadingThread(tid);
     try {
       const effectiveFolder = selectedAccountId ? selectedFolder : 'INBOX';
       const data = await api.getThread(threadKey, effectiveFolder, false, message.account_id || selectedAccountId || null);
       const members = normalizedNativeThreadMembers(data.messages);
-      if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setThreadMessages(tid, members);
+      if (!isCurrentScope() || !isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) return [];
+      setThreadMessages(tid, applyReadGuard(members));
+      if (Number(message.message_count) !== members.length) updateMessage(message.id, { message_count: members.length });
       return members;
     } catch (err) {
       console.error('Failed to load thread:', err);
       return [];
     } finally {
-      if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setLoadingThread(null);
+      if (isCurrentScope() && isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) setLoadingThread(null);
     }
-  }, [threadMessages, selectedAccountId, selectedFolder, setLoadingThread, setThreadMessages]);
+  }, [selectedAccountId, selectedFolder, setLoadingThread, setThreadMessages, updateMessage, applyReadGuard, captureThreadScope]);
 
-  // Only the expanded thread needs fresh membership after a server change. Keep
-  // its current children visible while loading, and discard responses after navigation
-  // or a newer mutation. Other threads load fresh when the user expands them.
+  // A filter/list-only refresh can update the parent without a refreshThreads
+  // hint. Reconcile only the expanded row; never fan out GETs for a mailbox.
   useEffect(() => {
-    const refresh = async (event: Event) => {
+    if (!expandedThreadId) return;
+    const row = messages.find(message => (message.thread_id || message.id) === expandedThreadId);
+    if (row && !nativeThreadCacheMatchesRow(row, threadMessages[expandedThreadId])
+      && !reconciledThreadRowsRef.current.has(row)) {
+      // A deleted/moved head or a transiently older server snapshot can disagree
+      // with this row even after fetching. Retry on the next list snapshot/hint,
+      // not in a render/request loop against the same row object.
+      reconciledThreadRowsRef.current.add(row);
+      void loadThreadChildren(row);
+    }
+  }, [messages, expandedThreadId, threadMessages, loadThreadChildren]);
+
+  // Socket refreshes also invalidate same-sized membership changes. Invalidate
+  // cached collapsed rows and their older refreshes. A cold user-initiated
+  // expansion still completes; list metadata reconciles any newer arrivals.
+  useEffect(() => {
+    const refresh = (event: Event) => {
       if (!(event instanceof CustomEvent) || !event.detail?.refreshThreads) return;
       const state = useStore.getState();
       const tid = state.expandedThreadId;
       const row = state.messages.find(message => (message.thread_id || message.id) === tid);
-      for (const key of Object.keys(state.threadMessages)) {
-        if (key !== tid && !key.startsWith('__dl_')) state.clearThreadMessages(key);
+      const keys = Object.keys(state.threadMessages);
+      for (const key of keys) {
+        if (key !== tid && !key.startsWith('__dl_')) {
+          invalidateThreadLoad(threadLoadVersionsRef.current, key);
+          state.clearThreadMessages(key);
+        }
       }
-      if (!row || tid === null) return;
-      invalidateThreadLoad(threadLoadVersionsRef.current, tid);
-      const version = currentThreadLoadVersion(threadLoadVersionsRef.current, tid);
-      try {
-        const data = await api.getThread(row.thread_key || row.thread_id || row.id, selectedAccountId ? selectedFolder : 'INBOX', false, row.account_id || selectedAccountId || null);
-        const current = useStore.getState();
-        if (current.selectedAccountId !== selectedAccountId || current.selectedFolder !== selectedFolder || current.expandedThreadId !== tid) return;
-        if (isCurrentThreadLoad(threadLoadVersionsRef.current, tid, version)) setThreadMessages(tid, normalizedNativeThreadMembers(applyReadGuard(data.messages)));
-      } catch { /* Keep the visible thread on transient connection failures. */ }
+      if (row) void loadThreadChildren(row, { forceRefresh: true });
     };
     window.addEventListener('inboxora:refresh', refresh);
     return () => window.removeEventListener('inboxora:refresh', refresh);
-  }, [selectedAccountId, selectedFolder, setThreadMessages, applyReadGuard]);
+  }, [loadThreadChildren]);
 
   // Aggregate list metadata can count duplicate provider copies. Resolve exact native
   // membership only for a user action; rendering a mailbox must never fan out one
   // /thread request per grouped row.
   const handleThreadClick = async (message: StoreMessageRow) => {
     const tid = message.thread_id || message.id;
+    const isCurrentScope = captureThreadScope();
     const members = message.thread_id ? await loadThreadChildren(message) : [message];
+    if (!isCurrentScope() || members.length === 0) return;
     if (!isExpandableNativeThread(members)) {
       const target = singletonNativeThreadTarget(message, members);
       if (target) handleSelect(target);
@@ -2738,7 +2776,9 @@ export default function MessageList() {
   };
 
   const handleThreadSwipeAction = async (action: string, message: StoreMessageRow) => {
+    const isCurrentScope = captureThreadScope();
     const members = message.thread_id ? await loadThreadChildren(message) : [message];
+    if (!isCurrentScope() || members.length === 0) return;
     if (isExpandableNativeThread(members)) {
       runSwipeAction(action, message);
       return;
