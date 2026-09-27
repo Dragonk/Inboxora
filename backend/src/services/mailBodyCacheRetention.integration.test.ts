@@ -93,4 +93,17 @@ describe.skipIf(!enabled)('mail body cache expiry without mail deletion',()=>{
     await query("UPDATE provider_connections SET status='revoked' WHERE id=$1",[pc]);expect((await expire()).evicted).toBe(0);
   });
 
+  it.each(['pending','uncertain'])('does not freeze unrelated mail caches for a durable %s send receipt',async status=>{
+    const id=await message(),draft=await message();
+    await query("UPDATE messages SET draft_composition='{}'::jsonb WHERE id=$1",[draft]);
+    const token=randomUUID(),fingerprint='a'.repeat(64);
+    await query(`INSERT INTO send_idempotency(user_id,idempotency_key,request_fingerprint,status,intent_token,created_at,updated_at)
+      VALUES($1,'retained-send-receipt',$2,$3,$4,NOW()-INTERVAL '365 days',NOW()-INTERVAL '365 days')`,[user,fingerprint,status,token]);
+    const receipt=(await query('SELECT * FROM send_idempotency WHERE user_id=$1',[user])).rows[0];
+    expect((await expire()).evicted).toBe(1);
+    expect((await query('SELECT body_text FROM messages WHERE id=$1',[id])).rows[0].body_text).toBeNull();
+    expect((await query('SELECT body_text FROM messages WHERE id=$1',[draft])).rows[0].body_text).toBe('Cached');
+    expect((await query('SELECT * FROM send_idempotency WHERE user_id=$1',[user])).rows[0]).toEqual(receipt);
+  });
+
 });

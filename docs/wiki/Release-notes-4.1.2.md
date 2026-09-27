@@ -203,7 +203,10 @@ Cleanup takes at most 100 row locks with SKIP LOCKED per pass. A foreground open
 its access timestamp under the same row lock; cleanup cannot clear that newly accessed
 row. Zero disables expiry. Drafts/composer state, nonpositive or unverified IMAP UIDs,
 unbound native identities, disconnected provider accounts, pending source removals,
-body-dependent rule work and uncertain delivery/operations are excluded. This is a local
+body-dependent rule work and row-linked pending/uncertain operations are excluded.
+Durable send-idempotency receipts are never expired or changed by cache cleanup; an
+unrelated unresolved send does not freeze all caches belonging to its owner. Outgoing
+messages use the composed request, not a body cache linked to such a receipt. This is a local
 cache, **not an offline archive**: remote access must still be available for a later refill.
 Backend expiry does not remotely erase an already rendered browser-memory copy.
 

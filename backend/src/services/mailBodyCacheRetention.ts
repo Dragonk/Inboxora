@@ -5,7 +5,9 @@ export const BODY_CACHE_RETENTION_BATCH = 100;
 
 /** Only provider-backed caches, never canonical local data. No network request
  * or provider DELETE is issued. Protect drafts, disconnected/ambiguous sources,
- * pending body-dependent work and unresolved outgoing delivery state. */
+ * pending row-linked work and draft composition state. Send idempotency receipts
+ * are never deleted or changed; an unrelated uncertain send must not freeze all
+ * of its owner's body caches. Sending uses an already-composed request. */
 export async function expireMailBodyCache(client: PoolClient): Promise<{evicted: number; logicalBytes: number}> {
   const { mail_body_cache_days: days } = await readStorageRetentionPolicy(client);
   if (days === 0) return { evicted: 0, logicalBytes: 0 };
@@ -31,7 +33,6 @@ export async function expireMailBodyCache(client: PoolClient): Promise<{evicted:
          AND NOT EXISTS (SELECT 1 FROM inbox_rule_forwards f WHERE f.message_id=m.id AND f.status='pending')
          AND NOT EXISTS (SELECT 1 FROM graph_pending_message_removals g WHERE g.message_row_id=m.id)
          AND NOT EXISTS (SELECT 1 FROM provider_operations p WHERE p.resource_id=m.id AND p.status NOT IN ('committed','failed','cancelled'))
-         AND NOT EXISTS (SELECT 1 FROM send_idempotency s WHERE s.user_id=a.user_id AND s.status<>'completed')
        ORDER BY GREATEST(m.body_cache_refreshed_at,m.body_last_opened_at),m.id
        LIMIT $2 FOR UPDATE OF m SKIP LOCKED
     ), cleared AS (
