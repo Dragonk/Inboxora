@@ -269,7 +269,8 @@ test('a late pause response after session expiration cannot reopen the queued ed
 });
 
 test('paused autosave preserves the original record and Send now resumes its updated revision', async ({ page, fixtureApi }) => {
-  await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })]; await boot(page, rows); await outbox(page);
+  await fixtureApi; await page.clock.install();
+  const rows = [pending({ state: 'editing', mode: 'schedule' })]; await boot(page, rows); await outbox(page);
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   const writes: Record<string, unknown>[] = []; let drafts = 0; let immediate = 0; let enqueues = 0;
   await page.route('**/api/mail/scheduled/queued-1', route => {
@@ -284,7 +285,6 @@ test('paused autosave preserves the original record and Send now resumes its upd
     if (route.request().method() === 'GET') return route.fulfill({ json: rows });
     enqueues++; return route.fulfill({ status: 503, json: {} });
   });
-  await page.clock.install();
   await page.getByTestId('scheduled-edit-queued-1').click();
   await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Saved while paused');
   await page.clock.fastForward(30_000);
@@ -299,6 +299,44 @@ test('paused autosave preserves the original record and Send now resumes its upd
   expect(drafts).toBe(0); expect(immediate).toBe(0); expect(enqueues).toBe(0);
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
 });
+
+for (const target of ['untouched', 'subject', 'recipient', 'discard'] as const) {
+  test(`queued reply initialization preserves ${target} focus`, async ({ page, fixtureApi }) => {
+    await fixtureApi; await page.clock.install();
+    const rows = [pending({ state: 'editing', mode: 'schedule' })];
+    await boot(page, rows); await outbox(page);
+    await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
+    await page.clock.pauseAt(new Date(Date.now() + 1_000));
+    await page.getByTestId('scheduled-edit-queued-1').click();
+    const subject = page.getByPlaceholder(/^(Add a subject|Subject)$/);
+    await expect(subject).toHaveValue(message.subject);
+    const recipient = page.getByTestId('compose-to');
+    if (target === 'subject' || target === 'recipient') {
+      const field = target === 'subject' ? subject : recipient;
+      await field.focus(); await field.evaluate(input => (input as HTMLInputElement).setSelectionRange(0, 0));
+    }
+    if (target === 'discard') {
+      await subject.fill('A changed subject'); await subject.blur();
+      expect(await page.evaluate(() => window.__inboxoraHandleAndroidBack?.())).toBe(true);
+      await expect(page.getByRole('button', { name: 'Keep editing', exact: true })).toBeVisible();
+    }
+    // Release TipTap's create callback only after the user has selected a field or opened a dialog.
+    await page.clock.runFor(100);
+    const body = page.locator('.tiptap-compose [contenteditable="true"]');
+    if (target === 'discard') {
+      await expect(body).not.toBeFocused();
+      await expect(page.getByRole('button', { name: 'Keep editing', exact: true })).toBeVisible();
+      await expect(subject).toHaveValue('A changed subject');
+      await expect(body).toHaveText('Frozen queued body');
+      return;
+    }
+    await expect(target === 'subject' ? subject : target === 'recipient' ? recipient : body).toBeFocused();
+    await page.keyboard.insertText('Authored text');
+    await expect(subject).toHaveValue(target === 'subject' ? 'Authored text' + message.subject : message.subject);
+    await expect(body).toHaveText(target === 'untouched' ? 'Authored textFrozen queued body' : 'Frozen queued body');
+    if (target === 'recipient') await expect(recipient).toHaveValue('Authored text');
+  });
+}
 
 test('default zero keeps the existing immediate send path', async ({ page, fixtureApi }) => {
   await fixtureApi; await boot(page); await compose(page);

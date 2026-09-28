@@ -48,6 +48,7 @@ finalized below and dated with its publication date.
 - Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
 
 ### Fixed
+- Opening a queued reply no longer steals focus from an already selected subject or recipient field when the rich-text editor finishes initializing.
 - Mail merge now accepts the same transport-aware JSON request window as normal and scheduled sending instead of the global 1 MB cap. Per-account attachment and message limits still apply; a live API regression checks attachment parsing without dispatching mail.
 - The PostgreSQL CardDAV contact-preservation fixture now mocks privilege discovery and rejects unexpected DNS/HTTP access, removing network-dependent CI timeouts without relaxing its data-safety assertions. Application behavior is unchanged.
 

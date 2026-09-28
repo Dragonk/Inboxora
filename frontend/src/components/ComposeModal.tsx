@@ -490,6 +490,7 @@ export default function ComposeModal() {
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
+  const initialFocusRef = useRef(document.activeElement);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const signatureRef = useRef<HTMLDivElement | null>(null);
@@ -533,7 +534,18 @@ export default function ComposeModal() {
     ],
     content: composeData?.body || '',
     onUpdate: () => { lastEditAtRef.current = Date.now(); recordDraftEdit(); },
-    autofocus: (isReply || isForward) && !plaintextCompose ? 'start' : false,
+    // TipTap's deferred autofocus can steal a field already chosen by the user.
+    // Focus synchronously at creation, and only while the original focus is unchanged.
+    autofocus: false,
+    onCreate: ({ editor: createdEditor }) => {
+      if (!(isReply || isForward) || plaintextCompose || !currentCompose() || createdEditor.isDestroyed) return;
+      if (minimized || showDiscardSheet || showCloseDialog || showAttachWarnForDraft || showEmptySubjectWarn
+        || showForgottenAttachWarn || showSchedule || showMergeConfirm || showPrioritySheet || showReplyType || showCcBccMenu) return;
+      const active = document.activeElement;
+      if (active !== document.body && active !== initialFocusRef.current) return;
+      createdEditor.commands.setTextSelection(0);
+      createdEditor.view.focus();
+    },
     immediatelyRender: false,
     editorProps: {
       attributes: { spellcheck: 'true' },
