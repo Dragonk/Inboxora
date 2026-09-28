@@ -118,13 +118,18 @@ export function pickReplyAlias({
     }
     return typeof value === 'string' ? normalizeAddress(value) : null;
   };
-  // Delivery order, then To, then Cc. Primary-address matches stop the search
-  // just like alias matches; a Cc alias must not override a primary To address.
-  // From is only a final fallback for continuing an outgoing conversation.
+  const delivered = parseAddressListField<unknown>(deliveryAddresses);
+  // Ingest flattens final Delivered-To and original-recipient headers into one
+  // list. A configured delivery alias is specific; the primary mailbox may only
+  // be the final forwarding destination. Never let that generic primary entry
+  // hide an original delivery/To/Cc alias and expose a different sender address.
+  // Within visible headers, primary To still wins over an alias in Cc. From is
+  // only a final fallback for continuing an outgoing conversation.
   for (const candidates of [
-    parseAddressListField<unknown>(deliveryAddresses),
+    delivered.filter(candidate => addressOf(candidate) !== primary),
     parseAddressListField<unknown>(toAddresses),
     parseAddressListField<unknown>(ccAddresses),
+    delivered,
     [fromEmail],
   ]) {
     for (const candidate of candidates) {

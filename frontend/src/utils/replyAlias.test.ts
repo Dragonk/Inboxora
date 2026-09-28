@@ -153,8 +153,13 @@ describe('pickReplyAlias', () => {
 
 
 describe('reply identity priority and defensive address parsing (#9)', () => {
-  it('stops at a primary delivery or To match instead of choosing a lower-priority alias', () => {
-    assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', deliveryAddresses: ['main@example.com'], toAddresses: [{ email: 'sales@example.com' }] }), null);
+  it('uses a contacted To alias even when final delivery names the primary mailbox', () => {
+    assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', deliveryAddresses: ['main@example.com'], toAddresses: [{ email: 'sales@example.com' }] }), 'alias-1');
+  });
+  it('keeps an original delivery alias when metadata also contains the final primary mailbox', () => {
+    assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', deliveryAddresses: ['main@example.com', 'support@example.com'] }), 'alias-2');
+  });
+  it('stops at a primary To match instead of choosing a Cc alias', () => {
     assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', toAddresses: [{ email: 'main@example.com' }], ccAddresses: [{ email: 'sales@example.com' }] }), null);
   });
   it('uses ordered delivery recipients, not alias creation order', () => {
