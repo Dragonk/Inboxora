@@ -2139,9 +2139,12 @@ export default function ComposeModal() {
         </div>
       </div>
 
-      {/* Bound long recipient lists without pushing the editor or Send outside the viewport.
+      {/* Bound expanded copy fields without pushing the editor or Send outside the viewport.
+          Leave the ordinary From/To/Subject layout unchanged when both copy fields are closed.
           The rich toolbar remains a sibling so its dropdowns are not clipped. */}
-      <div data-testid="compose-recipient-fields" style={{ flexShrink: 1, minHeight: 0, maxHeight: '35vh', overflowY: 'auto' }}>
+      <div data-testid="compose-recipient-fields" style={showCc || showBcc
+        ? { flexShrink: 1, minHeight: 0, maxHeight: '35vh', overflowY: 'auto' }
+        : { flexShrink: 0 }}>
         {/* From */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
