@@ -1,8 +1,198 @@
-# Release notes 4.1.2 — draft
+# Release notes 4.1.2
 
-**Status: unreleased; dev verification only.** No version tag, package version bump or
-production deployment is part of this change. Release only after the maintainer's
-existing database test and the original #16 reporter's confirmation.
+**Status:** Stable  ·  **Release date:** 2026-09-28  ·  **Previous version:** 4.1.1
+
+Inboxora 4.1.2 is a reliability, performance and storage-maintenance release. It fixes
+stale thread/read state, makes returning to recently visited mailboxes feel immediate,
+repairs Microsoft Graph legacy-alias visibility, bounds several sources of database
+growth, and adds administrator controls for mail-body warming and data retention.
+
+## Highlights
+
+- **Faster mailbox navigation.** Recently visited unified, Gmail, Microsoft Graph and IMAP
+  views render from a bounded session cache and revalidate in the background instead of
+  blanking the list while every return waits on HTTP.
+- **Correct thread read state.** Expanded threads no longer keep an obsolete child list
+  (for example 14 cached messages while the server has 17), and whole-thread read/unread
+  actions resolve the current membership before writing.
+- **Microsoft Graph consistency.** Verified legacy compatibility aliases no longer create
+  phantom unread rows or disagree with the canonical Graph message.
+- **Automatic storage repair.** Legacy byte-expanded IMAP headers and unbounded DAV sync
+  journals are repaired by resumable background maintenance, with bounded retention.
+- **New Performance settings.** Administrators can tune visible message-body prefetch,
+  body-cache lifetime, DAV history and operational-log retention without restarting.
+- **Safer background caching.** IMAP, Gmail API and Graph share a bounded visible-body
+  warming policy; stale writes and old-session responses cannot repopulate newer caches.
+
+## Administrator changes
+
+The new **Settings → Administration → Performance** tab applies instance-wide settings:
+
+| Setting | Default | Allowed range | Effect |
+| --- | ---: | ---: | --- |
+| Messages to prefetch | 25 | 0–100 | Warms bodies for the first visible messages; `0` disables speculative prefetch. |
+| Body cache lifetime | 30 days | 0–3650 | Expires local body text/HTML and embedded images; `0` means no expiry. Messages remain at the provider. |
+| DAV change history | 30 days | 1–3650 | Bounds CalDAV/CardDAV change metadata; old sync tokens fall back to a full sync. |
+| DAV entries per calendar/address book | 10,000 | 100–100,000 | Caps retained latest DAV change entries per collection. |
+| Authentication logs | 90 days | 1–3650 | Retains login/authentication audit history. |
+| Conversation rebuild audit | 30 days | 1–3650 | Retains rebuild reports, not conversations. |
+| Resolved ingestion errors | 7 days | 1–3650 | Removes only resolved historical ingestion failures. |
+| Completed outbox payloads | 7 days | 1–3650 | Clears payloads of completed internal events while keeping deduplication identity. |
+
+Changes are validated atomically and apply to new maintenance/prefetch batches without a
+server restart. `MAIL_BODY_PREFETCH=off` remains a server-side override and is shown in the
+UI. `STORAGE_MAINTENANCE_ENABLED=false` pauses cache/DAV maintenance but not the independent
+operational/security log retention. Docker stdout/stderr rotation remains a Compose/host
+setting and is not changed by this page. See [Configuration](Configuration.md#performance-administration).
+
+## Account and unified-inbox navigation performance
+
+Changing accounts previously discarded the visible list and waited for the next HTTP
+response on every visit. Returning from Calendar/Contacts retained the mounted live
+mail view, explaining why that path felt faster. Recently visited first pages now
+render immediately from an in-memory snapshot, then always revalidate with the API.
+The key includes the complete list query (account, folder, unread/category filters,
+thread grouping and page size) and is isolated by authentication epoch.
+
+Snapshots are not persisted: at most eight query entries and 1,000 total metadata rows
+are retained for at most five minutes. Offset pages and large infinite-scroll windows
+are not added to this navigation cache. Local mail mutations, account/configuration
+changes and live invalidations evict obsolete snapshots and fence older in-flight
+responses. Logout, lock and session changes clear them. Known-scope flag/read/delete/undo operations invalidate all affected accounts and
+unified snapshots, including their in-flight writes, while preserving unrelated
+account snapshots and pending revalidations. Incomplete or unknown scope falls back
+to global invalidation. Writes invalidate matching snapshots and pending tickets
+both before sending and after settlement, including failed or interrupted writes;
+late completion from an older authentication epoch cannot clear a new session.
+Local message-count-only corrections do not discard the navigation cache. Body-access bookkeeping does not invalidate useful navigation data. A cold view intentionally shows loading rather
+than another account's mail; a warm view keeps its last snapshot on a transient refresh
+failure. It is not considered fresh until revalidation succeeds.
+
+Navigation aborts superseded list HTTP requests, including pagination/background
+loads; a late completion cannot clear the new view's loading indicator. Returning
+from Calendar/Contacts still preserves the mounted live view and loaded pages. Native
+thread expansions are not restored from the navigation snapshots. Their reconciliation
+is bounded by server list generations rather than row-object identity, so optimistic
+flags and count corrections do not repeatedly fetch a removed representative.
+Explicit read/unread intents continue for the same authenticated user after account
+navigation, while their old expansion cannot be written into the new view.
+
+Before the navigation fix, a browser regression with its revalidation response held
+open showed zero rows on return to the already visited unified inbox. After the fix,
+account/unified snapshots render before that response is released, on desktop and
+mobile. These controlled API tests establish removal of the HTTP wait from warm
+navigation; they are not a measurement of production Microsoft/Gmail/IMAP latency.
+Unit coverage checks cache lifetime/size, scoped keys, invalidation and stale-session
+responses. There is no new backend migration, setting or provider polling introduced
+by this navigation change.
+
+## Thread expansion and read state
+
+Mailbox pagination does not limit the number of children in an expanded native thread.
+A stale frontend expansion could nevertheless show 14 cached messages after the mailbox
+list had refreshed to 17; marking the whole thread read could then act on only those
+14 cached IDs and leave the three newer replies unread.
+
+Expanded membership is now reconciled when the current list row no longer matches its
+cache. Explicit whole-thread read and unread actions fetch a current server membership
+snapshot rather than trusting an older expansion. Their intent and completion follow
+the account-local thread even when an unread/filter refresh changes its representative
+message. Superseded expansion responses cannot overwrite the action's membership, and
+late loads are checked against their authenticated view and component lifetime.
+Only an expanded row is automatically reconciled; collapsed mailbox rows do not each
+trigger a thread request. A list response that races a whole-thread write is fenced
+and revalidated after completion, so an older aggregate cannot restore the unread
+badge. Final aggregates include any newer cached replies rather than silently marking
+them read. This extra list-only revalidation is conditional on an actual request race. An inconsistent/transient server snapshot is retried on a
+later list snapshot or refresh hint, not in a render/request loop.
+
+These are frontend changes using the existing authorized thread/read endpoints; they
+add no migration, setting, provider resync, or mailbox-data rewrite. Replies arriving
+after the action's resolved snapshot are still new messages, not silently marked read.
+Existing folder-copy deduplication and provider read-write semantics are unchanged.
+
+Validation on ubuntu-dev includes a failing-before/passing-after browser reproduction
+of the 14/17 mismatch and incomplete read action, plus desktop/mobile regressions for
+read/unread cycles, delayed expansion responses, replacement representatives, bounded
+reconciliation and a 101-message expansion. These browser tests use synthetic mailbox
+responses against the built application; they do not claim validation against the
+maintainer's live Microsoft mailbox or provider-side delivery.
+
+The final local pass also covers write-completion cache fences on success, HTTP
+failure and interrupted requests, preserving unrelated accounts and newer sessions.
+The mocked mailbox now commits successful read writes before returning success, so
+reader revalidation is checked against the resulting state rather than an immutable
+unread fixture. Delayed-response tests wait for the socket's initial catch-up and
+identify the exact held request, without relaxing their membership assertions.
+The focused desktop/390px mobile browser run passed 109 cases (49 existing
+viewport/mode exclusions); the full frontend unit suite passed 3,229 cases. The exact-commit GitHub CI and CodeRabbit gates also passed before the accepted development image was published.
+
+## Follow-up after the first development acceptance test
+
+The first development build did not cover two production-like paths reported by the
+maintainer. Seven new desktop/mobile browser checks reproduced failures before these
+follow-up changes. Opening the final unread non-head child, or marking it individually,
+left all 17 children read while the parent remained unread: the single-copy caller had
+included an `unread_count` override reserved for whole-thread actions. Single-copy writes
+and rollbacks now update only physical read state; the store derives the parent from
+complete membership or applies a known-copy delta for an incomplete expansion. A singleton
+updates its own badge even without expansion. These tests also run with the unread filter
+active and block subsequent list requests so eventual revalidation cannot mask the defect.
+
+Navigation tests now include offscreen server flag events and waking the application,
+not just a quiet mocked mailbox. Bulk-read broadcasts are partitioned by their already
+verified account. The frontend retains that scope when the physical copy is not loaded,
+and reader writes/count refreshes carry their known account too. Thus an event concerning
+one account no longer discards all previously visited accounts. A visibility/online or
+periodic freshness check retains the bounded navigation snapshots while still
+requesting current list/count data; concrete mail changes still hard-invalidate affected
+snapshots and in-flight results. Snapshot retention is five minutes rather than
+one minute, so another account does not become cold during a normal reading session;
+navigation still always starts an immediate API revalidation, and expiry never grants
+freshness. Row/entry limits and query isolation remain bounded. Lock/logout protections, query separation and write
+completion fences are unchanged. No migration or provider-side read/write behavior changes
+are included in this follow-up.
+
+The new failure cases passed 28 repeated desktop/mobile checks after the fix (the native
+desktop context-menu case has no equivalent browser right-click on mobile). The actual
+native-list service was also measured locally with 30,000 synthetic PostgreSQL messages:
+warm account reads took about 11–21 ms and unified reads about 29–41 ms. This did not
+reproduce a slow database query and is not a production performance measurement. Public
+version metadata confirmed that the reported live instance was already on the previous
+`a7ee6598` build, so the report was not attributed to an old installation. Production
+mailbox contents and provider acknowledgements were not accessed by the automated tests. The
+maintainer's final development acceptance test confirmed the corrected behaviour before release.
+
+## Microsoft Graph compatibility aliases and phantom unread rows
+
+A real PostgreSQL + HTTP regression reproduced an additional server-side cause:
+17 native Graph messages were read, while four verified legacy IMAP aliases still
+had unread flags. The physical unread counter returned four, and the unread filter
+and thread expansion could select different physical rows for the same bound mail.
+This was not merely a frontend cache discrepancy. The inverse state (four native
+messages unread but their aliases read) also produced inconsistent expansion flags.
+
+A shared read projection now excludes only a verified compatibility alias whose
+canonical provider message is present, non-deleted, in the same account and current
+native Graph connection, and in the same folder or backed by a confirmed provider
+move. Lists (including pagination/counts), expansion and inbox/category unread counters use the
+same rule before applying unread filtering. Diagnostics apply the same alias rule.
+No rows are deleted and no read flags are rewritten by this projection; old UUID
+body links still resolve. Missing/ambiguous bindings, changed connections, IMAP
+fallback, deleted/missing canonical identity and unconfirmed moves preserve recovery
+visibility. Same RFC Message-ID without a verified binding is not enough to exclude
+anything. No migration, provider poll or historical resync is required.
+
+Integration tests include both 17/4 divergences, flat/threaded/unread views, retained
+legacy links/rows, invalid binding guards, confirmed moves and HTTP read/unread/read
+cycles using canonical IDs against a mocked Graph HTTP boundary. Those cycles return
+0/17/0 inbox/category unread and preserve all 17 children. The HTTP test also verifies
+every exact provider ID and value patched, rather than only the number of calls. Provider transport behavior itself is not
+changed, and no live production provider acknowledgement is claimed. The projection
+was also exercised with the actual list service on an isolated 30,000-message test
+database; EXPLAIN confirmed indexed canonical lookups rather than per-row provider requests, with
+warm scoped/unified requests in tens of milliseconds on this development server.
+These timings are not a production latency guarantee.
 
 ## Storage repair and bounded synchronization
 
@@ -101,8 +291,8 @@ reading retain their existing behavior. The prefetch policy is not an offline ar
 ## Operator procedure and before/after measurements
 
 Back up the database before deploying; background repair starts automatically on the new
-image. The build is validated on synthetic databases, but the maintainer's production test
-must still run before inviting the reporter and publishing 4.1.2. No manual `--apply` is needed.
+image. The release was validated on synthetic databases and accepted on the maintainer's
+development deployment before publication. No manual `--apply` is needed.
 
 For the maintainer's current installation (DB/user `mailflow`):
 
@@ -110,7 +300,7 @@ For the maintainer's current installation (DB/user `mailflow`):
 # Before replacing the backend; keep the backup private.
 (umask 077; docker exec inboxora-postgres pg_dump -U mailflow -d mailflow -Fc > "$HOME/inboxora-before-4.1.2-$(date +%Y%m%d-%H%M%S).dump")
 
-# After the new dev image starts, this is read-only and can be repeated:
+# After the 4.1.2 backend starts, this is read-only and can be repeated:
 docker exec inboxora-backend node dist/scripts/storageMaintenanceStatus.js --summary
 ```
 
@@ -148,9 +338,10 @@ header repair. A populated
 0145 database upgrade test runs the actual startup scheduler, interrupts after one header
 batch, restarts it, and verifies exact canonical IDs/content and measured file reduction.
 
-Backend typecheck/lint/build, full unit tests, service-dependent PostgreSQL tests and GitHub
-CI must pass for the published dev SHA. Then test the maintainer's real database. Only after
-that should the reporter be asked to verify; no stable release is authorized by these notes.
+The accepted release SHA passed backend typecheck/lint/build, full unit tests, service-dependent
+PostgreSQL tests, browser/real-app suites and GitHub CI. The maintainer then verified the
+reported mailbox navigation and thread/read issues on the published development images before
+the stable tag was created.
 
 ## Desktop PWA
 
@@ -158,14 +349,16 @@ This planned release also includes the already-integrated desktop window-control
 changes: the title-bar drag strip and scaled mail viewport follow live overlay sizing.
 This storage follow-up does not introduce another frontend redesign.
 
-## Dev image publication
+## Build and image publication
 
-Manual `dev` publication validates an immutable source SHA against the explicitly selected
+Development publication validates an immutable source SHA against the explicitly selected
 repository branch. AMD64 and ARM64 images are built on native GitHub runners rather than
 QEMU. Platform jobs push immutable digests only; the shared `dev` tags are updated only after
 both architectures and both component manifests pass verification. A single-platform build
 can no longer replace the shared multi-platform tag. Built backend images execute both
-maintenance CLI `--help` checks before promotion. Stable/versioned tags are not changed.
+maintenance CLI `--help` checks before promotion. The stable release workflow rebuilds the
+accepted tagged SHA for `v4.1.2`, `4.1.2` and `latest`, keeping all three tags on the same
+multi-architecture manifests.
 
 ## Global retention settings and idle body caches
 

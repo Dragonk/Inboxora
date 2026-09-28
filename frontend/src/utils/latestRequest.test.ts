@@ -36,3 +36,20 @@ describe('createLatestRequest', () => {
     assert.deepEqual(applied, []);
   });
 });
+
+it('reports only the current pending request, including invalidation and rejection', async () => {
+  const latest = createLatestRequest();
+  const resolvers: ((value: string) => void)[] = [];
+  const request = () => new Promise<string>(resolve => resolvers.push(resolve));
+  assert.equal(latest.isPending(), false);
+  const old = latest.run(request, () => {});
+  const current = latest.run(request, () => {});
+  assert.equal(latest.isPending(), true);
+  resolvers[0]('old'); await old;
+  assert.equal(latest.isPending(), true);
+  latest.invalidate();
+  assert.equal(latest.isPending(), false);
+  resolvers[1]('current'); await current;
+  await assert.rejects(latest.run(() => Promise.reject(new Error('offline')), () => {}), /offline/);
+  assert.equal(latest.isPending(), false);
+});

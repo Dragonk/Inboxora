@@ -1,3 +1,5 @@
+import { nativeThreadCacheMatchesRow, normalizedNativeThreadMembers } from '../utils/nativeThreadMembership.ts';
+import { invalidateMailListCache, invalidateMailListCacheForAccounts } from '../utils/mailListCache.ts';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.ts';
 import { create } from 'zustand';
 import { api } from '../utils/api.ts';
@@ -127,7 +129,7 @@ export interface StoreState {
   messages: StoreMessageRow[];
   setMessages: (messages: StoreMessageRow[]) => void;
   appendMessages: (newMessages: StoreMessageRow[]) => void;
-  updateMessage: (id: string, updates: Record<string, unknown>) => void;
+  updateMessage: (id: string, updates: Record<string, unknown>, accountHint?: string) => void;
   removeMessage: (id: string) => void;
   removeMessages: (ids: string[]) => void;
   restoreMessages: (msgs: StoreMessageRow[]) => void;
@@ -433,6 +435,38 @@ type StoreStateRead = Pick<StoreState,
   | 'user'
 >;
 
+// Resolve complete pre-mutation scope without flattening every cached thread.
+// Unknown physical IDs require global eviction rather than an incomplete hint.
+function messageAccountScope(
+  state: Pick<StoreStateRead, 'messages' | 'searchResults' | 'threadMessages'>,
+  ids: ReadonlySet<string>,
+  additionalRows: readonly StoreMessageRow[] = [],
+): string[] | undefined {
+  const unresolved = new Set(ids);
+  const accounts = new Set<string>();
+  const collect = (rows: readonly StoreMessageRow[]) => {
+    if (!unresolved.size) return;
+    for (const row of rows) {
+      if (!unresolved.has(row.id) || !row.account_id) continue;
+      accounts.add(row.account_id);
+      unresolved.delete(row.id);
+      if (!unresolved.size) break;
+    }
+  };
+  collect(state.messages);
+  collect(state.searchResults);
+  if (unresolved.size) for (const rows of Object.values(state.threadMessages)) collect(rows);
+  // A restored copy may carry a different account than a row already present.
+  // Include both scopes rather than allowing the restored row to mask the old one.
+  for (const row of additionalRows) {
+    if (!ids.has(row.id)) continue;
+    if (!row.account_id) return undefined;
+    accounts.add(row.account_id);
+    unresolved.delete(row.id);
+  }
+  return unresolved.size ? undefined : [...accounts];
+}
+
 // Accumulate rapid preference changes and flush at most once per second.
 let _prefFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let _pendingPrefs: Record<string, unknown> = {};
@@ -523,6 +557,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
     const resetPrivateState = identityChanged && !isOwnedBootstrap;
     if (identityChanged) {
+      invalidateMailListCache();
       setAuthEpoch(get().authEpoch + 1);
       cancelPendingPrefSave();
       if (resetPrivateState) {
@@ -582,6 +617,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   isLocked: localStorage.getItem('mailflow_locked') === '1',
   setLocked: (locked: boolean) =>{
     if (locked) {
+      invalidateMailListCache();
       const { selectedMessageId } = get();
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
       localStorage.setItem('mailflow_locked', '1');
@@ -621,14 +657,18 @@ export const useStore = create<StoreState>()((set, get) => ({
   accountsReady: false, // true once the initial getAccounts() call has resolved
   setAccounts: (accounts: Array<{ id: string; enabled?: boolean; include_in_unified_inbox?: boolean; [key: string]: unknown }> | undefined) =>{
     if (!Array.isArray(accounts)) return;
+    invalidateMailListCache();
     const previous = get().selectedAccountId;
     const selected = resolveSelectedAccount(accounts, previous);
     set((state: StoreStateRead) => ({ accounts, accountsReady: true, folders: pruneFolders(state.folders, accounts) }));
     if (selected !== previous) get().setSelectedAccount(selected);
   },
-  updateAccount: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => ({
-    accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a)
-  })),
+  updateAccount: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
+    if (['enabled', 'include_in_unified_inbox', 'name', 'email_address', 'color', 'categorization_enabled'].some(key => Object.hasOwn(updates, key))) {
+      invalidateMailListCache(id);
+    }
+    return { accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a) };
+  }),
 
   // Navigation
   selectedAccountId: localStorage.getItem('mailflow_selected_account') || null, // '' stored as null
@@ -688,8 +728,23 @@ export const useStore = create<StoreState>()((set, get) => ({
     const messages = appendMessagesByIdentity(state.messages, newMessages);
     return messages === state.messages ? {} : { messages };
   }),
-  updateMessage: (id: string, updates: Record<string, unknown>) =>set((state: StoreStateRead) => {
-    const apply = (m: StoreMessageRow) => m.id === id ? { ...m, ...updates } : m;
+  updateMessage: (id: string, updates: Record<string, unknown>, accountHint?: string) =>set((state: StoreStateRead) => {
+    const keys = Object.keys(updates);
+    if (keys.length && !(keys.length === 1 && keys[0] === 'message_count')) {
+      // A scoped server event may refer to an offscreen copy. Its account is
+      // still known even when no row is loaded; do not evict every other inbox.
+      const accountIds = messageAccountScope(state, new Set([id]))
+        ?? (typeof accountHint === 'string' && accountHint.trim() === accountHint && accountHint.length > 0 ? [accountHint] : undefined);
+      if (accountIds && Object.hasOwn(updates, 'account_id')) {
+        invalidateMailListCacheForAccounts([...accountIds, updates.account_id]);
+      } else invalidateMailListCacheForAccounts(accountIds);
+    }
+    let matched = false;
+    const apply = (m: StoreMessageRow) => {
+      if (m.id !== id) return m;
+      matched = true;
+      return { ...m, ...updates };
+    };
     const threadMessages = Object.fromEntries(
       Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
     );
@@ -699,18 +754,34 @@ export const useStore = create<StoreState>()((set, get) => ({
     const messages = state.messages.map(m => {
       const updated = apply(m);
       if (!state.threadedView || !m.thread_id || aggregateUpdate || typeof updates.is_read !== 'boolean') return updated;
-      const subs = threadMessages[m.thread_id || m.id];
-      if (!subs?.some(copy => copy.id === id)) return updated;
-      const unread_count = subs.filter(copy => !copy.is_read).length;
+      const tid = m.thread_id || m.id;
+      const subs = threadMessages[tid];
+      const before = state.threadMessages[tid]?.find(copy => copy.id === id);
+      if (!before) {
+        // A singleton never needs expansion to keep its own badge in sync.
+        return m.id === id && Number(m.message_count) === 1
+          ? { ...updated, unread_count: updates.is_read ? 0 : 1 } : updated;
+      }
+      // Derive a full aggregate only from complete membership. A stale 14-child
+      // cache must not mark three unseen replies read when its last child changes.
+      const unread_count = nativeThreadCacheMatchesRow(m, subs)
+        ? normalizedNativeThreadMembers(subs).filter(copy => !copy.is_read).length
+        : Math.max(0, (Number(m.unread_count) || 0) + Number(!updates.is_read) - Number(!before.is_read));
       return { ...updated, unread_count, is_read: unread_count === 0 };
     });
-    return { messages, searchResults: state.searchResults.map(apply), threadMessages };
+    const searchResults = state.searchResults.map(apply);
+    // Cache invalidation already happened. An offscreen event needs no store
+    // notification or full list/sidebar rerender when it changed no loaded row.
+    return matched ? { messages, searchResults, threadMessages } : state;
   }),
-  removeMessage: (id: string) =>set((state: StoreStateRead) => ({
-    messages: state.messages.filter(m => m.id !== id),
-    searchResults: state.searchResults.filter(m => m.id !== id),
-    selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
-  })),
+  removeMessage: (id: string) =>set((state: StoreStateRead) => {
+    invalidateMailListCacheForAccounts(messageAccountScope(state, new Set([id])));
+    return {
+      messages: state.messages.filter(m => m.id !== id),
+      searchResults: state.searchResults.filter(m => m.id !== id),
+      selectedMessageId: state.selectedMessageId === id ? null : state.selectedMessageId,
+    };
+  }),
   // Remove many messages in a single state update. Bulk triage (e.g. archiving ~40 rows)
   // otherwise calls removeMessage once per id, firing one store update — and, in a
   // non-virtualized list, one re-render — each, which stalls the UI. This collapses them
@@ -718,6 +789,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   removeMessages: (ids: string[]) =>set((state: StoreStateRead) => {
     const idSet = ids instanceof Set ? ids : new Set(ids);
     if (idSet.size === 0) return {};
+    invalidateMailListCacheForAccounts(messageAccountScope(state, idSet));
     return {
       messages: state.messages.filter(m => !idSet.has(m.id)),
       searchResults: state.searchResults.filter(m => !idSet.has(m.id)),
@@ -726,6 +798,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   }),
   restoreMessages: (msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => {
     const list = Array.isArray(msgs) ? msgs : [msgs];
+    if (!list.length) return {};
+    invalidateMailListCacheForAccounts(messageAccountScope(state, new Set(list.map(row => row.id)), list));
     const sort = (arr: StoreMessageRow[]) => [...arr].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
     // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
     // present, else id): if the message is already present — including re-added by a network

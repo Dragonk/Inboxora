@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Draft release notes 4.1.2](wiki/Release-notes-4.1.2.md), [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
+limitations — read the matching page in the Wiki: [Release notes 4.1.2](wiki/Release-notes-4.1.2.md), [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
 [Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
 [Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
 [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
@@ -25,7 +25,7 @@ finalized below and dated with its publication date.
 
 ## [Unreleased]
 
-## [4.1.2] - Unreleased
+## [4.1.2] - 2026-09-28
 
 ### Changed
 
@@ -36,13 +36,25 @@ finalized below and dated with its publication date.
 
 ### Fixed
 
+- **Microsoft legacy-alias read consistency.** Mail lists, thread expansion, inbox/category unread counts and diagnostics now use the native physical message behind a verified current Graph compatibility binding. Stale legacy IMAP flags can no longer leave four phantom unread entries beside 17 read messages or make the unread filter and expansion choose different copies. Old rows/UUID links remain intact; unverified or stale bindings retain their recovery rows.
+
+
+- **Single-message read state in expanded threads.** Opening or individually marking a child no longer sends a whole-thread aggregate override. Reading the last unread child updates its parent immediately, including with the unread filter active; singleton badges and partial expansions keep their correct unread totals.
+- **Warm navigation under real refresh traffic.** Bulk-read socket notifications now carry their account scope, and offscreen flags, reader writes and reader count refreshes preserve unrelated account snapshots. Wake/online and periodic freshness checks revalidate without discarding bounded snapshots merely because a check was requested. Snapshots survive up to five minutes of reading, but navigation still revalidates immediately. Concrete mutations, unknown change scope, lock and session changes still invalidate normally.
+
+
+- **Responsive account navigation.** Recently visited account and unified-inbox first pages render from bounded, session-only memory snapshots while fresh data loads in the background. Superseded list requests are aborted, and mutations, account changes, live invalidations, logout and lock invalidate snapshots. Cold views still wait for their own data; another account's rows are never used as a placeholder. Known-scope read and local mutations invalidate only affected accounts plus the unified view, retaining unrelated snapshots and in-flight revalidations. Scoped cache fences run both before a write and after it settles, preventing overlapping reads from preserving pre-write flags.
+- **Bounded thread reconciliation.** Expanded membership is checked once per actual server list snapshot rather than per changed row object, avoiding redundant requests after count corrections. List responses racing a whole-thread read are fenced and reconciled without adding a fetch to steady-state actions. Explicit read intents survive account navigation without restoring the old expansion, and failed no-op reads retain their original state.
+
 - **Final VACUUM re-arming.** Later header-repair batches now clear an earlier VACUUM completion marker and schedule the final reuse pass immediately, preventing a completed-but-still-needed maintenance task from holding the initial sweep open.
+- **Thread membership and read-state consistency.** A refreshed mailbox row can no longer retain an obsolete expansion (for example, 14 cached children when the server lists 17). Explicit whole-thread read/unread actions resolve current membership, update a replacement representative, and discard superseded expansion responses. This fixes stale-cache omissions, not a 14/17-message display limit; no additional database migration is needed.
+
 - **Automatic storage repair (#16).** A resumable, single-flight background worker repairs byte-expanded IMAP headers in small transactions and records measured before/current database sizes and logical header savings. It also releases retired DAV journal files without a full rewrite of message tables. Normal VACUUM makes repaired header space reusable; no automatic `VACUUM FULL` or mail/body deletion is performed.
 - **Calendar and contact sync journal growth.** CalDAV/CardDAV journals store only the latest metadata/tombstone per resource, not full copies of every iCalendar/vCard. Unchanged ICS/CardDAV/Google/Graph projections skip row rewrites; stable provider timestamps and exact replay handling avoid artificial ETag changes. Retention keeps at most 30 days/10,000 latest change entries per collection between cleanup passes, with atomic token-floor advancement and snapshot-consistent DAV reports.
 - **Operational history retention.** Background cleanup bounds each deletion batch; expired authentication/rebuild audit and resolved conversation failures are retired. Completed domain-outbox payloads are cleared while durable deduplication identities, pending/uncertain writes, provider receipts and spam-training examples remain protected. Both standard Compose distributions rotate container logs.
 - **Desktop overlay sizing.** The drag strip and scaled mail viewport follow live window-controls-overlay height changes without a window resize.
 - **Repair isolation and scale gates.** Locked/slow accounts and retired journals back off independently; privacy-log retention remains active while data maintenance is paused. DAV full sync returns separate resource rows rather than one oversized aggregate. VACUUM uses a maintenance timeout and hourly failure backoff. Native AMD64/ARM64 builds must both pass before shared `dev` image tags change.
-- **Upgrade order:** apply `0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`, then `0148_graph_reader_body_completeness.sql` and `0149_body_cache_retention.sql` through normal startup. Replace all old backend workers together; pre-upgrade DAV tokens require one full resync. Back up first. This is a proposed 4.1.2 fix, not a published release; local production verification and reporter verification remain release gates.
+- **Upgrade order:** apply `0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`, then `0148_graph_reader_body_completeness.sql` and `0149_body_cache_retention.sql` through normal startup. Replace all old backend workers together; pre-upgrade DAV tokens require one full resync. Back up first. The 4.1.2 release was accepted on the development image before publication.
 
 ## [4.1.1] - 2026-09-25
 

@@ -1,6 +1,7 @@
+import { visiblePhysicalMessageSql } from './messageVisibility.js';
 import { query } from './db.js';
 
-/** Count physical unread inbox rows, not events, cached folder totals or threads. */
+/** Count visible physical unread mail, not verified aliases, events or cached folder totals. */
 export async function readUnreadInboxCounts(userId: string): Promise<{
   total: number; byAccount: Record<string, number>;
 }> {
@@ -10,6 +11,7 @@ export async function readUnreadInboxCounts(userId: string): Promise<{
     JOIN email_accounts a ON a.id = m.account_id
     WHERE a.user_id = $1 AND a.enabled = true
       AND m.is_read = false AND m.is_deleted = false AND m.is_archived = false
+      AND ${visiblePhysicalMessageSql}
       AND (m.folder = 'INBOX' OR EXISTS (
         SELECT 1 FROM message_labels ml
         WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = 'INBOX'

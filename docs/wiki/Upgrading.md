@@ -47,6 +47,27 @@ Watch the backend logs for migrations on the first start after an upgrade:
 docker compose logs -f backend
 ```
 
+## Upgrading to 4.1.2
+
+4.1.2 includes database and maintenance changes. **Back up PostgreSQL and `.env` first**, then
+upgrade all backend instances together. The normal startup runner applies, in order,
+`0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`,
+`0148_graph_reader_body_completeness.sql` and `0149_body_cache_retention.sql`. Do not run an
+older backend against the post-0146 compact DAV journal schema; restore the pre-upgrade backup
+for a full rollback.
+
+After startup, storage repair runs automatically in bounded resumable batches. Existing DAV
+clients whose sync token predates the compacted history can be asked for one full sync; this
+does not delete calendar events or contacts. No provider reconnect or mailbox resync is
+required.
+
+Administrators should review **Settings → Administration → Performance** after upgrade. The
+defaults are safe for a normal installation: 25 visible message bodies prefetched, 30-day body
+cache/DAV history, 10,000 DAV entries per collection, 90-day authentication logs, 30-day
+conversation audit, and 7-day resolved-ingest/outbox-payload history. See
+[Configuration](Configuration.md#performance-administration) and
+[Release notes 4.1.2](Release-notes-4.1.2.md).
+
 ## Upgrading to 4.1.0
 
 4.1.0 adds the native provider layer. Nothing about an existing installation stops working, and nothing is

@@ -112,3 +112,103 @@ test('a late unread-count response cannot overwrite a newer response or an optim
     assert.equal(useStore.getState().unreadCounts.total, 1);
   } finally { api.getUnreadCounts = original; }
 });
+
+test('navigation snapshots are evicted by local changes, account changes, lock and logout', async () => {
+  const { mailListCache } = await import('../utils/mailListCache.ts');
+  const params = { limit: 50, offset: 0 };
+  const populate = () => {
+    mailListCache.finish(mailListCache.begin(params, 1), { messages: [{ id: 'newest', account_id: 'a' }], total: 1 });
+    assert.ok(mailListCache.get(params, 1));
+  };
+  seed();
+  for (const action of [
+    () => useStore.getState().updateMessage('newest', { is_read: true }),
+    () => useStore.getState().removeMessage('newest'),
+    () => useStore.getState().removeMessages(['newest']),
+    () => useStore.getState().restoreMessages([{ id: 'newest', account_id: 'a' }]),
+    () => useStore.getState().setAccounts([{ id: 'a', enabled: true }]),
+    () => useStore.getState().updateAccount('a', { include_in_unified_inbox: false }),
+    () => useStore.getState().setLocked(true),
+    () => { useStore.setState({ user: { id: 'old-user' } }); useStore.getState().setUser(null); },
+  ]) {
+    populate(); action(); assert.equal(mailListCache.get(params, 1), undefined);
+  }
+});
+
+test('message mutations evict only complete affected scopes, including search and cached children', async () => {
+  const { mailListCache } = await import('../utils/mailListCache.ts');
+  const unified = { limit: 50, offset: 0 };
+  const scopes = ['a', 'b', 'c'].map(accountId => ({ ...unified, accountId }));
+  const a = { id: 'a-1', account_id: 'a' }, b = { id: 'b-1', account_id: 'b' }, c = { id: 'c-1', account_id: 'c' };
+  const prepare = () => {
+    seed();
+    useStore.setState({ messages: [a], searchResults: [b], threadMessages: { c: [c] } });
+    for (const params of [unified, ...scopes]) {
+      const accountId = 'accountId' in params ? String(params.accountId) : 'a';
+      mailListCache.finish(mailListCache.begin(params, 1), { messages: [{ id: `cached-${accountId}`, account_id: accountId }], total: 1 });
+    }
+  };
+  const check = (evicted: string[]) => {
+    assert.equal(mailListCache.get(unified, 1), undefined);
+    for (const scope of scopes) assert.equal(Boolean(mailListCache.get(scope, 1)), !evicted.includes(scope.accountId));
+  };
+  prepare(); useStore.getState().updateMessage(a.id, { is_read: true }); check(['a']);
+  prepare(); useStore.getState().removeMessage(b.id); check(['b']);
+  prepare(); useStore.getState().removeMessages([a.id, c.id, c.id]); check(['a', 'c']);
+  prepare(); useStore.getState().restoreMessages([{ ...a, id: 'restored-a' }, { ...b, id: 'restored-b' }]); check(['a', 'b']);
+  prepare(); useStore.getState().restoreMessages([{ ...a, account_id: 'c' }]); check(['a', 'c']);
+  prepare(); useStore.getState().updateMessage(a.id, { account_id: 'c' }); check(['a', 'c']);
+  prepare(); useStore.getState().removeMessages([a.id, 'unknown']); check(['a', 'b', 'c']);
+  prepare(); useStore.getState().updateMessage('unknown', { is_read: true }); check(['a', 'b', 'c']);
+  prepare();
+  useStore.getState().updateMessage(a.id, { message_count: 17 });
+  useStore.getState().removeMessages([]);
+  useStore.getState().restoreMessages([]);
+  for (const params of [unified, ...scopes]) assert.ok(mailListCache.get(params, 1));
+});
+
+
+test('an account-scoped offscreen flag does not discard another account navigation snapshot', async () => {
+  const { mailListCache } = await import('../utils/mailListCache.ts');
+  seed();
+  const scopes = [{ limit: 50 }, ...['a', 'b'].map(accountId => ({ limit: 50, accountId }))];
+  const populate = () => scopes.forEach(params => mailListCache.finish(mailListCache.begin(params, 1), {
+    messages: [{ id: 'cached', account_id: 'accountId' in params ? params.accountId : 'a' }], total: 1,
+  }));
+  populate();
+  const beforeOffscreen = useStore.getState();
+  useStore.getState().updateMessage('not-in-loaded-page', { is_read: true }, 'a');
+  assert.equal(useStore.getState(), beforeOffscreen);
+  assert.equal(mailListCache.get(scopes[0], 1), undefined);
+  assert.equal(mailListCache.get(scopes[1], 1), undefined);
+  assert.ok(mailListCache.get(scopes[2], 1));
+  assert.equal(useStore.getState().messages[0].unread_count, 2);
+  populate();
+  // A known physical row takes precedence over a mismatched hint.
+  useStore.getState().updateMessage('newest', { is_read: true }, 'b');
+  assert.equal(mailListCache.get(scopes[1], 1), undefined);
+  assert.ok(mailListCache.get(scopes[2], 1));
+  for (const invalid of ['', ' a ']) {
+    populate(); useStore.getState().updateMessage('not-loaded', { is_read: true }, invalid);
+    assert.equal(mailListCache.get(scopes[2], 1), undefined);
+  }
+});
+
+test('a physical read updates a singleton badge without requiring an expansion', () => {
+  seed();
+  useStore.setState({ messages: [{ id: 'only', account_id: 'a', thread_id: 'a:only', message_count: 1, unread_count: 1, is_read: false }], threadMessages: {} });
+  useStore.getState().updateMessage('only', { is_read: true });
+  assert.equal(useStore.getState().messages[0].unread_count, 0);
+  useStore.getState().updateMessage('only', { is_read: false });
+  assert.equal(useStore.getState().messages[0].unread_count, 1);
+});
+
+test('reading a known child in an incomplete expansion preserves unobserved unread replies', () => {
+  seed();
+  useStore.setState({ messages: [{ id: 'newest', account_id: 'a', thread_id: 'a:thread', message_count: 3, unread_count: 3, is_read: false }] });
+  useStore.getState().updateMessage('older', { is_read: true });
+  assert.equal(useStore.getState().messages[0].unread_count, 2);
+  useStore.getState().updateMessage('newest', { is_read: true });
+  assert.equal(useStore.getState().messages[0].unread_count, 1);
+  assert.equal(useStore.getState().messages[0].is_read, false);
+});

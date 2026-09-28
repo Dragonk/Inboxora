@@ -1,3 +1,4 @@
+import { visiblePhysicalMessageSql } from '../services/messageVisibility.js';
 import { readUnreadInboxCounts } from '../services/unreadInboxCounts.js';
 import { Router } from 'express';
 import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
@@ -407,6 +408,7 @@ router.get('/thread/:threadId', async (req, res) => {
         FROM messages m
         JOIN email_accounts a ON m.account_id = a.id
         WHERE m.is_deleted = false
+          AND ${visiblePhysicalMessageSql}
           AND m.account_id = ANY($1)
           AND ${threadIdentityExpr} = $2
         ORDER BY m.account_id,
@@ -2481,15 +2483,14 @@ router.post('/messages/bulk-read', async (req, res) => {
     }));
     const gtdUpdatedIds = toUpdate.filter(m => gtdAccts.has(m.account_id)).map(m => m.id);
     if (gtdUpdatedIds.length) await fanOutBulkReadToSiblings(gtdUpdatedIds, read);
-    // Reflect the bulk read/unread change on the user's other sessions in place (no full refetch).
-    imapManager.broadcast({ type: 'message_flags', changes: toUpdate.map(m => ({ id: m.id, is_read: read })) }, req.session.userId);
-
-    // IMAP flag updates — group by account to fetch each account row once.
+    // Group writes and live events by account; an unscoped echo otherwise
+    // invalidates every visited inbox, including in the originating browser.
     const byAccount: Record<string, MailMessageRow[]> = {};
     for (const msg of toUpdate) {
       (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
     }
     for (const [accountId, msgs] of Object.entries(byAccount)) {
+      imapManager.broadcast({ type: 'message_flags', accountId, changes: msgs.map(m => ({ id: m.id, is_read: read })) }, req.session.userId);
       const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
       const account = accountResult.rows[0];
       // A native account has no IMAP session: the write goes to its provider through
@@ -3924,6 +3925,7 @@ router.get('/category-counts', async (req, res) => {
     WHERE m.account_id = ANY($1)
       AND m.folder = 'INBOX'
       AND m.is_deleted = false
+      AND ${visiblePhysicalMessageSql}
     GROUP BY COALESCE(m.category, 'primary')
   `, [scopedIds]);
 

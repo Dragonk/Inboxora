@@ -277,6 +277,15 @@ export const test = base.extend({
       if (page.__bulkReadFailure || (body.ids || []).some(id => page.__bulkReadFailureIds?.has(id))) {
         return route.fulfill({ status: 503, json: { error: 'Fixture bulk read failed' } });
       }
+      // Successful writes must be observable by the list, thread and CE detail
+      // handlers. Otherwise the reader's legitimate post-write refresh restores
+      // the fixture's initial unread state, depending on assertion timing.
+      const unread = new Set(page.__unreadCopies || []);
+      for (const id of body.ids || []) {
+        if (body.read) unread.delete(id);
+        else unread.add(id);
+      }
+      page.__unreadCopies = [...unread];
       return route.fulfill({ json: { ok: true } });
     });
     await page.route('**/api/mail/messages/*/star', async route => {

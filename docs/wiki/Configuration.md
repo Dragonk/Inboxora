@@ -233,6 +233,7 @@ Administrators see additional tabs, grouped as **Account & Mail**, **Calendar**,
 | Appearance | Theme, layout, language and fonts, plus instance-wide custom CSS. |
 | Shortcuts | Default keyboard shortcuts. |
 | Security | TOTP, screen lock, login protection, mail-server connection policy, MFA enforcement, login log. |
+| Performance | Message-body prefetch plus body-cache, DAV and operational-history retention. |
 | DAV access | Application passwords for CardDAV and CalDAV clients. |
 | Integrations | Microsoft 365 OAuth app, remote CardDAV account, Todoist. |
 | AI Assistant / AI Actions | Optional OpenAI-compatible provider and prompt shortcuts. |
@@ -248,6 +249,56 @@ when reporting a problem. The same panel generates the redacted diagnostics repo
 [Troubleshooting](Troubleshooting.md), and it is reachable on a phone like every other tab:
 
 <img src="https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-about-mobile.png" width="280" alt="About settings on a phone">
+
+### Performance (administration)
+
+Inboxora 4.1.2 adds **Settings → Administration → Performance** for instance-wide cache,
+prefetch and retention controls. Changes are stored centrally and apply to new background
+batches without restarting the backend.
+
+#### Message body prefetch
+
+**Messages to prefetch** controls how many messages at the start of the currently visible
+folder may have their bodies prepared before the user opens them. The default is **25** and
+the allowed range is **0–100**; **0 disables speculative prefetch**. IMAP, Gmail API and
+Microsoft Graph use the same policy. Bodies are fetched sequentially per account, already
+cached bodies are skipped, and provider cooldown/concurrency limits still apply.
+
+`MAIL_BODY_PREFETCH=off` is a server-level override. When it is present, the saved numeric
+value remains visible but prefetch stays disabled until the environment override is removed.
+Changing the limit does not delete existing body caches.
+
+#### Data retention
+
+| Setting | Default | Range | What expires |
+| --- | ---: | ---: | --- |
+| Body cache lifetime | 30 days | 0–3650 | Local message text/HTML and embedded images. `0` means no expiry. |
+| DAV change history | 30 days | 1–3650 | Historical CalDAV/CardDAV change metadata; events and contacts are never deleted by this setting. |
+| DAV entries per calendar/address book | 10,000 | 100–100,000 | Latest change/tombstone entries retained per collection. |
+| Authentication logs | 90 days | 1–3650 | Login and authentication audit entries. |
+| Conversation rebuild audit | 30 days | 1–3650 | Old rebuild reports, not conversations. |
+| Resolved ingestion errors | 7 days | 1–3650 | Only already-resolved ingest failures. |
+| Completed outbox payloads | 7 days | 1–3650 | Payloads of completed internal events; dedupe keys and pending/uncertain work remain. |
+
+Body-cache expiry is **not mail deletion**. The message row, headers, snippet, attachment
+metadata and the provider copy remain; opening an expired body fetches it again. Drafts,
+unbound/local-only copies and pending work are protected. A body that has expired is not
+available to local body search until it is fetched again.
+
+DAV retention never removes canonical calendar events or contacts. If a client presents a
+sync token older than the retained history floor, Inboxora asks it to perform a full sync.
+This is normal and keeps the journal bounded.
+
+Cleanup runs in small background batches. Shortening a retention period can make eligible
+data disappear on the next pass; increasing it cannot restore history that has already been
+removed. PostgreSQL may reuse freed pages without immediately reducing the database file size.
+
+`STORAGE_MAINTENANCE_ENABLED=false` pauses body-cache and DAV maintenance. Authentication,
+conversation-audit, resolved-error and completed-outbox retention remain operational. Docker
+container stdout/stderr logs are separate; the standard Compose files rotate **3 × 10 MiB**
+per service, while custom deployments must configure their own Docker logging policy.
+
+For the migration and storage-repair details, see [Release notes 4.1.2](Release-notes-4.1.2.md).
 
 ### Mail server connection policy
 

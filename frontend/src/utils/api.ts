@@ -1,3 +1,4 @@
+import { mailListCache, invalidateMailListCacheForAccounts, type MailListSnapshot } from './mailListCache.ts';
 import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
@@ -43,48 +44,58 @@ export function toSearchParams(params: QueryParams): string {
   return search.toString();
 }
 
-async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}) {
-  const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
-  if (body) headers['Content-Type'] = 'application/json';
-  const opts: RequestInit = {
-    method,
-    credentials: 'include',
-    headers,
-    ...extraOptions,
-  };
-  if (body) opts.body = JSON.stringify(body);
-  // Capture before fetch so a late response cannot emit an auth event into a newer SPA session.
+async function request(method: string, path: string, body: unknown = undefined, extraHeaders: Record<string, string> | undefined = undefined, extraOptions: RequestInit = {}, mailCacheAccountIds?: readonly unknown[]) {
+  // Capture before either cache fence, so a late write cannot invalidate a
+  // newer session. Keep the scope stable until the write settles.
   const requestAuthEpoch = getAuthEpoch();
-  const res = await fetch(BASE + path, opts);
-  if (!res.ok) {
-    if (res.status === 423 && isCurrentAuthEpoch(requestAuthEpoch)) {
-      // Server-enforced screen lock (#235) — surface the lock overlay from current-session calls only.
-      window.dispatchEvent(new CustomEvent('inboxora:locked'));
+  const affectsMailCache = method !== 'GET' && path.startsWith('/mail/') && !path.endsWith('/body-access');
+  const cacheScope = mailCacheAccountIds ? [...mailCacheAccountIds] : undefined;
+  if (affectsMailCache) invalidateMailListCacheForAccounts(cacheScope);
+  try {
+    const headers: Record<string, string> = { [CSRF_HEADER]: CSRF_VALUE, ...(extraHeaders || {}) };
+    if (body) headers['Content-Type'] = 'application/json';
+    const opts: RequestInit = {
+      method,
+      credentials: 'include',
+      headers,
+      ...extraOptions,
+    };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(BASE + path, opts);
+    if (!res.ok) {
+      if (res.status === 423 && isCurrentAuthEpoch(requestAuthEpoch)) {
+        // Server-enforced screen lock (#235) — surface the lock overlay from current-session calls only.
+        window.dispatchEvent(new CustomEvent('inboxora:locked'));
+      }
+      if (res.status === 401 && !path.startsWith('/auth/') && isCurrentAuthEpoch(requestAuthEpoch)) {
+        window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
+      }
+      const err: unknown = await res.json().catch(() => ({ error: 'Request failed' }));
+      const payload = typeof err === 'object' && err !== null ? err as Record<string, unknown> : {};
+      // Routes may include structured `details`, but Error.message must always be safe, short text — never
+      // JavaScript's "[object Object]" fallback.
+      const message = typeof payload.error === 'string' ? payload.error
+        : typeof payload.message === 'string' ? payload.message : 'Request failed';
+      const error = new Error(message);
+      error.status = res.status;
+      // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
+      if (typeof payload.code === 'string') (error as Error & { code?: string }).code = payload.code;
+      // Source context is a stable, server-whitelisted diagnostic value. It can be
+      // a short scope string or a persisted calendar-source descriptor; retain it
+      // without coercing structured context to an unusable message.
+      if (payload.source !== undefined) (error as unknown as Record<string, unknown>).source = payload.source;
+      if (payload.sync !== undefined) (error as unknown as Record<string, unknown>).sync = payload.sync;
+      if (payload.details) (error as Error & { details?: unknown }).details = payload.details;
+      throw error;
     }
-    if (res.status === 401 && !path.startsWith('/auth/') && isCurrentAuthEpoch(requestAuthEpoch)) {
-      window.dispatchEvent(new CustomEvent('inboxora:session_expired'));
-    }
-    const err: unknown = await res.json().catch(() => ({ error: 'Request failed' }));
-    const payload = typeof err === 'object' && err !== null ? err as Record<string, unknown> : {};
-    // Routes may include structured `details`, but Error.message must always be safe, short text — never
-    // JavaScript's "[object Object]" fallback.
-    const message = typeof payload.error === 'string' ? payload.error
-      : typeof payload.message === 'string' ? payload.message : 'Request failed';
-    const error = new Error(message);
-    error.status = res.status;
-    // The domain code, so a caller can answer in the user's own language rather than matching the server's prose.
-    if (typeof payload.code === 'string') (error as Error & { code?: string }).code = payload.code;
-    // Source context is a stable, server-whitelisted diagnostic value. It can be
-    // a short scope string or a persisted calendar-source descriptor; retain it
-    // without coercing structured context to an unusable message.
-    if (payload.source !== undefined) (error as unknown as Record<string, unknown>).source = payload.source;
-    if (payload.sync !== undefined) (error as unknown as Record<string, unknown>).sync = payload.sync;
-    if (payload.details) (error as Error & { details?: unknown }).details = payload.details;
-    throw error;
+    // A successful DELETE may deliberately return no representation (HTTP 204).
+    if (res.status === 204) return null;
+    return await res.json();
+  } finally {
+    // An overlapping GET may contain pre-commit data. Fence entries and tickets
+    // on success and failure: a network failure need not mean nothing changed.
+    if (affectsMailCache && isCurrentAuthEpoch(requestAuthEpoch)) invalidateMailListCacheForAccounts(cacheScope);
   }
-  // A successful DELETE may deliberately return no representation (HTTP 204).
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 // Aborting a request rejects with a DOMException named AbortError (or, in some
@@ -294,9 +305,17 @@ export const api = {
   deleteAlias: (accountId: string, aliasId: string) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),
 
   // Mail
-  getMessages: (params: QueryParams) =>{
-    const qs = toSearchParams(params);
-    return request('GET', `/mail/messages?${qs}`);
+  getCachedMessages: (params: QueryParams): MailListSnapshot | undefined => mailListCache.get(params, getAuthEpoch()),
+  getMessages: async (params: QueryParams, options: { signal?: AbortSignal } = {}): Promise<MailListSnapshot> => {
+    const epoch = getAuthEpoch();
+    const ticket = mailListCache.begin(params, epoch);
+    try {
+      const data: MailListSnapshot = await request('GET', `/mail/messages?${toSearchParams(params)}`, undefined, undefined, options);
+      if (isCurrentAuthEpoch(epoch) && !options.signal?.aborted) mailListCache.finish(ticket, data);
+      return data;
+    } finally {
+      mailListCache.finish(ticket);
+    }
   },
   getMessage: (id: string) => request('GET', `/mail/messages/${id}`),
   // Resolve a deep-link reference (stable Message-ID header, or a legacy UUID) to the
@@ -315,7 +334,8 @@ export const api = {
     const query = qs.size ? `?${qs}` : '';
     return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
   },
-  bulkRead: (ids: string[], read: boolean) => request('POST', '/mail/messages/bulk-read', { ids, read }),
+  bulkRead: (ids: string[], read: boolean, accountIds?: readonly unknown[]) =>
+    request('POST', '/mail/messages/bulk-read', { ids, read }, undefined, {}, accountIds),
   markStarred: (id: string, starred: boolean) => request('PATCH', `/mail/messages/${id}/star`, { starred }),
   markAllRead: (accountId: string, folder: string) => request('POST', '/mail/mark-all-read', { accountId, folder }),
   deleteMessage: (id: string) => request('DELETE', `/mail/messages/${id}`),

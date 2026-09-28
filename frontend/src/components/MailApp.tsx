@@ -678,7 +678,7 @@ export default function MailApp() {
   useEffect(() => {
     const maxAge = Math.min(50_000, Math.max(15_000, (syncInterval || 60) * 1000));
     const timer = setInterval(() => {
-      if (document.visibilityState === 'visible' && mailListNeedsRefresh(maxAge)) requestMailRefresh();
+      if (document.visibilityState === 'visible' && mailListNeedsRefresh(maxAge)) requestMailRefresh(undefined, { invalidateCache: false });
     }, 10_000);
     return () => clearInterval(timer);
   }, [syncInterval]);
