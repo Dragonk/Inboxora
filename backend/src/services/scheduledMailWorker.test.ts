@@ -5,7 +5,7 @@ import type { SendExecutionResult } from './sendMail.js';
 
 const queue = vi.hoisted(() => ({
   claimScheduledMail: vi.fn(), completeScheduledMail: vi.fn(), recoverScheduledMail: vi.fn(),
-  renewScheduledClaim: vi.fn(), beginScheduledDispatch: vi.fn(),
+  renewScheduledClaim: vi.fn(), beginScheduledDispatch: vi.fn(), releaseScheduledClaim: vi.fn(),
 }));
 vi.mock('./scheduledMail.js', () => queue);
 vi.mock('./sendMail.js', () => ({ executeSend: vi.fn() }));
@@ -30,7 +30,8 @@ function row(): ScheduledRow {
   };
 }
 const sent: SendExecutionResult = { status: 200, body: { success: true } };
-const prevented: SendExecutionResult = { status: 409, body: { code: 'SCHEDULE_CLAIM_LOST' } };
+// Exact internal result emitted by executeSend after a proven pre-dispatch refusal.
+const prevented: SendExecutionResult = { status: 409, dispatchPrevented: true, body: { code: 'SEND_DISPATCH_PREVENTED' } };
 
 describe('scheduled mail worker', () => {
   beforeEach(() => {
@@ -39,6 +40,7 @@ describe('scheduled mail worker', () => {
     queue.recoverScheduledMail.mockResolvedValue(undefined);
     queue.claimScheduledMail.mockResolvedValue(null);
     queue.completeScheduledMail.mockResolvedValue(undefined);
+    queue.releaseScheduledClaim.mockResolvedValue(undefined);
     queue.beginScheduledDispatch.mockResolvedValue(true);
     queue.renewScheduledClaim.mockResolvedValue(true);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -62,6 +64,34 @@ describe('scheduled mail worker', () => {
     expect(queue.beginScheduledDispatch).toHaveBeenCalledWith(claimed);
     expect(queue.completeScheduledMail).toHaveBeenCalledTimes(4);
     expect(queue.completeScheduledMail).toHaveBeenLastCalledWith(claimed, sent);
+    expect(vi.getTimerCount()).toBe(0);
+    await worker.stop();
+  });
+
+  it.each(['SEND_DISPATCH_PREVENTED', 'SEND_OUTCOME_UNKNOWN'])('does not release on provider code %s without internal proof', async code => {
+    const claimed = row();
+    queue.claimScheduledMail.mockResolvedValueOnce(claimed);
+    const response: SendExecutionResult = { status: 503, body: { code, dispatchPrevented: true } };
+    const worker = createScheduledMailWorker(async (_user, _payload, _key, options) => {
+      expect(await options?.beforeDispatch?.()).toBe(true);
+      return response;
+    });
+    await worker.tick();
+    expect(queue.releaseScheduledClaim).not.toHaveBeenCalled();
+    expect(queue.completeScheduledMail).toHaveBeenCalledExactlyOnceWith(claimed, response);
+    expect(vi.getTimerCount()).toBe(0);
+    await worker.stop();
+  });
+
+  it('leaves a proven unsent claim for recovery when release fails without completing it as failed', async () => {
+    const claimed = row();
+    queue.claimScheduledMail.mockResolvedValueOnce(claimed);
+    queue.releaseScheduledClaim.mockRejectedValueOnce(new Error('Release database unavailable'));
+    const worker = createScheduledMailWorker(async () => prevented);
+    await worker.tick();
+    expect(queue.releaseScheduledClaim).toHaveBeenCalledExactlyOnceWith(claimed);
+    expect(queue.completeScheduledMail).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith('Scheduled claim release failed:', 'Release database unavailable');
     expect(vi.getTimerCount()).toBe(0);
     await worker.stop();
   });
@@ -104,7 +134,8 @@ describe('scheduled mail worker', () => {
     await Promise.all([running, stopping]);
     expect(provider).not.toHaveBeenCalled();
     expect(queue.beginScheduledDispatch).not.toHaveBeenCalled();
-    expect(queue.completeScheduledMail).toHaveBeenCalledWith(claimed, prevented);
+    expect(queue.releaseScheduledClaim).toHaveBeenCalledExactlyOnceWith(claimed);
+    expect(queue.completeScheduledMail).not.toHaveBeenCalled();
     await worker.tick();
     worker.start();
     expect(queue.claimScheduledMail).toHaveBeenCalledTimes(1);
@@ -130,6 +161,8 @@ describe('scheduled mail worker', () => {
     await running;
     expect(queue.beginScheduledDispatch).not.toHaveBeenCalled();
     expect(provider).not.toHaveBeenCalled();
+    expect(queue.releaseScheduledClaim).toHaveBeenCalledTimes(1);
+    expect(queue.completeScheduledMail).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
     await worker.stop();
   });
@@ -147,7 +180,8 @@ describe('scheduled mail worker', () => {
     await worker.tick();
     expect(queue.beginScheduledDispatch).toHaveBeenCalledExactlyOnceWith(claimed);
     expect(provider).not.toHaveBeenCalled();
-    expect(queue.completeScheduledMail).toHaveBeenCalledWith(claimed, prevented);
+    expect(queue.releaseScheduledClaim).toHaveBeenCalledExactlyOnceWith(claimed);
+    expect(queue.completeScheduledMail).not.toHaveBeenCalled();
     await worker.stop();
   });
 
@@ -168,6 +202,8 @@ describe('scheduled mail worker', () => {
     dispatchGate.resolve(true);
     await Promise.all([running, stopping]);
     expect(provider).not.toHaveBeenCalled();
+    expect(queue.releaseScheduledClaim).toHaveBeenCalledTimes(1);
+    expect(queue.completeScheduledMail).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -189,6 +225,8 @@ describe('scheduled mail worker', () => {
     dispatchGate.resolve(true);
     await running;
     expect(provider).not.toHaveBeenCalled();
+    expect(queue.releaseScheduledClaim).toHaveBeenCalledTimes(1);
+    expect(queue.completeScheduledMail).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
     await worker.stop();
   });

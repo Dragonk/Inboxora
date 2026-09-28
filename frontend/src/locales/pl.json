@@ -2579,6 +2579,9 @@
     "pastTime": "Wybierz czas w przyszłości.",
     "loadError": "Nie udało się wczytać zaplanowanych wiadomości.",
     "composeOpen": "Zamknij bieżący edytor przed edycją tej wiadomości.",
+    "dismiss": "Usuń z kolejki",
+    "dismissConfirm": "Ta wiadomość mogła już zostać dostarczona. Usunąć ją z kolejki i trwale usunąć jej zawartość? Ta czynność usuwa tylko aktywny wpis kolejki i treść; nigdy nie wycofuje ani nie ponawia dostarczenia. Historia ostatnich stanów pozostaje.",
+    "dismissedWarning": "Usunięto zawartość wiadomości z kolejki. Wiadomość mogła już zostać dostarczona; ta czynność nie wycofała ani nie ponowiła dostarczenia.",
     "cancelConfirm": "Anulować wiadomość i trwale usunąć jej zawartość?",
     "conflict": "Wiadomość zmieniła się lub rozpoczęto wysyłkę. Odśwież i sprawdź stan.",
     "actionError": "Nie potwierdzono operacji. Odśwież i sprawdź wiadomość przed ponowieniem.",
@@ -2603,6 +2606,7 @@
       "partial": "Dostarczono częściowo",
       "failed": "Błąd",
       "uncertain": "Dostarczenie niepewne",
+      "dismissed": "Usunięta z kolejki",
       "cancelled": "Anulowano"
     },
     "pausedAvailable": "Wysyłka wstrzymana. Bieżąca wiadomość pozostaje bez zmian. Później otwórz Zaplanowane / do wysłania, aby edytować wstrzymaną wiadomość."

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 
+/** Edit the server-backed delay while preserving preference-loading and session guards. */
 export default function UndoSendSettings() {
   const { t } = useTranslation();
   const id = useId();

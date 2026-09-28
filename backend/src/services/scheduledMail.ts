@@ -6,7 +6,7 @@ import type { PreparedSend, SendExecutionOptions, SendExecutionResult, SendReque
 
 export type SendExecutor = (userId: string, payload: SendRequestBody, key: string | null,
   options?: SendExecutionOptions) => Promise<SendExecutionResult>;
-export type ScheduledState = 'pending' | 'editing' | 'preparing' | 'sending' | 'sent' | 'partial' | 'failed' | 'uncertain' | 'cancelled';
+export type ScheduledState = 'pending' | 'editing' | 'preparing' | 'sending' | 'sent' | 'partial' | 'failed' | 'uncertain' | 'cancelled' | 'dismissed';
 export interface ScheduledSummary {
   id: string; accountId: string; subject: string; mode: 'undo' | 'schedule'; state: ScheduledState;
   scheduledAt: Date; timeZone: string; revision: number; errorCode: string | null;
@@ -22,9 +22,12 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 /** Expected user errors are safe to expose; infrastructure errors use normal middleware. */
 export class ScheduledMailError extends Error {
+  /** Preserve the public status and stable application error code. */
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
+/** Raise a typed validation error without exposing infrastructure details. */
 function invalid(message: string): never { throw new ScheduledMailError(400, 'SCHEDULE_INVALID', message); }
+/** Validate the queue identifier before an owner-scoped database query. */
 export function requireScheduledId(value: string): void {
   if (!UUID.test(value)) invalid('Invalid scheduled message id');
 }
@@ -46,6 +49,7 @@ export function validateScheduledAt(value: unknown, now = Date.now()): Date {
   if (date.getTime() <= now) invalid('Scheduled time must be in the future');
   return date;
 }
+/** Require a JSON object before reading queued-message fields. */
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) invalid('Message must be an object');
   return value as Record<string, unknown>;
@@ -92,14 +96,17 @@ export function validateScheduledPayload(value: unknown): SendRequestBody {
   // Every field was checked above; shared delivery validation checks recipients/limits.
   return out as SendRequestBody;
 }
+/** Require a positive safe revision for optimistic queue mutations. */
 function requireRevision(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) invalid('A current message revision is required');
   return value;
 }
+/** Project private queue storage to owner-visible metadata only. */
 function summary(row: ScheduledSummary): ScheduledSummary {
   const { id, accountId, subject, mode, state, scheduledAt, timeZone, revision, errorCode } = row;
   return { id, accountId, subject, mode, state, scheduledAt, timeZone, revision, errorCode };
 }
+/** Validate and freeze a message without acquiring a delivery intent. */
 async function prepare(userId: string, message: SendRequestBody, execute: SendExecutor): Promise<PreparedSend> {
   const result = await execute(userId, message, null, { prepareOnly: true });
   if (result.status !== 200 || !result.prepared) {
@@ -109,6 +116,7 @@ async function prepare(userId: string, message: SendRequestBody, execute: SendEx
   }
   return result.prepared;
 }
+/** Return an enqueue receipt only when its immutable request fingerprint matches. */
 function replay(row: ScheduledRow, fingerprint: string): ScheduledSummary {
   if (row.request_fingerprint !== fingerprint) throw new ScheduledMailError(409, 'SCHEDULE_KEY_MISMATCH', 'This request key belongs to a different message');
   return summary(row);
@@ -137,7 +145,7 @@ export async function enqueueScheduledMail(userId: string, inputValue: unknown, 
     await client.query("SELECT pg_advisory_xact_lock(hashtext('scheduled-mail'), hashtext($1))", [userId]);
     const raced = await client.query<ScheduledRow>(`SELECT ${DETAIL} FROM scheduled_mail WHERE user_id=$1 AND idempotency_key=$2`, [userId, key]);
     if (raced.rows[0]) return replay(raced.rows[0], fingerprint);
-    const count = await client.query<{ count: string }>("SELECT count(*) FROM scheduled_mail WHERE user_id=$1 AND state NOT IN ('sent','cancelled')", [userId]);
+    const count = await client.query<{ count: string }>("SELECT count(*) FROM scheduled_mail WHERE user_id=$1 AND state NOT IN ('sent','cancelled','dismissed')", [userId]);
     if (Number(count.rows[0].count) >= MAX_ACTIVE) throw new ScheduledMailError(409, 'SCHEDULE_QUEUE_FULL', 'At most 100 active scheduled messages are allowed');
     // Undo time starts AFTER preparation, not before slow forwarded-attachment reads.
     const scheduledAt = mode === 'undo' ? new Date(Date.now() + Number(delay) * 1000) : validateScheduledAt(input.scheduledAt);
@@ -152,8 +160,8 @@ export async function enqueueScheduledMail(userId: string, inputValue: unknown, 
 /** List metadata only; attachment bytes and BCC are never broadcast/listed. */
 export async function listScheduledMail(userId: string): Promise<ScheduledSummary[]> {
   return (await query<ScheduledSummary>(`SELECT ${SUMMARY} FROM scheduled_mail WHERE user_id=$1
-    AND (state NOT IN ('sent','cancelled') OR updated_at > clock_timestamp() - interval '7 days')
-    ORDER BY (state NOT IN ('sent','cancelled')) DESC, scheduled_at DESC, id LIMIT 200`, [userId])).rows;
+    AND (state NOT IN ('sent','cancelled','dismissed') OR updated_at > clock_timestamp() - interval '7 days')
+    ORDER BY (state NOT IN ('sent','cancelled','dismissed')) DESC, scheduled_at DESC, id LIMIT 200`, [userId])).rows;
 }
 /** Pausing wins atomically against worker claiming, and is idempotent at this revision. */
 export async function editScheduledMail(userId: string, id: string, revision: unknown): Promise<ScheduledRow> {
@@ -236,6 +244,33 @@ export async function cancelScheduledMail(userId: string, id: string, revision: 
   return result.rows[0];
 }
 
+/** Acknowledge an uncertain outcome without recalling or resubmitting anything.
+ * Purge payload/provider-result recipients, but retain the idempotency tombstone.
+ * The previous revision can replay its acknowledgement after a lost response.
+ */
+export async function dismissScheduledMail(userId: string, id: string, revision: unknown): Promise<ScheduledSummary> {
+  requireScheduledId(id);
+  const expected = requireRevision(revision);
+  const result = await query<ScheduledSummary>(`UPDATE scheduled_mail SET state='dismissed', payload='{}'::jsonb,
+    result=NULL, revision=revision+1, updated_at=clock_timestamp(), last_error_code=NULL
+    WHERE id=$1 AND user_id=$2 AND revision=$3 AND state='uncertain' RETURNING ${SUMMARY}`,
+  [id, userId, expected]);
+  if (result.rows[0]) return result.rows[0];
+  const replayed = await query<ScheduledSummary>(`SELECT ${SUMMARY} FROM scheduled_mail
+    WHERE id=$1 AND user_id=$2 AND revision=$3 AND state='dismissed'`, [id, userId, expected + 1]);
+  if (replayed.rows[0]) return replayed.rows[0];
+  throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'Only a current uncertain outcome can be dismissed. Refresh the queue.');
+}
+
+/** Release only when the send service proves its final gate refused submission.
+ * Never use this for transport errors. A new revision avoids abandoned reservations.
+ */
+export async function releaseScheduledClaim(row: ScheduledRow): Promise<void> {
+  await query(`UPDATE scheduled_mail SET state='pending', revision=revision+1, lease_token=NULL, lease_until=NULL,
+    dispatch_started_at=NULL, last_error_code=NULL, updated_at=clock_timestamp()
+    WHERE id=$1 AND lease_token=$2 AND state IN ('preparing','sending')`, [row.id, row.lease_token]);
+}
+
 /** Claim a single due row without holding a transaction open during network I/O. */
 export async function claimScheduledMail(): Promise<ScheduledRow | null> {
   const token = randomUUID();
@@ -245,6 +280,7 @@ export async function claimScheduledMail(): Promise<ScheduledRow | null> {
       ORDER BY scheduled_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING ${DETAIL}`, [token]);
   return result.rows[0] ?? null;
 }
+/** Renew only a live owned lease; never revive an expired token. */
 export async function renewScheduledClaim(row: ScheduledRow): Promise<boolean> {
   return !!(await query(`UPDATE scheduled_mail SET lease_until=clock_timestamp()+interval '2 minutes'
     WHERE id=$1 AND lease_token=$2 AND state IN ('preparing','sending') AND lease_until>clock_timestamp() RETURNING id`,
@@ -256,9 +292,11 @@ export async function beginScheduledDispatch(row: ScheduledRow): Promise<boolean
     WHERE id=$1 AND lease_token=$2 AND state='preparing' AND lease_until>clock_timestamp() RETURNING id`,
   [row.id, row.lease_token])).rows.length;
 }
+/** Canonicalize addresses for comparing provider recipient outcomes. */
 function recipientAddress(value: string): string {
   return (value.match(/<([^<>]+)>/)?.[1] ?? value).trim().toLowerCase();
 }
+/** Retain rejected addresses in their original To/CC/BCC roles. */
 function rejectedPayload(payload: PreparedSend, rejected: string[]): PreparedSend {
   const addresses = new Set(rejected.map(recipientAddress));
   return { ...payload, payload: { ...payload.payload,

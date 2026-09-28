@@ -2579,6 +2579,9 @@
     "pastTime": "Scegli un orario futuro.",
     "loadError": "Impossibile caricare i messaggi programmati.",
     "composeOpen": "Chiudi la composizione corrente prima di modificare questo messaggio.",
+    "dismiss": "Rimuovi dalla coda",
+    "dismissConfirm": "Questo messaggio potrebbe essere già stato consegnato. Rimuoverlo dalla coda ed eliminarne definitivamente il contenuto? Vengono rimossi solo la voce attiva e il corpo; la consegna non viene mai richiamata né ritentata. La cronologia recente degli stati rimane.",
+    "dismissedWarning": "Rimosso: il contenuto del messaggio è stato eliminato. Il messaggio potrebbe essere già stato consegnato; la consegna non è stata richiamata né ritentata.",
     "cancelConfirm": "Annullare questo messaggio ed eliminarne definitivamente il contenuto?",
     "conflict": "Il messaggio è cambiato o l’invio è iniziato. Aggiorna e verifica lo stato.",
     "actionError": "Impossibile confermare l’azione. Aggiorna e verifica il messaggio prima di riprovare.",
@@ -2603,6 +2606,7 @@
       "partial": "Consegna parziale",
       "failed": "Non riuscito",
       "uncertain": "Consegna incerta",
+      "dismissed": "Rimosso",
       "cancelled": "Annullato"
     },
     "pausedAvailable": "Invio in pausa. La composizione attuale rimane invariata. Apri in seguito Programmati / posta in uscita per modificare il messaggio in pausa."

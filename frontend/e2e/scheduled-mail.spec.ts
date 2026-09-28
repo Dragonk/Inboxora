@@ -7,6 +7,7 @@ test.use({ serviceWorkers: 'block' });
 
 type Summary = { id: string; accountId: string; subject: string; mode: 'undo' | 'schedule'; state: string;
   scheduledAt: string; timeZone: string; revision: number; errorCode: string | null };
+/** Build metadata-only queue fixtures without exposing delivery payloads. */
 const pending = (overrides: Partial<Summary> = {}): Summary => ({ id: 'queued-1', accountId: 'account-gmail',
   subject: 'Queued fixture', mode: 'undo', state: 'pending', scheduledAt: new Date(Date.now() + 60_000).toISOString(),
   timeZone: 'UTC', revision: 1, errorCode: null, ...overrides });
@@ -18,6 +19,7 @@ const message = { accountId: 'account-gmail', aliasId: 'work', to: ['rejected@ex
   replyParentAccountId: 'account-gmail',
   attachments: [{ filename: 'frozen.txt', content: 'RnJvemVuIGJ5dGVzAA==', encoding: 'base64', contentType: 'text/plain' }] };
 
+/** Boot an authenticated mailbox with all queue, draft and delivery traffic mocked. */
 async function boot(page: Page, rows: Summary[] = [], options: { undo?: number; preferencesGate?: Promise<void>; preferencesError?: boolean; preferencesStarted?: () => void; waitForMailList?: boolean; defaultAlias?: string; scheduledRead?: () => Promise<void> } = {}) {
   // Keep realtime lifecycle isolated too; the preview server has no WebSocket backend.
   await page.routeWebSocket('**/ws', socket => {
@@ -48,6 +50,7 @@ async function boot(page: Page, rows: Summary[] = [], options: { undo?: number; 
   await page.goto('/');
   if (options.waitForMailList !== false) await expect(page.getByTestId('message-list-scroll')).toBeVisible();
 }
+/** Open a populated composer through the public controls. */
 async function compose(page: Page) {
   await page.getByRole('button', { name: 'Compose', exact: true }).first().click();
   await expect(page.getByTestId('compose-from')).toBeVisible();
@@ -55,11 +58,13 @@ async function compose(page: Page) {
   await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Queued fixture');
   await page.locator('.tiptap-compose [contenteditable="true"]').fill('Queued body');
 }
+/** Open the queue through the viewport-appropriate navigation. */
 async function outbox(page: Page) {
   if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('sidebar-scheduled').click();
   await expect(page.getByTestId('scheduled-view')).toBeVisible();
 }
+/** Set deterministic local schedule fields for timezone validation. */
 async function selectSchedule(page: Page, date = '2030-01-15', time = '13:45', zone = 'Europe/Warsaw') {
   await page.getByTestId('schedule-date-time').fill(`${date}T${time}`);
   await page.getByTestId('schedule-zone').fill(zone);
@@ -410,3 +415,302 @@ test('an open formatting popup is removed while sending and stays unavailable af
   await expect(editor.locator('a')).toHaveCount(0);
   await expect(editor).toHaveText('Queued body');
 });
+
+test('held queued autosave allows body and recipient edits, serializes writes and blocks Send', async ({ page, fixtureApi }) => {
+  await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
+  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
+  let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
+  const writes: Record<string, unknown>[] = []; let deliveries = 0;
+  await page.route('**/api/mail/send', route => { deliveries++; return route.fulfill({ status: 503, json: {} }); });
+  await page.route('**/api/mail/scheduled/queued-1', async route => {
+    const body: Record<string, unknown> = route.request().postDataJSON(); writes.push(body);
+    if (writes.length === 1) await gate;
+    rows[0].revision++;
+    return route.fulfill({ json: rows[0] });
+  });
+  await page.getByTestId('scheduled-edit-queued-1').click();
+  const editor = page.locator('.tiptap-compose [contenteditable="true"]');
+  await editor.fill('First autosave body');
+  const initialHtml = await editor.innerHTML();
+  let newerHtml: string;
+  try {
+    await page.clock.fastForward(30_000);
+    await expect.poll(() => writes.length).toBe(1);
+    await expect(page.getByTestId('compose-send')).toBeDisabled();
+    await expect(page.getByTestId('compose-schedule')).toBeDisabled();
+    await editor.fill('Newer body while saving');
+    newerHtml = await editor.innerHTML();
+    await page.getByTestId('compose-to').fill('newer@example.test');
+    await page.getByTestId('compose-to').press('Enter');
+    await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Newer subject while saving');
+    await page.keyboard.press('Control+Enter');
+    await page.clock.fastForward(30_000);
+    expect(writes).toHaveLength(1); expect(deliveries).toBe(0);
+    expect(writes[0]).toMatchObject({ revision: 1, keepEditing: true, message: { body: initialHtml, to: message.to } });
+    await expect(editor).toHaveText('Newer body while saving');
+    await expect(page.getByTestId('compose-to').locator('..')).toContainText('newer@example.test');
+  } finally { release(); }
+  await expect(page.getByTestId('compose-send')).toBeEnabled();
+  await page.clock.fastForward(30_000);
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1]).toMatchObject({ revision: 2, keepEditing: true, message: { body: newerHtml, subject: 'Newer subject while saving', to: [...message.to, 'newer@example.test'] } });
+  expect(deliveries).toBe(0);
+});
+
+test('lost queued autosave acknowledgement stays editable and replays exact snapshot before newer revision', async ({ page, fixtureApi }) => {
+  await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
+  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
+  const writes: Record<string, unknown>[] = []; let deliveries = 0; let enqueues = 0;
+  await page.route('**/api/mail/send', route => { deliveries++; return route.fulfill({ status: 503, json: {} }); });
+  await page.route('**/api/mail/scheduled', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: rows });
+    enqueues++; return route.fulfill({ status: 503, json: {} });
+  });
+  await page.route('**/api/mail/scheduled/queued-1', route => {
+    writes.push(route.request().postDataJSON());
+    if (writes.length === 1) { rows[0].revision = 2; return route.abort('connectionfailed'); }
+    if (writes.length > 2) rows[0].revision++;
+    return route.fulfill({ json: rows[0] });
+  });
+  await page.getByTestId('scheduled-edit-queued-1').click();
+  const editor = page.locator('.tiptap-compose [contenteditable="true"]');
+  await editor.fill('Acknowledgement lost body');
+  const initialHtml = await editor.innerHTML();
+  await page.clock.fastForward(30_000);
+  await expect(page.getByTestId('compose-autosave-retry')).toBeVisible();
+  await expect(page.getByTestId('compose-send')).toBeDisabled();
+  await editor.fill('Keep this newer local body');
+  const newerHtml = await editor.innerHTML();
+  await page.getByTestId('compose-to').fill('after-loss@example.test');
+  await page.getByTestId('compose-to').press('Enter');
+  await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Newer unsaved subject');
+  await page.keyboard.press('Control+Enter');
+  expect(writes).toHaveLength(1); expect(deliveries).toBe(0); expect(enqueues).toBe(0);
+  await page.getByTestId('compose-autosave-retry').click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1]).toEqual(writes[0]);
+  expect(writes[1]).toMatchObject({ revision: 1, keepEditing: true, message: { body: initialHtml, subject: message.subject, to: message.to } });
+  await expect(editor).toHaveText('Keep this newer local body');
+  await expect(page.getByPlaceholder(/^(Add a subject|Subject)$/)).toHaveValue('Newer unsaved subject');
+  await expect(page.getByTestId('compose-send')).toBeEnabled();
+  await page.clock.fastForward(30_000);
+  await expect.poll(() => writes.length).toBe(3);
+  expect(writes[2]).toMatchObject({ revision: 2, keepEditing: true, message: { body: newerHtml, subject: 'Newer unsaved subject', to: [...message.to, 'after-loss@example.test'] } });
+  expect(deliveries).toBe(0); expect(enqueues).toBe(0);
+});
+
+test('late queued autosave acknowledgement after logout cannot restore editing or schedule more writes', async ({ page, fixtureApi }) => {
+  await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
+  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
+  let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
+  let writes = 0; let completed = false;
+  await page.route('**/api/mail/scheduled/queued-1', async route => {
+    writes++; await gate; await route.fulfill({ json: { ...rows[0], revision: 2 } }); completed = true;
+  });
+  await page.getByTestId('scheduled-edit-queued-1').click();
+  await page.locator('.tiptap-compose [contenteditable="true"]').fill('Pending save before logout');
+  try {
+    await page.clock.fastForward(30_000); await expect.poll(() => writes).toBe(1);
+    await page.locator('.tiptap-compose [contenteditable="true"]').fill('Local edit before logout');
+    await page.route('**/api/mail/scheduled', route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
+    await page.clock.fastForward(6_000);
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  } finally { release(); }
+  await expect.poll(() => completed).toBe(true);
+  await page.clock.fastForward(30_000);
+  await expect(page.getByTestId('compose-from')).toHaveCount(0);
+  await expect(page.locator('.tiptap-compose [contenteditable="true"]')).toHaveCount(0);
+  expect(writes).toBe(1);
+});
+
+test('uncertain dismissal confirms without cancellation or resend and retains only terminal metadata', async ({ page, fixtureApi }) => {
+  await fixtureApi; const rows = [pending({ state: 'uncertain', mode: 'schedule' })];
+  await boot(page, rows); await outbox(page);
+  const writes: { url: string; body: unknown }[] = [];
+  await page.route('**/api/mail/**', route => {
+    if (route.request().method() === 'GET') return route.fallback();
+    writes.push({ url: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });
+    if (!route.request().url().endsWith('/queued-1/dismiss')) return route.fulfill({ status: 503, json: {} });
+    rows[0] = { ...rows[0], state: 'dismissed', revision: 2 };
+    return route.fulfill({ json: rows[0] });
+  });
+  await expect(page.getByTestId('scheduled-edit-queued-1')).toHaveCount(0);
+  await expect(page.getByTestId('scheduled-reschedule-queued-1')).toHaveCount(0);
+  await expect(page.getByTestId('scheduled-cancel-queued-1')).toHaveCount(0);
+  page.once('dialog', async dialog => {
+    expect(dialog.message()).toMatch(/already.*deliver/i);
+    expect(dialog.message()).toMatch(/recall/i);
+    expect(dialog.message()).toMatch(/retr/i);
+    await dialog.dismiss();
+  });
+  await page.getByTestId('scheduled-dismiss-queued-1').click();
+  expect(writes).toHaveLength(0);
+  await expect(page.getByTestId('scheduled-dismiss-queued-1')).toBeEnabled();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByTestId('scheduled-dismiss-queued-1').click();
+  await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Dismissed');
+  expect(writes).toEqual([{ url: '/api/mail/scheduled/queued-1/dismiss', body: { revision: 1 } }]);
+  await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Queued fixture');
+  await expect(page.getByTestId('scheduled-item-queued-1')).not.toContainText('Frozen queued body');
+  await expect(page.getByTestId('scheduled-item-queued-1').getByRole('button')).toHaveCount(0);
+  await expect(page.getByTestId('compose-from')).toHaveCount(0);
+});
+
+test('late uncertain dismissal acknowledgement is fenced after session expiration and never resends', async ({ page, fixtureApi }) => {
+  await fixtureApi; const rows = [pending({ state: 'uncertain', mode: 'schedule' })];
+  await boot(page, rows); await outbox(page);
+  let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
+  const writes: string[] = []; let completed = false;
+  await page.route('**/api/mail/**', async route => {
+    if (route.request().method() === 'GET') return route.fallback();
+    writes.push(new URL(route.request().url()).pathname);
+    if (!route.request().url().endsWith('/queued-1/dismiss')) return route.fulfill({ status: 503, json: {} });
+    await gate; await route.fulfill({ json: { ...rows[0], state: 'dismissed', revision: 2 } }); completed = true;
+  });
+  try {
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByTestId('scheduled-dismiss-queued-1').click();
+    await expect.poll(() => writes.length).toBe(1);
+    await page.route('**/api/mail/scheduled', route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
+    await page.getByTestId('scheduled-view').getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+  } finally { release(); }
+  await expect.poll(() => completed).toBe(true);
+  await expect(page.getByTestId('scheduled-view')).toHaveCount(0);
+  await expect(page.getByTestId('compose-from')).toHaveCount(0);
+  expect(writes).toEqual(['/api/mail/scheduled/queued-1/dismiss']);
+});
+
+test('queued autosave conflict preserves local text and never rebases or sends another client revision', async ({ page, fixtureApi }) => {
+  await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
+  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
+  const writes: Record<string, unknown>[] = [];
+  await page.route('**/api/mail/scheduled/queued-1', route => {
+    writes.push(route.request().postDataJSON()); rows[0].revision = 7;
+    return route.fulfill({ status: 409, json: { error: 'Another client changed this message', code: 'SCHEDULE_CHANGED' } });
+  });
+  await page.getByTestId('scheduled-edit-queued-1').click();
+  const editor = page.locator('.tiptap-compose [contenteditable="true"]');
+  // Let TipTap's deferred initial autofocus settle under the installed clock,
+  // then replace content through the same selection/typing path as the user.
+  await page.clock.runFor(1);
+  await expect(editor).toHaveText('Frozen queued body');
+  await editor.focus();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.insertText('Keep local conflicting text');
+  await expect(editor).toHaveText('Keep local conflicting text');
+  await page.clock.fastForward(30_000);
+  await expect.poll(() => writes.length).toBe(1);
+  await expect(page.getByTestId('compose-send')).toBeDisabled();
+  await expect(page.getByText('This message changed or delivery has started. Refresh and check its state.', { exact: true })).toBeVisible();
+  await expect(editor).toHaveText('Keep local conflicting text');
+  await editor.fill('Keep further local edits after conflict');
+  await page.clock.fastForward(30_000);
+  await expect(editor).toHaveText('Keep further local edits after conflict');
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({ revision: 1, keepEditing: true });
+});
+
+test('schedule affordance keeps its accessible name and remains separated from Send in each viewport', async ({ page, fixtureApi }) => {
+  await fixtureApi; await boot(page); await compose(page);
+  const schedule = page.getByTestId('compose-schedule');
+  const send = page.getByTestId('compose-send');
+  await expect(schedule).toHaveAccessibleName('Schedule send');
+  await expect(schedule).toHaveAttribute('title', 'Schedule send');
+  await expect(schedule).toBeVisible(); await expect(send).toBeVisible();
+  const scheduleBox = await schedule.boundingBox(); const sendBox = await send.boundingBox();
+  const viewport = page.viewportSize();
+  if (!scheduleBox || !sendBox || !viewport) throw new Error('Compose action geometry is unavailable');
+  for (const box of [scheduleBox, sendBox]) {
+    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  }
+  expect(scheduleBox.x + scheduleBox.width <= sendBox.x || sendBox.x + sendBox.width <= scheduleBox.x
+    || scheduleBox.y + scheduleBox.height <= sendBox.y || sendBox.y + sendBox.height <= scheduleBox.y).toBe(true);
+  if (viewport.width < 768) {
+    await expect(schedule).toHaveText('');
+    await expect(schedule.locator('svg[aria-hidden="true"]')).toBeVisible();
+    expect(scheduleBox.width).toBeLessThanOrEqual(44);
+    expect(sendBox.x - (scheduleBox.x + scheduleBox.width)).toBeGreaterThanOrEqual(6);
+  }
+  await schedule.click();
+  await expect(page.getByTestId('schedule-date-time')).toBeVisible();
+});
+
+for (const outcome of ['success', 'conflict', 'lost response', 'logout'] as const) {
+  test(`explicit queued Save after autosave replay: ${outcome}`, async ({ page, fixtureApi }) => {
+    // The explicit Save button belongs to the desktop composer, including resized clients.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await fixtureApi;
+    const rows = [pending({ state: 'editing', mode: 'schedule' })];
+    await boot(page, rows); await outbox(page); await page.clock.install();
+    await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
+    const writes: Record<string, unknown>[] = []; let deliveries = 0; let enqueues = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route('**/api/mail/send', route => { deliveries++; return route.fulfill({ status: 503, json: {} }); });
+    await page.route('**/api/mail/scheduled', route => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: rows });
+      enqueues++; return route.fulfill({ status: 503, json: {} });
+    });
+    await page.route('**/api/mail/scheduled/queued-1', async route => {
+      writes.push(route.request().postDataJSON());
+      if (writes.length === 1) { rows[0].revision = 2; return route.abort('connectionfailed'); }
+      if (writes.length === 2) {
+        await gate;
+        if (outcome === 'conflict') return route.fulfill({ status: 409, json: { code: 'SCHEDULE_CHANGED' } });
+        if (outcome === 'lost response') return route.abort('connectionfailed');
+      } else rows[0].revision++;
+      return route.fulfill({ json: rows[0] });
+    });
+    await page.getByTestId('scheduled-edit-queued-1').click();
+    const editor = page.locator('.tiptap-compose [contenteditable="true"]');
+    await editor.fill('Original uncertain autosave');
+    await page.clock.fastForward(30_000);
+    await expect(page.getByTestId('compose-autosave-retry')).toBeVisible();
+    await editor.fill('Newer content before explicit Save');
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    let newestHtml: string;
+    try {
+      await expect.poll(() => writes.length).toBe(2);
+      expect(writes[1]).toEqual(writes[0]);
+      // Reconciliation itself remains an autosave; the following explicit save
+      // must obtain the latest rendered snapshot, not its older click closure.
+      await editor.fill('Newest content while reconciling');
+      newestHtml = await editor.innerHTML();
+      await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Newest reconciled subject');
+      await page.getByTestId('compose-to').fill('newest@example.test');
+      await page.getByTestId('compose-to').press('Enter');
+      if (outcome === 'logout') {
+        await page.route('**/api/mail/scheduled', route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
+        await page.clock.fastForward(6_000);
+        await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
+      }
+    } finally { release(); }
+    if (outcome === 'success') {
+      await expect.poll(() => writes.length).toBe(3);
+      expect(writes[2]).toMatchObject({ revision: 2, keepEditing: true, message: {
+        body: newestHtml, subject: 'Newest reconciled subject', to: [...message.to, 'newest@example.test'],
+        attachments: message.attachments,
+      } });
+      await expect(page.getByTestId('compose-send')).toBeEnabled();
+      await page.clock.fastForward(30_000);
+      expect(writes).toHaveLength(3); // The explicit save acknowledged the latest baseline.
+    } else if (outcome === 'logout') {
+      await page.clock.fastForward(30_000);
+      await expect(page.getByTestId('compose-from')).toHaveCount(0);
+      expect(writes).toHaveLength(2);
+    } else {
+      await expect(page.getByRole('button', { name: 'Save draft', exact: true })).toBeEnabled();
+      await expect(editor).toHaveText('Newest content while reconciling');
+      await expect(page.getByTestId('compose-send')).toBeDisabled();
+      expect(writes).toHaveLength(2); // No replacement revision after a conflict or uncertain replay.
+    }
+    expect(deliveries).toBe(0); expect(enqueues).toBe(0);
+  });
+}

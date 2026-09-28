@@ -90,6 +90,18 @@ function mockExistingIntent(status: 'pending' | 'uncertain' | 'completed', resul
 }
 
 describe('send failure semantics', () => {
+  it.each(['scheduled:queue-id:1', 'scheduled:', `scheduled:${'x'.repeat(150)}`])(
+    'rejects worker-only receipt key %s before reading or claiming any delivery state', async key => {
+      const response = await post({ ...defaultBody, body: 'Unrelated direct message' }, key);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'SEND_RESERVED_KEY' });
+      expect(query).not.toHaveBeenCalled();
+      expect(redisClient.get).not.toHaveBeenCalled();
+      expect(redisClient.set).not.toHaveBeenCalled();
+      expect(createAccountSmtpTransport).not.toHaveBeenCalled();
+      expect(sendMail).not.toHaveBeenCalled();
+    },
+  );
   it('does not deliver when idempotency lookup fails', async () => {
     redisClient.get.mockRejectedValueOnce(new Error('Redis unavailable'));
     expect((await post()).status).toBe(503);

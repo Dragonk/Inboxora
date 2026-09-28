@@ -40,6 +40,12 @@ router.get('/send-limits', async (req, res) => {
 router.post('/send', async (req, res) => {
   const key = typeof req.headers['x-idempotency-key'] === 'string'
     ? req.headers['x-idempotency-key'].slice(0, 128) : null;
+  // Worker receipts use a reserved namespace. A client must not manufacture a
+  // same-user receipt that recovery could attribute to a queued delivery after
+  // its original, definitely-unsent intent has been released.
+  if (key?.startsWith('scheduled:')) {
+    return res.status(400).json({ code: 'SEND_RESERVED_KEY', error: 'This idempotency key is reserved for scheduled delivery.' });
+  }
   const result = await executeSend(req.session.userId!, req.body, key);
   return res.status(result.status).json(result.body);
 });

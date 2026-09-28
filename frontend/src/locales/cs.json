@@ -2579,6 +2579,9 @@
     "pastTime": "Vyberte budoucí čas.",
     "loadError": "Naplánované zprávy se nepodařilo načíst.",
     "composeOpen": "Před úpravou této zprávy zavřete rozepsanou zprávu.",
+    "dismiss": "Odstranit z fronty",
+    "dismissConfirm": "Tato zpráva již mohla být doručena. Odstranit ji z fronty a trvale smazat její obsah? Odstraní se pouze aktivní položka fronty a tělo; doručení se nikdy neodvolá ani neopakuje. Historie nedávných stavů zůstane zachována.",
+    "dismissedWarning": "Odstraněno: obsah zprávy byl smazán. Zpráva již mohla být doručena; doručení nebylo odvoláno ani opakováno.",
     "cancelConfirm": "Zrušit tuto zprávu a trvale odstranit její obsah?",
     "conflict": "Zpráva se změnila nebo začalo odesílání. Obnovte a ověřte stav.",
     "actionError": "Akci se nepodařilo potvrdit. Před opakováním obnovte a ověřte zprávu.",
@@ -2603,6 +2606,7 @@
       "partial": "Částečně doručeno",
       "failed": "Selhalo",
       "uncertain": "Doručení nejisté",
+      "dismissed": "Odstraněno",
       "cancelled": "Zrušeno"
     },
     "pausedAvailable": "Odesílání pozastaveno. Rozepsaná zpráva zůstává beze změny. Pozastavenou zprávu můžete později upravit v Naplánované / k odeslání."

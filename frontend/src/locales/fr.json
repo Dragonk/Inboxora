@@ -2579,6 +2579,9 @@
     "pastTime": "Choisissez une date future.",
     "loadError": "Impossible de charger les messages planifiés.",
     "composeOpen": "Fermez la rédaction actuelle avant de modifier ce message.",
+    "dismiss": "Retirer de la file",
+    "dismissConfirm": "Ce message a peut-être déjà été livré. Le retirer de la file et supprimer définitivement son contenu ? Seuls l’entrée active et le corps sont supprimés ; la livraison n’est jamais rappelée ni retentée. L’historique récent des états est conservé.",
+    "dismissedWarning": "Retiré : le contenu du message a été supprimé. Le message a peut-être déjà été livré ; la livraison n’a été ni rappelée ni retentée.",
     "cancelConfirm": "Annuler ce message et supprimer définitivement son contenu ?",
     "conflict": "Le message a changé ou l’envoi a commencé. Actualisez et vérifiez son état.",
     "actionError": "L’action n’a pas pu être confirmée. Actualisez avant de réessayer.",
@@ -2603,6 +2606,7 @@
       "partial": "Livraison partielle",
       "failed": "Échec",
       "uncertain": "Livraison incertaine",
+      "dismissed": "Retiré",
       "cancelled": "Annulé"
     },
     "pausedAvailable": "Envoi mis en pause. Votre rédaction actuelle est conservée. Ouvrez ensuite Planifiés / boîte d’envoi pour modifier le message en pause."

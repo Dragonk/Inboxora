@@ -202,7 +202,7 @@ function parseChips(val: unknown): string[] {
   return parts;
 }
 
-/** Edit one session-scoped message, applying visible account defaults only before retry recovery. */
+/** Compose session-scoped immediate or queued mail with visible defaults and immutable retry identities. */
 export default function ComposeModal() {
   const { t } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail: preferredPlaintext, undoSendSeconds, undoSendPreferencesStatus, undoSendSecondsSaving } = useStore();
@@ -248,7 +248,7 @@ export default function ComposeModal() {
   const [bccInput, setBccInputState] = useState('');
   /** Apply manual chip edits while preserving draft revisions and relinquishing matching automatic recipients. */
   const setRecipientChips = (field: RecipientField, value: string[]) => {
-    if (sendingRef.current || frozenQueueRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const current = { to: toChips, cc: ccChips, bcc: bccChips };
     const next = recipientSeed.owner.editRecipients(field, value, current);
     if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
@@ -257,7 +257,7 @@ export default function ComposeModal() {
   };
   /** Reconcile unfinished input before keyboard submission and record the affected draft fields. */
   const setRecipientInput = (field: RecipientField, value: string) => {
-    if (sendingRef.current || frozenQueueRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const current = { to: toChips, cc: ccChips, bcc: bccChips };
     const next = recipientSeed.owner.editPending(field, value, current);
     if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
@@ -304,6 +304,7 @@ export default function ComposeModal() {
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
   const [savingDraft, setSavingDraftState] = useState(false);
   const savingDraftRef = useRef(false);
+  /** Synchronize the save mutex before React renders submission disabled states. */
   const setSavingDraft = (value: boolean) => { savingDraftRef.current = value; setSavingDraftState(value); };
   // A response may arrive after another draft request has started. Only the
   // latest invocation is allowed to advance the saved baseline.
@@ -359,7 +360,7 @@ export default function ComposeModal() {
   const [fromValue, setFromValueState] = useState(initialFromValue);
   /** Change the sender while retaining explicit recipients and the partial-delivery retry destination set. */
   const setFromValue = (value: string) => {
-    if (sendingRef.current || frozenQueueRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const accountId = resolveFrom(value).accountId;
     const next = recipientSeed.owner.switchAccount(accounts.find(account => account.id === accountId),
       { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
@@ -433,9 +434,15 @@ export default function ComposeModal() {
   const scheduleSelectionRef = useRef<{ scheduledAt: string; timeZone: string } | null>(null);
   const frozenQueueRef = useRef<{ path: string; body: Record<string, unknown>; method: 'POST' | 'PUT' } | null>(null);
   const [queueRetry, setQueueRetry] = useState(false);
+  // A replay closes over the original snapshot and revision, independently of explicit submissions.
+  const autosaveReceiptRef = useRef<(() => Promise<void>) | null>(null);
+  const [autosavePending, setAutosavePending] = useState(false);
+  const queuedConflictRef = useRef(false);
+  const [queuedConflict, setQueuedConflict] = useState(false);
   const composeEpochRef = useRef(useStore.getState().authEpoch);
   const composeAliveRef = useRef(true);
   useEffect(() => { composeAliveRef.current = true; return () => { composeAliveRef.current = false; }; }, []);
+  /** Fence asynchronous completions and mutations to the original unlocked compose session. */
   const currentCompose = () => composeAliveRef.current && useStore.getState().authEpoch === composeEpochRef.current
     && !useStore.getState().isLocked && useStore.getState().composing && useStore.getState().composeData === initialComposeDataRef.current;
   const [minimized, setMinimized] = useState(false);
@@ -547,7 +554,7 @@ export default function ComposeModal() {
     },
   });
 
-  const editorFrozen = sending || queueRetry || (!!composeData?.queuedMail && savingDraft);
+  const editorFrozen = sending || queueRetry || (!!composeData?.queuedMail && savingDraft && !!frozenQueueRef.current);
   useEffect(() => { editor?.setEditable(!editorFrozen); }, [editor, editorFrozen]);
 
   useEffect(() => {
@@ -922,7 +929,7 @@ export default function ComposeModal() {
     setAiPanel(null);
   };
 
-  /** Freeze all authored fields together for queue sends and content-only paused saves. */
+  /** Capture the complete queued payload, including attachment bytes and explicit sender identity. */
   const buildMessage = () => {
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
@@ -972,8 +979,9 @@ export default function ComposeModal() {
       };
   };
 
+  /** Submit only after all autosave acknowledgements reconcile the queued revision. */
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
-    if (sendingRef.current || savingDraftRef.current || !currentCompose()) return;
+    if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || !currentCompose()) return;
     if (!frozenQueueRef.current && (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)) { setError(t('queue.preferencesLoading')); return; }
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
     // A saved draft is identified by its account, folder and compatibility number. `uidValidity` is the
@@ -1167,13 +1175,16 @@ export default function ComposeModal() {
   };
 
   const scheduleControls = <>
-    <button type="button" data-testid="compose-schedule" disabled={sending || savingDraft || queueRetry || (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)}
-      onClick={() => setShowSchedule(true)}>{t('queue.scheduleSend')}</button>
+    <button type="button" data-testid="compose-schedule" disabled={sending || savingDraft || autosavePending || queuedConflict || queueRetry || (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)}
+      aria-label={t('queue.scheduleSend')} title={t('queue.scheduleSend')}
+      style={isMobile ? { width: 36, height: 36, flexShrink: 0, marginInline: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', color: 'var(--accent)' } : undefined}
+      onClick={() => setShowSchedule(true)}>{isMobile ? <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg> : t('queue.scheduleSend')}</button>
+    {autosavePending && !savingDraft && <button type="button" data-testid="compose-autosave-retry" onClick={() => void doSaveDraft({ silent: true })}>{t('queue.retryEnqueue')}</button>}
     {(undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) && <span role="status" data-testid="compose-preferences-loading">{t(undoSendPreferencesStatus === 'error' ? 'queue.preferencesError' : 'queue.preferencesLoading')}{undoSendPreferencesStatus === 'error' && <button type="button" onClick={() => void useStore.getState().loadPreferences()}>{t('queue.refresh')}</button>}</span>}
-    {showSchedule && <SchedulePicker busy={sending || savingDraft || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'} initialTimeZone={composeData?.queuedMail?.timeZone}
+    {showSchedule && <SchedulePicker busy={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'} initialTimeZone={composeData?.queuedMail?.timeZone}
       initialScheduledAt={composeData?.queuedMail?.scheduledAt} onCancel={() => setShowSchedule(false)}
       onConfirm={selection => {
-        if (sendingRef.current || savingDraftRef.current || frozenQueueRef.current || !currentCompose()
+        if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || frozenQueueRef.current || !currentCompose()
           || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) return;
         scheduleSelectionRef.current = selection; setShowSchedule(false); void handleSend();
       }} />}
@@ -1183,6 +1194,7 @@ export default function ComposeModal() {
     || ccChips.length > 0 || !!ccInput.trim()
     || bccChips.length > 0 || !!bccInput.trim();
 
+  /** Compare live edits with the last acknowledged snapshot, including detached rich-text fields. */
   const isDirty = () => {
     const currentBody = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
     const currentQuotedBodyHtml = quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml;
@@ -1206,13 +1218,26 @@ export default function ComposeModal() {
     );
   };
 
+  /** Serialize saves; replay an uncertain autosave verbatim before capturing any newer edits. */
   const doSaveDraft = async ({ closeAfter = false, silent = false } = {}) => {
     if (sendingRef.current || frozenQueueRef.current || savingDraftRef.current || !currentCompose()) return;
+    if (queuedConflictRef.current) return;
+    if (autosaveReceiptRef.current) {
+      await autosaveReceiptRef.current();
+      // Reconciliation acknowledges only the old snapshot. An explicit Save must
+      // then capture the latest rendered edits at the acknowledged queue revision,
+      // rather than reuse the click's closure or report those edits as saved.
+      if (!silent && currentCompose() && !autosaveReceiptRef.current && !queuedConflictRef.current) {
+        await autosaveRef.current?.doSaveDraft({ closeAfter, silent });
+      }
+      return;
+    }
     const { accountId, aliasId } = resolveFrom(fromValue);
     if (!accountId) return;
     const requestAuthEpoch = useStore.getState().authEpoch;
     const requestComposeData = initialComposeDataRef.current;
-    const isCurrentComposeSession = () => useStore.getState().authEpoch === requestAuthEpoch
+    /** Ignore late acknowledgements after logout, lock, unmount or compose replacement. */
+    const isCurrentComposeSession = () => currentCompose() && useStore.getState().authEpoch === requestAuthEpoch
       && useStore.getState().composing
       && useStore.getState().composeData === requestComposeData;
     setSavingDraft(true);
@@ -1258,94 +1283,103 @@ export default function ComposeModal() {
       attachmentSnapshot: JSON.stringify({ attachments, fwdAttachments }),
       priority,
     };
-    try {
-      if (composeData?.queuedMail) frozenQueueRef.current = { method: 'PUT', path: `/mail/scheduled/${encodeURIComponent(composeData.queuedMail.id)}`,
-        body: { revision: queuedRevisionRef.current, message: buildMessage(), keepEditing: true } };
-      const pausedSave = frozenQueueRef.current;
-      const result = pausedSave ? await api.put(pausedSave.path, pausedSave.body) : await api.saveDraft({
-        accountId: draftSnapshot.accountId,
-        ...(draftSnapshot.aliasId ? { aliasId: draftSnapshot.aliasId } : {}),
-        to: draftSnapshot.to,
-        cc: draftSnapshot.cc,
-        bcc: draftSnapshot.bcc,
-        subject: draftSnapshot.subject,
-        body: draftSnapshot.body,
-        bodyIsHtml: draftSnapshot.bodyIsHtml,
-        ...(draftSnapshot.quotedBody ? { quotedBody: draftSnapshot.quotedBody } : {}),
-        ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
-        // Draft snapshots always carry the signature value, including an intentional removal.
-        editedSignature: draftSnapshot.editedSignature,
-        editedSignatureIsHtml: !plaintextCompose,
-        ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
-        ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
-        ...(draftSnapshot.replyToMessageId ? { replyToMessageId: draftSnapshot.replyToMessageId } : {}),
-        ...(draftSnapshot.replyParentMessageId ? { replyParentMessageId: draftSnapshot.replyParentMessageId } : {}),
-        ...(draftSnapshot.replyParentAccountId ? { replyParentAccountId: draftSnapshot.replyParentAccountId } : {}),
-        ...(draftSnapshot.replyKind ? { replyKind: draftSnapshot.replyKind } : {}),
-        ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
-      });
+    const pausedSave = composeData?.queuedMail ? { method: 'PUT' as const, path: `/mail/scheduled/${encodeURIComponent(composeData.queuedMail.id)}`,
+      body: { revision: queuedRevisionRef.current, message: structuredClone(buildMessage()), keepEditing: true } } : null;
+    /** Reconcile only this immutable request; later edits retain their own dirty baseline. */
+    const persistSnapshot = async () => {
       if (!isCurrentComposeSession()) return;
-      if (!currentCompose() || sendingRef.current) return;
-      if (pausedSave) { queuedRevisionRef.current = result.revision; frozenQueueRef.current = null; window.dispatchEvent(new Event('inboxora:scheduled-changed')); }
-      // A newer request owns the current draft baseline, even when an older
-      // response finishes later. Leaving the editor dirty is safer than losing it.
-      if (draftSnapshot.version !== draftSaveVersionRef.current) return;
-      if (result.uid != null) {
-        setDraftUid(result.uid);
-        setDraftFolder(result.folder);
-        setDraftUidValidity(typeof result.uidValidity === 'number' && Number.isSafeInteger(result.uidValidity) && result.uidValidity > 0 ? result.uidValidity : null);
-        setDraftAccountId(draftSnapshot.accountId);
-      }
-      const snapshotStillCurrent = isDraftSnapshotCurrent(draftSnapshot.editRevision, draftEditRevisionRef.current);
-      if (!closeAfter) {
-        // Promote a pending address only when both parts of that recipient field
-        // remain unchanged. A removal, replacement, Enter or blur increments the
-        // revision and acknowledgement then leaves the newer state untouched.
-        if (pendingTo && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.to, recipientRevisionRef.current.to)) {
-          setToChipsState(prev => [...prev, pendingTo]);
-          setToInputState(value => value === pendingTo ? '' : value);
+      setSavingDraft(true);
+      try {
+        const result = pausedSave ? await api.put(pausedSave.path, pausedSave.body) : await api.saveDraft({
+          accountId: draftSnapshot.accountId,
+          ...(draftSnapshot.aliasId ? { aliasId: draftSnapshot.aliasId } : {}),
+          to: draftSnapshot.to,
+          cc: draftSnapshot.cc,
+          bcc: draftSnapshot.bcc,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          bodyIsHtml: draftSnapshot.bodyIsHtml,
+          ...(draftSnapshot.quotedBody ? { quotedBody: draftSnapshot.quotedBody } : {}),
+          ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
+          // Draft snapshots always carry the signature value, including an intentional removal.
+          editedSignature: draftSnapshot.editedSignature,
+          editedSignatureIsHtml: !plaintextCompose,
+          ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
+          ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
+          ...(draftSnapshot.replyToMessageId ? { replyToMessageId: draftSnapshot.replyToMessageId } : {}),
+          ...(draftSnapshot.replyParentMessageId ? { replyParentMessageId: draftSnapshot.replyParentMessageId } : {}),
+          ...(draftSnapshot.replyParentAccountId ? { replyParentAccountId: draftSnapshot.replyParentAccountId } : {}),
+          ...(draftSnapshot.replyKind ? { replyKind: draftSnapshot.replyKind } : {}),
+          ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
+        });
+        if (!isCurrentComposeSession()) return;
+        if (!currentCompose() || sendingRef.current) return;
+        // A newer request owns the current draft baseline, even when an older
+        // response finishes later. Leaving the editor dirty is safer than losing it.
+        if (draftSnapshot.version !== draftSaveVersionRef.current) return;
+        if (pausedSave) { queuedRevisionRef.current = result.revision; frozenQueueRef.current = null; autosaveReceiptRef.current = null; setAutosavePending(false); setError(''); window.dispatchEvent(new Event('inboxora:scheduled-changed')); }
+        if (result.uid != null) {
+          setDraftUid(result.uid);
+          setDraftFolder(result.folder);
+          setDraftUidValidity(typeof result.uidValidity === 'number' && Number.isSafeInteger(result.uidValidity) && result.uidValidity > 0 ? result.uidValidity : null);
+          setDraftAccountId(draftSnapshot.accountId);
         }
-        if (pendingCc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.cc, recipientRevisionRef.current.cc)) {
-          setCcChipsState(prev => [...prev, pendingCc]);
-          setCcInputState(value => value === pendingCc ? '' : value);
+        const snapshotStillCurrent = isDraftSnapshotCurrent(draftSnapshot.editRevision, draftEditRevisionRef.current);
+        if (!closeAfter) {
+          // Promote a pending address only when both parts of that recipient field
+          // remain unchanged. A removal, replacement, Enter or blur increments the
+          // revision and acknowledgement then leaves the newer state untouched.
+          if (pendingTo && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.to, recipientRevisionRef.current.to)) {
+            setToChipsState(prev => [...prev, pendingTo]);
+            setToInputState(value => value === pendingTo ? '' : value);
+          }
+          if (pendingCc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.cc, recipientRevisionRef.current.cc)) {
+            setCcChipsState(prev => [...prev, pendingCc]);
+            setCcInputState(value => value === pendingCc ? '' : value);
+          }
+          if (pendingBcc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.bcc, recipientRevisionRef.current.bcc)) {
+            setBccChipsState(prev => [...prev, pendingBcc]);
+            setBccInputState(value => value === pendingBcc ? '' : value);
+          }
         }
-        if (pendingBcc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.bcc, recipientRevisionRef.current.bcc)) {
-          setBccChipsState(prev => [...prev, pendingBcc]);
-          setBccInputState(value => value === pendingBcc ? '' : value);
-        }
-      }
 
-      // Advance baselines to the exact request snapshot, never current editor
-      // state. Later edits remain dirty and are retained for the next save.
-      initialBodyRef.current = draftSnapshot.body;
-      initialSubjectRef.current = draftSnapshot.subject;
-      initialToRef.current = normalizeTo(draftSnapshot.to);
-      initialCcRef.current = normalizeTo(draftSnapshot.cc);
-      initialBccRef.current = normalizeTo(draftSnapshot.bcc);
-      initialFromRef.current = draftSnapshot.fromValue;
-      initialQuotedBodyRef.current = draftSnapshot.quotedBody;
-      initialQuotedBodyHtmlRef.current = draftSnapshot.quotedBodyHtml;
-      initialEditedSignatureRef.current = draftSnapshot.editedSignature || '';
-      savedAttachmentCountRef.current = draftSnapshot.attachmentCount;
-      initialPriorityRef.current = draftSnapshot.priority;
-      initialAttachmentsRef.current = draftSnapshot.attachmentSnapshot;
-      if (closeAfter && snapshotStillCurrent) {
-        closeCompose();
-      } else if (!silent) {
-        addNotification({ title: t('compose.draftSaved'), body: draftSnapshot.subject || t('common.noSubject') });
-      }
-    } catch (err) {
-      if (isCurrentComposeSession()) {
-        if (frozenQueueRef.current) {
-          const queueError = toAppError(err);
-          if (isDefiniteQueueRejection(queueError)) { frozenQueueRef.current = null; setQueueRetry(false); setError(t(queueError.status === 409 ? 'queue.conflict' : 'queue.actionError')); }
-          else { setQueueRetry(true); setError(t('queue.pendingAcknowledgement')); }
+        // Advance baselines to the exact request snapshot, never current editor
+        // state. Later edits remain dirty and are retained for the next save.
+        initialBodyRef.current = draftSnapshot.body;
+        initialSubjectRef.current = draftSnapshot.subject;
+        initialToRef.current = normalizeTo(draftSnapshot.to);
+        initialCcRef.current = normalizeTo(draftSnapshot.cc);
+        initialBccRef.current = normalizeTo(draftSnapshot.bcc);
+        initialFromRef.current = draftSnapshot.fromValue;
+        initialQuotedBodyRef.current = draftSnapshot.quotedBody;
+        initialQuotedBodyHtmlRef.current = draftSnapshot.quotedBodyHtml;
+        initialEditedSignatureRef.current = draftSnapshot.editedSignature || '';
+        savedAttachmentCountRef.current = draftSnapshot.attachmentCount;
+        initialPriorityRef.current = draftSnapshot.priority;
+        initialAttachmentsRef.current = draftSnapshot.attachmentSnapshot;
+        if (closeAfter && snapshotStillCurrent) {
+          closeCompose();
+        } else if (!silent) {
+          addNotification({ title: t('compose.draftSaved'), body: draftSnapshot.subject || t('common.noSubject') });
         }
-        else { setError(toAppError(err).message); console.error('Save draft failed:', toAppError(err).message); }
+      } catch (err) {
+        if (isCurrentComposeSession()) {
+          if (pausedSave) {
+            const queueError = toAppError(err);
+            if (isDefiniteQueueRejection(queueError)) { frozenQueueRef.current = null; autosaveReceiptRef.current = null; setAutosavePending(false); setQueueRetry(false); if (queueError.status === 409) { queuedConflictRef.current = true; setQueuedConflict(true); } setError(t(queueError.status === 409 ? 'queue.conflict' : 'queue.actionError')); }
+            else { if (!silent) setQueueRetry(true); setError(t('queue.pendingAcknowledgement')); }
+          }
+          else { setError(toAppError(err).message); console.error('Save draft failed:', toAppError(err).message); }
+        }
+      } finally {
+        if (isCurrentComposeSession()) setSavingDraft(false);
       }
-    } finally {
-      if (isCurrentComposeSession()) setSavingDraft(false);
+    };
+    if (pausedSave) {
+      if (silent) { autosaveReceiptRef.current = persistSnapshot; setAutosavePending(true); }
+      else frozenQueueRef.current = pausedSave;
     }
+    await persistSnapshot();
   };
 
   // Compose state is local to this modal. Autosave preserves edits across a
@@ -1366,6 +1400,7 @@ export default function ComposeModal() {
       dialogOpen: showCloseDialog || showDiscardSheet || showAttachWarnForDraft };
   });
 
+  /** Coalesce timer and visibility saves while retaining uncertain requests for exact replay. */
   const runAutosave = useCallback(async () => {
     try {
       const state = autosaveRef.current;
@@ -1420,6 +1455,7 @@ export default function ComposeModal() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
+  /** Explicit saves reconcile any prior autosave before accepting further submission work. */
   const handleSaveDraft = (closeAfter = false) => {
     if (!composeData?.queuedMail && (attachments.length > 0 || fwdAttachments.length > 0) && !showAttachWarnForDraft) {
       setAttachWarnDraftCloseAfter(closeAfter);
@@ -1430,9 +1466,10 @@ export default function ComposeModal() {
     doSaveDraft({ closeAfter });
   };
 
+  /** Keep uncertain queue receipts attached to their compose until acknowledgement. */
   const handleClose = () => {
     if (sending || savingDraft) return;
-    if (frozenQueueRef.current) { setError(t('queue.pendingAcknowledgement')); return; }
+    if (frozenQueueRef.current || autosaveReceiptRef.current) { setError(t('queue.pendingAcknowledgement')); return; }
     if (isDirty() || (draftUid != null && draftWasPreExisting.current)) {
       if (isMobile) setShowDiscardSheet(true);
       else setShowCloseDialog(true);
@@ -1493,7 +1530,7 @@ export default function ComposeModal() {
 
   /** Share reply-mode transitions between desktop and mobile without overriding retry recipients. */
   const switchReplyMode = (all: boolean) => {
-    if (sendingRef.current || frozenQueueRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const next = recipientSeed.owner.switchReply(all, parseChips(composeData?.allRecipients || []),
       { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
     recordRecipientEdit('cc'); setCcChipsState(next.cc);
@@ -1534,11 +1571,11 @@ export default function ComposeModal() {
       <div
         ref={composePanelRef}
         onKeyDown={handleKeyDown}
-      onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onKeyDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && event.key !== 'Tab' && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onPointerDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onMouseDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onBeforeInputCapture={event => { if (sendingRef.current || frozenQueueRef.current) { event.preventDefault(); event.stopPropagation(); } }}
+      onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onKeyDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && event.key !== 'Tab' && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onPointerDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onMouseDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onBeforeInputCapture={event => { if (sendingRef.current || frozenQueueRef.current || !currentCompose()) { event.preventDefault(); event.stopPropagation(); } }}
         style={{
           position: 'fixed', top: 0, left: 0, right: 0,
           height: viewportHeight,
@@ -1592,7 +1629,7 @@ export default function ComposeModal() {
             <button
               data-testid="compose-send"
               onClick={() => { scheduleSelectionRef.current = null; void handleSend(); }}
-              disabled={sending || savingDraft || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
+              disabled={sending || savingDraft || autosavePending || queuedConflict || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
               style={{
                 background: 'none', border: 'none',
                 color: sending || !hasRecipients ? 'var(--text-tertiary)' : 'var(--accent)',
@@ -2160,11 +2197,11 @@ export default function ComposeModal() {
       ref={composeWindowRef}
       className="compose-window"
       onKeyDown={handleKeyDown}
-      onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onKeyDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && event.key !== 'Tab' && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onPointerDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onMouseDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
-      onBeforeInputCapture={event => { if (sendingRef.current || frozenQueueRef.current) { event.preventDefault(); event.stopPropagation(); } }}
+      onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onKeyDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && event.key !== 'Tab' && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onPointerDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onMouseDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onBeforeInputCapture={event => { if (sendingRef.current || frozenQueueRef.current || !currentCompose()) { event.preventDefault(); event.stopPropagation(); } }}
       style={maximized ? {
         position: 'fixed', top: 28, left: 28, right: 28, bottom: 28,
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
@@ -2545,7 +2582,7 @@ export default function ComposeModal() {
             <button
           data-testid="compose-send"
               onClick={() => { scheduleSelectionRef.current = null; void handleSend(); }}
-          disabled={sending || savingDraft || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
+          disabled={sending || savingDraft || autosavePending || queuedConflict || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
           title={sending ? undefined : t('compose.sendTooltip')}
           style={{
             padding: '8px 20px', background: 'var(--accent)',

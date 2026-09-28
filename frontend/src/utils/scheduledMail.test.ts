@@ -41,3 +41,27 @@ test('queued primary sender stays explicit even when backend omits alias', () =>
   assert.equal(scheduledEditToDraft({ ...edit, message }).aliasId, null);
   assert.equal(scheduledEditToDraft(edit).aliasId, 'alias-1');
 });
+
+test('dismiss uses only the versioned dismissal route and exact replay retains its old revision', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; options?: RequestInit }> = [];
+  globalThis.fetch = async (input, options) => {
+    calls.push({ url: String(input), options });
+    return new Response(JSON.stringify({ id: 'queued/uncertain', state: 'dismissed', revision: 4 }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const dismissed = await scheduledApi.dismiss('queued/uncertain', 3);
+    const replay = await scheduledApi.dismiss('queued/uncertain', 3);
+    assert.equal(dismissed.state, 'dismissed');
+    assert.equal(dismissed.revision, 4);
+    assert.deepEqual(replay, dismissed);
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+      assert.equal(call.url, '/api/mail/scheduled/queued%2Funcertain/dismiss');
+      assert.equal(call.options?.method, 'POST');
+      assert.deepEqual(JSON.parse(String(call.options?.body)), { revision: 3 });
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});

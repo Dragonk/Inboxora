@@ -59,3 +59,13 @@ test('draft replacement keeps the prior account, UID and folder as one request s
   assert.match(draftSave, /draftSnapshot\.existingDraft \? \{ existingDraft: draftSnapshot\.existingDraft \}/);
   assert.doesNotMatch(draftSave, /existingUid:/);
 });
+
+
+test('explicit queued saves continue through the latest snapshot only after fenced acknowledgement replay', () => {
+  const replay = draftSave.indexOf('await autosaveReceiptRef.current();');
+  const continuation = draftSave.indexOf('await autosaveRef.current?.doSaveDraft({ closeAfter, silent });');
+  assert.ok(replay >= 0 && continuation > replay);
+  const replayBranch = draftSave.slice(replay, continuation);
+  assert.match(replayBranch, /!silent && currentCompose\(\) && !autosaveReceiptRef.current && !queuedConflictRef.current/);
+  assert.ok(continuation < draftSave.indexOf('const draftSnapshot = {'), 'reconcile before capturing a new version');
+});

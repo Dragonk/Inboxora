@@ -2579,6 +2579,9 @@
     "pastTime": "Choose a future time.",
     "loadError": "Could not load scheduled messages.",
     "composeOpen": "Close your current compose before editing this message.",
+    "dismiss": "Dismiss",
+    "dismissConfirm": "This message may already have been delivered. Dismiss it and permanently remove its queue contents? Dismissal only removes the active queue entry and body; it never recalls or retries delivery. Recent status history remains.",
+    "dismissedWarning": "Dismissed: message contents were removed. The message may already have been delivered; dismissal did not recall or retry it.",
     "cancelConfirm": "Cancel this message and permanently remove its contents?",
     "conflict": "This message changed or delivery has started. Refresh and check its state.",
     "actionError": "The action could not be confirmed. Refresh to check the message before retrying.",
@@ -2603,6 +2606,7 @@
       "partial": "Partially delivered",
       "failed": "Failed",
       "uncertain": "Delivery uncertain",
+      "dismissed": "Dismissed",
       "cancelled": "Cancelled"
     },
     "pausedAvailable": "Sending paused. Your current compose is unchanged. Open Scheduled / outbox later to edit the paused message."

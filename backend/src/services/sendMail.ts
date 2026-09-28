@@ -111,17 +111,19 @@ export interface SendRequestBody {
 
 type EmailPriority = 'high' | 'normal' | 'low';
 
+/** Accept only the supported outgoing priority header values. */
 function isEmailPriority(value: unknown): value is EmailPriority {
   return value === 'high' || value === 'normal' || value === 'low';
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Escape plain-text content before inserting it into generated HTML paragraphs. */
 function escapeHtml(str: string) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Map SMTP/connection errors to user-friendly messages that don't expose server internals.
+/** Map connection errors to useful messages without exposing server internals. */
 function sanitizeSmtpError(err: unknown): string {
   const msg = toAppError(err).message || '';
   if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH/i.test(msg)) {
@@ -142,8 +144,7 @@ function sanitizeSmtpError(err: unknown): string {
   return 'Failed to send message. Please try again.';
 }
 
-// Extract name and email from an RFC 5322 address string.
-// Handles "Name <email>", "Name<email>", bare "<email>", and bare "email" forms.
+/** Split supported display-name and bare-address forms for Sent-copy metadata. */
 function parseAddress(str: string) {
   const m = str.match(/^(.+?)\s*<([^>]+)>\s*$/);
   if (m) return { name: m[1].trim().replace(/^"|"$/g, '').trim(), email: m[2].trim().toLowerCase() };
@@ -152,10 +153,12 @@ function parseAddress(str: string) {
   return { name: '', email: str.trim().toLowerCase() };
 }
 
+/** Build normalized Sent-copy recipient metadata from a supported address list. */
 function mapRecipientList(list: unknown): Array<{ name: string; email: string }> {
   return (Array.isArray(list) ? list : []).map((addr: unknown) => parseAddress(String(addr ?? '')));
 }
 
+/** Create a bounded plain-text preview for the locally indexed Sent message. */
 function buildSentSnippet(body: unknown, bodyIsHtml: boolean): string {
   return bodyToPlain(body, bodyIsHtml).replace(/\s+/g, ' ').trim().substring(0, 200);
 }
@@ -250,8 +253,7 @@ export async function ensureServerAutoSavedSentCopy({
   }
 }
 
-// Reject any recipient address that contains newlines, null bytes, or looks
-// malformed — these are the classic email header-injection vectors.
+/** Reject malformed recipient lists and header-injection characters before composing MIME. */
 function normalizeRecipients(list: unknown, fieldName: string): string[] {
   if (!Array.isArray(list)) throw Object.assign(new Error(`${fieldName} must be an array`), { status: 400 });
   return list.map((addr, i) => {
@@ -270,27 +272,31 @@ function normalizeRecipients(list: unknown, fieldName: string): string[] {
   });
 }
 
-// Strip header-injection characters from single-line header values.
+/** Strip header-injection characters from single-line header values. */
 function sanitizeHeaderValue(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.replace(/[\r\n\0]/g, '').trim();
 }
 
+/** Render escaped plain-text lines as safe HTML while preserving empty lines. */
 function textToHtml(text: string) {
   return '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
     text.split('\n').map(l => `<p style="margin:0">${escapeHtml(l) || '&nbsp;'}</p>`).join('') +
     '</div>';
 }
 
+/** Strip HTML tags and attributes from a signature for a plain-text message. */
 function sigToPlainText(html: string) {
   return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim();
 }
 
+/** Normalize an outgoing body to text, stripping markup when its format is HTML. */
 function bodyToPlain(body: unknown, isHtml: boolean): string {
   if (!isHtml) return String(body ?? '');
   return sanitizeHtml(String(body ?? ''), { allowedTags: [], allowedAttributes: {} });
 }
 
+/** Escape plain text or sanitize existing HTML for the outgoing MIME body. */
 function bodyToHtml(body: unknown, isHtml: boolean): string {
   const text = String(body ?? '');
   if (!isHtml) return textToHtml(text);
@@ -317,6 +323,7 @@ type SendIntentClaim =
   | { state: 'completed'; result: unknown }
   | { state: 'mismatch' };
 
+/** Atomically claim a durable send key or observe its immutable prior outcome. */
 async function claimSendIntent(userId: string, idempotencyKey: string, fingerprint: string, compatibleFingerprints: readonly string[], token: string): Promise<SendIntentClaim> {
   const inserted = await query<SendIntentRow>(
     `INSERT INTO send_idempotency (user_id, idempotency_key, request_fingerprint, status, intent_token)
@@ -341,6 +348,7 @@ async function claimSendIntent(userId: string, idempotencyKey: string, fingerpri
   return { state: row.status === 'uncertain' ? 'uncertain' : 'inflight' };
 }
 
+/** Park only the owned pending intent before a possibly irreversible submission. */
 async function markSendIntentUncertain(userId: string, idempotencyKey: string, token: string) {
   return query(
     `UPDATE send_idempotency SET status = 'uncertain', updated_at = NOW()
@@ -349,6 +357,7 @@ async function markSendIntentUncertain(userId: string, idempotencyKey: string, t
   );
 }
 
+/** Store an owned final receipt without overwriting another worker's identity. */
 async function completeSendIntent(userId: string, idempotencyKey: string, token: string, result: unknown) {
   return query(
     `UPDATE send_idempotency SET status = 'completed', result = $4::jsonb, updated_at = NOW()
@@ -358,6 +367,7 @@ async function completeSendIntent(userId: string, idempotencyKey: string, token:
   );
 }
 
+/** Remove only this worker's intent after a positively known non-delivery. */
 async function releaseSendIntent(userId: string, idempotencyKey: string, token: string) {
   return query(
     `DELETE FROM send_idempotency
@@ -372,6 +382,7 @@ interface CachedSendResult {
   result: unknown;
 }
 
+/** Accept versioned cached receipts; malformed or legacy data falls back to SQL. */
 function parseCachedSendResult(value: string): CachedSendResult | null {
   try {
     const parsed = JSON.parse(value) as Partial<CachedSendResult>;
@@ -382,6 +393,7 @@ function parseCachedSendResult(value: string): CachedSendResult | null {
   return null;
 }
 
+/** Recognize structured SMTP rejections without trusting error transcript text. */
 function isExplicitSmtpRejection(error: unknown): boolean {
   const candidate = error as { responseCode?: unknown };
   const responseCode = Number(candidate?.responseCode);
@@ -392,6 +404,7 @@ function isExplicitSmtpRejection(error: unknown): boolean {
   return Number.isInteger(responseCode) && responseCode >= 400 && responseCode < 600;
 }
 
+/** Recognize connection/authentication failures, excluding generic resets and timeouts. */
 function isDefinitelyPreDeliveryFailure(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
   const code = String(candidate?.code || '');
@@ -399,10 +412,12 @@ function isDefinitelyPreDeliveryFailure(error: unknown): boolean {
     || /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|authentication failed/i.test(String(candidate?.message || ''));
 }
 
+/** Interpret successful ownership-checked Redis lease results. */
 function retainedLease(result: unknown): boolean {
   return result === 1 || result === 'OK';
 }
 
+/** Extend the short reservation only while its exact token is still owned. */
 async function renewIdempotencyLease(key: string, token: string) {
   return redisClient.eval(
     "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
@@ -410,6 +425,7 @@ async function renewIdempotencyLease(key: string, token: string) {
   );
 }
 
+/** Delete a reservation only when its token matches this delivery attempt. */
 async function releaseIdempotencyLease(key: string, token: string) {
   return redisClient.eval(
     "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
@@ -417,6 +433,7 @@ async function releaseIdempotencyLease(key: string, token: string) {
   );
 }
 
+/** Replace the owned short lease with a one-day immutable delivery receipt. */
 async function completeIdempotencyLease(key: string, token: string, result: unknown) {
   return redisClient.eval(
     "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) end return 0",
@@ -432,12 +449,24 @@ export interface SendExecutionResult {
   status: number;
   body: Record<string, unknown>;
   prepared?: PreparedSend;
+  /** Internal proof that the final gate refused before any transport invocation. */
+  dispatchPrevented?: true;
 }
 export interface SendExecutionOptions {
   prepareOnly?: boolean;
   expectedSenderEmail?: string;
   beforeDispatch?: () => Promise<boolean>;
 }
+/** Positive evidence that the queue gate declined before any transport call. */
+class SendDispatchPreventedError extends Error {
+  /** A private marker; only the application-level dispatch gate can create it. */
+  constructor() {
+    super('Scheduled dispatch was prevented before transport submission');
+    this.name = 'SendDispatchPreventedError';
+  }
+}
+
+/** Normalize durable receipts without treating unreadable data as success. */
 function sendResponse(status: number, body: unknown): SendExecutionResult {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return { status: 503, body: { code: 'SEND_OUTCOME_UNKNOWN', error: 'The stored delivery result is unavailable. Do not resend automatically.' } };
@@ -717,6 +746,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
     }
   }
   let reservationRenewal: ReturnType<typeof setInterval> | null = null;
+  /** Stop the renewal timer on every return path without recycling uncertain identities. */
   const stopReservationRenewal = () => {
     if (reservationRenewal) clearInterval(reservationRenewal);
     reservationRenewal = null;
@@ -725,6 +755,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
   let dispatchStarted = false;
   let finalizationStarted = false;
   let transportRecipients: { accepted: string[]; rejected: string[] } | null = null;
+  /** Fence a suspect reservation and conservatively park its durable intent. */
   const markLeaseUncertain = (fromRenewal = false) => {
     // A renewal response can arrive after finalization has begun. It no longer
     // owns the lease and must not overwrite a completed-result reconciliation.
@@ -1060,7 +1091,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
     // The queue owns the final cancellation/lease boundary. A stale preparing
     // worker may finish reads, but cannot submit after another worker reclaimed it.
     if (options.beforeDispatch && !await options.beforeDispatch()) {
-      throw new Error('Scheduled message claim is no longer owned');
+      throw new SendDispatchPreventedError();
     }
 
     // Persist the uncertain state before invoking the transport: a process crash or lost
@@ -1341,6 +1372,9 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
       }
       if (idemKeyRedis && reservationAcquired && reservationToken) {
         await releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      }
+      if (caught instanceof SendDispatchPreventedError) {
+        return { ...sendResponse(409, { code: 'SEND_DISPATCH_PREVENTED', error: 'Submission stopped before contacting the transport. The queue may safely resume this message.' }), dispatchPrevented: true };
       }
       return sendResponse(500, { error: sanitizeSmtpError(err) });
     }

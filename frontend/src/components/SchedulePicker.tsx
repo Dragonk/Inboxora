@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { resolveScheduleTime, schedulePreview, scheduleWallTime } from '../utils/scheduleTime.ts';
 import type { ScheduleSelection } from '../utils/scheduledMail.ts';
 
+/** Choose a future instant and explicit zone without silently shifting DST gaps or folds. */
 export default function SchedulePicker({ onConfirm, onCancel, initialTimeZone, initialScheduledAt, busy = false }: {
   onConfirm: (selection: ScheduleSelection) => void; onCancel: () => void;
   initialTimeZone?: string; initialScheduledAt?: string; busy?: boolean;

@@ -2579,6 +2579,9 @@
     "pastTime": "Wählen Sie einen zukünftigen Zeitpunkt.",
     "loadError": "Geplante Nachrichten konnten nicht geladen werden.",
     "composeOpen": "Schließen Sie den aktuellen Entwurf vor der Bearbeitung.",
+    "dismiss": "Aus Warteschlange entfernen",
+    "dismissConfirm": "Diese Nachricht wurde möglicherweise bereits zugestellt. Aus der Warteschlange entfernen und ihren Inhalt dauerhaft löschen? Dies entfernt nur den aktiven Warteschlangeneintrag und den Inhalt; die Zustellung wird weder zurückgerufen noch wiederholt. Der letzte Status bleibt im Verlauf.",
+    "dismissedWarning": "Entfernt: Der Nachrichteninhalt wurde gelöscht. Die Nachricht wurde möglicherweise bereits zugestellt; die Zustellung wurde weder zurückgerufen noch wiederholt.",
     "cancelConfirm": "Diese Nachricht abbrechen und ihren Inhalt endgültig löschen?",
     "conflict": "Die Nachricht wurde geändert oder der Versand hat begonnen. Aktualisieren Sie den Status.",
     "actionError": "Die Aktion konnte nicht bestätigt werden. Prüfen Sie die Nachricht nach dem Aktualisieren.",
@@ -2603,6 +2606,7 @@
       "partial": "Teilweise zugestellt",
       "failed": "Fehlgeschlagen",
       "uncertain": "Zustellung ungewiss",
+      "dismissed": "Entfernt",
       "cancelled": "Abgebrochen"
     },
     "pausedAvailable": "Versand angehalten. Ihr aktueller Entwurf bleibt erhalten. Öffnen Sie später Geplant / Postausgang, um die angehaltene Nachricht zu bearbeiten."

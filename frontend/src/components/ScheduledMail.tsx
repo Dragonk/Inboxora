@@ -8,6 +8,7 @@ import { createScheduledRefresh } from '../utils/scheduledRefresh.ts';
 import SchedulePicker from './SchedulePicker.tsx';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 
+/** Display metadata and versioned actions scoped to the current unlocked auth session. */
 export default function ScheduledMail() {
   const { t, i18n } = useTranslation();
   const user = useStore(state => state.user);
@@ -26,11 +27,13 @@ export default function ScheduledMail() {
   const invalidateRef = useRef<() => void>(() => {});
   useBackLayer(open, () => { setPicker(null); setOpen(false); }, 3000);
 
+  /** Poll only within this auth lifecycle; cleanup invalidates late reads and mutations. */
   useEffect(() => {
     const generation = ++lifecycle.current;
     setItems([]); setOpen(false); setPicker(null); setBusy(null); setErrorKey('');
     if (!user || isLocked) return;
     const controller = new AbortController();
+    /** Reject polling results from a closed view or a different authenticated session. */
     const current = () => lifecycle.current === generation && isCurrentAuthEpoch(authEpoch) && !useStore.getState().isLocked;
     const { refresh, invalidate } = createScheduledRefresh({
       load: () => scheduledApi.list(controller.signal),
@@ -38,8 +41,11 @@ export default function ScheduledMail() {
       failed: () => { if (!controller.signal.aborted) setErrorKey('queue.loadError'); },
       current,
     });
+    /** Invalidate any in-flight metadata read before fetching post-mutation state. */
     const onChanged = () => { invalidate(); refresh(); };
+    /** Open and refresh only while this listener still belongs to the active session. */
     const onOpen = () => { if (current()) { setOpen(true); refresh(); } };
+    /** Refresh metadata when the document becomes visible after background suspension. */
     const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
     refreshRef.current = onChanged;
     invalidateRef.current = invalidate;
@@ -64,12 +70,17 @@ export default function ScheduledMail() {
     };
   }, [user, authEpoch, isLocked]);
 
-  const act = useCallback(async (row: ScheduledSummary, kind: 'edit' | 'cancel' | 'reschedule', selection?: ScheduleSelection) => {
+  /** Confirm destructive actions and fence every completion against auth and operation changes. */
+  const act = useCallback(async (row: ScheduledSummary, kind: 'edit' | 'cancel' | 'reschedule' | 'dismiss', selection?: ScheduleSelection) => {
     if (busy || !user || isLocked || !isCurrentAuthEpoch(authEpoch)) return;
+    if (kind === 'dismiss' ? row.state !== 'uncertain' : ['uncertain', 'dismissed'].includes(row.state)) return;
     if (kind === 'edit' && useStore.getState().composing && !(row.mode === 'undo' && row.state === 'pending')) { setErrorKey('queue.composeOpen'); return; }
     if (kind === 'cancel' && !window.confirm(t('queue.cancelConfirm'))) return;
+    if (kind === 'dismiss' && !window.confirm(t('queue.dismissConfirm'))) return;
+    if (!isCurrentAuthEpoch(authEpoch) || useStore.getState().isLocked) return;
     const generation = lifecycle.current;
     const serial = ++operation.current;
+    /** Prevent late action receipts from mutating another session or newer operation. */
     const current = () => generation === lifecycle.current && serial === operation.current && isCurrentAuthEpoch(authEpoch) && !useStore.getState().isLocked;
     setBusy(row.id); setErrorKey(''); invalidateRef.current();
     try {
@@ -83,7 +94,8 @@ export default function ScheduledMail() {
         }
         useStore.getState().openCompose(scheduledEditToDraft(edit));
         setOpen(false);
-      } else if (kind === 'cancel') await scheduledApi.cancel(row.id, row.revision);
+      } else if (kind === 'dismiss') await scheduledApi.dismiss(row.id, row.revision);
+      else if (kind === 'cancel') await scheduledApi.cancel(row.id, row.revision);
       else if (selection) await scheduledApi.reschedule(row.id, { revision: row.revision, ...selection });
       if (current()) setPicker(null);
     } catch (cause) {
@@ -94,7 +106,7 @@ export default function ScheduledMail() {
   }, [authEpoch, busy, isLocked, t, user]);
 
   if (!user || isLocked) return null;
-  const states = { pending: t('queue.states.pending'), editing: t('queue.states.editing'), preparing: t('queue.states.preparing'), sending: t('queue.states.sending'), sent: t('queue.states.sent'), partial: t('queue.states.partial'), failed: t('queue.states.failed'), uncertain: t('queue.states.uncertain'), cancelled: t('queue.states.cancelled') };
+  const states = { pending: t('queue.states.pending'), editing: t('queue.states.editing'), preparing: t('queue.states.preparing'), sending: t('queue.states.sending'), sent: t('queue.states.sent'), partial: t('queue.states.partial'), failed: t('queue.states.failed'), uncertain: t('queue.states.uncertain'), cancelled: t('queue.states.cancelled'), dismissed: t('queue.states.dismissed') };
   const undo = items.filter(row => row.mode === 'undo' && row.state === 'pending' && Date.parse(row.scheduledAt) > now);
   return <>
     {!open && undo.length > 0 && <aside aria-label={t('queue.title')} style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 11000, padding: 12, background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 10, maxWidth: 'calc(100vw - 32px)' }}>
@@ -113,10 +125,12 @@ export default function ScheduledMail() {
           <p>{states[row.state]}</p>
           <p>{schedulePreview(row.scheduledAt, row.timeZone, i18n.language)}</p>
           {row.state === 'uncertain' && <p role="alert">{t('queue.uncertainWarning')}</p>}
+          {row.state === 'dismissed' && <p>{t('queue.dismissedWarning')}</p>}
           {row.state === 'partial' && <p>{t('queue.partialWarning')}</p>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {['pending', 'editing', 'failed', 'partial'].includes(row.state) && <button data-testid={`scheduled-edit-${row.id}`} disabled={!!busy || (composing && !(row.mode === 'undo' && row.state === 'pending'))} onClick={() => void act(row, 'edit')}>{t(row.mode === 'undo' && row.state === 'pending' ? 'queue.undo' : 'queue.edit')}</button>}
             {['pending', 'editing'].includes(row.state) && <button data-testid={`scheduled-reschedule-${row.id}`} disabled={!!busy} onClick={() => setPicker(row)}>{t('queue.reschedule')}</button>}
+            {row.state === 'uncertain' && <button data-testid={`scheduled-dismiss-${row.id}`} disabled={!!busy} onClick={() => void act(row, 'dismiss')}>{t('queue.dismiss')}</button>}
             {['pending', 'editing', 'failed', 'partial'].includes(row.state) && <button data-testid={`scheduled-cancel-${row.id}`} disabled={!!busy} onClick={() => void act(row, 'cancel')}>{t('queue.cancel')}</button>}
           </div>
         </li>)}

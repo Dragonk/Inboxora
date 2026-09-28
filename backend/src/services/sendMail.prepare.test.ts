@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ScheduledRow } from './scheduledMail.js';
 import type { ComposedMail } from './composedMail.js';
 import type { MailTransport } from './sendTransport.js';
 
@@ -8,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn<MailTransport['send']>(),
   preflight: vi.fn<(mail: ComposedMail) => null>(),
 }));
+const queue = vi.hoisted(() => ({
+  claimScheduledMail: vi.fn(), completeScheduledMail: vi.fn(), recoverScheduledMail: vi.fn(),
+  renewScheduledClaim: vi.fn(), beginScheduledDispatch: vi.fn(), releaseScheduledClaim: vi.fn(),
+}));
+vi.mock('./scheduledMail.js', () => queue);
 vi.mock('./db.js', () => ({ query: mocks.query, withTransaction: vi.fn() }));
 vi.mock('./redis.js', () => ({ redisClient: { get: mocks.get, set: mocks.set, eval: mocks.eval } }));
 vi.mock('../index.js', () => ({ imapManager: { fetchAttachment: mocks.fetchAttachment } }));
@@ -15,6 +21,7 @@ vi.mock('./sendTransport.js', () => ({ createAccountMailTransport: mocks.bind, t
 vi.mock('../utils/mailUtils.js', () => ({ resolveSentFolder: vi.fn() }));
 vi.mock('../plugins/registry.js', () => ({ pluginRegistry: { runHook: vi.fn() } }));
 
+import { createScheduledMailWorker } from './scheduledMailWorker.js';
 import { executeSend, type SendRequestBody } from './sendMail.js';
 
 const accountId = 'a1a1a1a1-1111-4111-8111-a1a1a1a1a1a1';
@@ -222,7 +229,7 @@ describe('executeSend preparation boundary', () => {
   it('releases exactly its own SQL and Redis reservation when the final dispatch guard rejects ownership', async () => {
     const beforeDispatch = vi.fn(async () => false);
     const result = await executeSend(userId, body, 'guarded-key', { beforeDispatch });
-    expect(result.status).toBe(500);
+    expect(result).toMatchObject({ status: 409, dispatchPrevented: true, body: { code: 'SEND_DISPATCH_PREVENTED' } });
     expect(beforeDispatch).toHaveBeenCalledOnce();
     expect(mocks.send).not.toHaveBeenCalled();
     const claim = mocks.query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO send_idempotency'));
@@ -238,5 +245,86 @@ describe('executeSend preparation boundary', () => {
       keys: ['send_idem:test-user:guarded-key'], arguments: [`__inflight__:${String(token)}`],
     });
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes("status = 'uncertain'"))).toBe(false);
+  });
+});
+
+/** Pause an async boundary until the test has stopped the worker. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+/** Provide a frozen queue claim to the real worker and send pipeline. */
+function scheduledClaim(): ScheduledRow {
+  return {
+    id: messageId, accountId, user_id: userId, subject: body.subject ?? '',
+    mode: 'schedule', state: 'preparing', scheduledAt: new Date(), timeZone: 'UTC',
+    revision: 3, errorCode: null, lease_token: 'c3c3c3c3-3333-4333-8333-c3c3c3c3c3c3',
+    request_fingerprint: 'original', edit_fingerprint: null,
+    payload: { senderEmail: account.email_address, payload: body },
+  };
+}
+
+describe('scheduled worker with real executeSend', () => {
+  beforeEach(() => {
+    queue.claimScheduledMail.mockResolvedValue(null);
+    queue.recoverScheduledMail.mockResolvedValue(undefined);
+    queue.releaseScheduledClaim.mockResolvedValue(undefined);
+    queue.completeScheduledMail.mockResolvedValue(undefined);
+    queue.renewScheduledClaim.mockResolvedValue(true);
+    queue.beginScheduledDispatch.mockResolvedValue(true);
+  });
+
+  it.each(['preparation', 'final database gate'])('releases unsent SQL, Redis and queue claims after stop during %s', async boundary => {
+    const claimed = scheduledClaim();
+    queue.claimScheduledMail.mockResolvedValueOnce(claimed);
+    const entered = deferred<void>();
+    const resume = deferred<void>();
+    if (boundary === 'preparation') {
+      const binding = { account, transport: {
+        kind: 'smtp', sendsRenderedMessage: true, send: mocks.send, preflight: mocks.preflight,
+      } };
+      mocks.bind.mockImplementationOnce(async () => { entered.resolve(); await resume.promise; return binding; });
+    } else {
+      queue.beginScheduledDispatch.mockImplementationOnce(async () => { entered.resolve(); await resume.promise; return true; });
+    }
+    const worker = createScheduledMailWorker();
+    const running = worker.tick();
+    await entered.promise;
+    const stopping = worker.stop();
+    resume.resolve();
+    await Promise.all([running, stopping]);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(queue.beginScheduledDispatch).toHaveBeenCalledTimes(boundary === 'preparation' ? 0 : 1);
+    expect(queue.releaseScheduledClaim).toHaveBeenCalledExactlyOnceWith(claimed);
+    expect(queue.completeScheduledMail).not.toHaveBeenCalled();
+    const key = `scheduled:${claimed.id}:${claimed.revision}`;
+    const claim = mocks.query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO send_idempotency'));
+    const token: unknown = claim?.[1][3];
+    expect(token).toEqual(expect.any(String));
+    expect(mocks.query).toHaveBeenCalledWith(expect.stringMatching(/DELETE FROM send_idempotency[\s\S]*intent_token = \$3::uuid/), [userId, key, token]);
+    expect(mocks.set).toHaveBeenCalledWith(`send_idem:${userId}:${key}`, `__inflight__:${String(token)}`, { NX: true, EX: 300 });
+    expect(mocks.eval).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("redis.call('DEL'"), {
+      keys: [`send_idem:${userId}:${key}`], arguments: [`__inflight__:${String(token)}`],
+    });
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes("status = 'uncertain'"))).toBe(false);
+  });
+
+  it('never releases the queue after an actual transport reports an unknown outcome', async () => {
+    const claimed = scheduledClaim();
+    queue.claimScheduledMail.mockResolvedValueOnce(claimed);
+    mocks.send.mockResolvedValueOnce({ status: 'outcome_unknown', reason: 'Connection lost after submission' });
+    const worker = createScheduledMailWorker();
+    try {
+      await worker.tick();
+      expect(mocks.send).toHaveBeenCalledOnce();
+      expect(queue.beginScheduledDispatch).toHaveBeenCalledExactlyOnceWith(claimed);
+      expect(queue.releaseScheduledClaim).not.toHaveBeenCalled();
+      expect(queue.completeScheduledMail).toHaveBeenCalledExactlyOnceWith(claimed,
+        expect.objectContaining({ status: 502, body: expect.objectContaining({ code: 'SEND_OUTCOME_UNKNOWN' }) }));
+      expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM send_idempotency'))).toBe(false);
+      expect(mocks.eval.mock.calls.some(([script]) => String(script).includes("redis.call('DEL'"))).toBe(false);
+    } finally { await worker.stop(); }
   });
 });

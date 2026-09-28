@@ -2579,6 +2579,9 @@
     "pastTime": "Elige una hora futura.",
     "loadError": "No se pudieron cargar los mensajes programados.",
     "composeOpen": "Cierra el editor actual antes de editar este mensaje.",
+    "dismiss": "Descartar",
+    "dismissConfirm": "Es posible que este mensaje ya se haya entregado. ¿Descartarlo y eliminar permanentemente su contenido de la cola? Solo se eliminan la entrada activa y el cuerpo; nunca se retira ni se reintenta la entrega. Se conserva el historial de estados recientes.",
+    "dismissedWarning": "Descartado: se eliminó el contenido del mensaje. Es posible que ya se haya entregado; no se retiró ni se reintentó la entrega.",
     "cancelConfirm": "¿Cancelar este mensaje y eliminar su contenido definitivamente?",
     "conflict": "El mensaje cambió o el envío comenzó. Actualiza y comprueba su estado.",
     "actionError": "No se pudo confirmar la acción. Actualiza y comprueba el mensaje antes de reintentar.",
@@ -2603,6 +2606,7 @@
       "partial": "Entrega parcial",
       "failed": "Fallido",
       "uncertain": "Entrega incierta",
+      "dismissed": "Descartado",
       "cancelled": "Cancelado"
     },
     "pausedAvailable": "Envío pausado. La redacción actual se conserva. Abre más tarde Programados / bandeja de salida para editar el mensaje pausado."

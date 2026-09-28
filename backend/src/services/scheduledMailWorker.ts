@@ -1,6 +1,6 @@
 import { executeSend } from './sendMail.js';
 import { beginScheduledDispatch, claimScheduledMail, completeScheduledMail, recoverScheduledMail,
-  renewScheduledClaim, type ScheduledRow, type SendExecutor } from './scheduledMail.js';
+  releaseScheduledClaim, renewScheduledClaim, type ScheduledRow, type SendExecutor } from './scheduledMail.js';
 
 /** Queue runner. Creating this object does not start it or send a message. */
 export function createScheduledMailWorker(execute: SendExecutor = executeSend) {
@@ -8,6 +8,7 @@ export function createScheduledMailWorker(execute: SendExecutor = executeSend) {
   let active: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let nextRecoveryAt = 0;
+  /** Process one renewed claim; retain uncertainty for any possibly submitted result. */
   async function deliver(row: ScheduledRow): Promise<void> {
     let ownsLease = true;
     let dispatched = false;
@@ -33,7 +34,12 @@ export function createScheduledMailWorker(execute: SendExecutor = executeSend) {
           return dispatched && !stopped && ownsLease;
         },
       });
-      await completeScheduledMail(row, response);
+      if (response.dispatchPrevented === true) {
+        // This internal proof is emitted only before a transport invocation.
+        // If the release write fails, leave the fenced lease for normal recovery.
+        await releaseScheduledClaim(row).catch(error => console.error('Scheduled claim release failed:',
+          error instanceof Error ? error.message : 'database error'));
+      } else await completeScheduledMail(row, response);
     } catch (error) {
       console.error('Scheduled send failed:', error instanceof Error ? error.message : 'unknown failure');
       await completeScheduledMail(row, { status: 503, body: {
@@ -41,6 +47,7 @@ export function createScheduledMailWorker(execute: SendExecutor = executeSend) {
       } });
     } finally { clearInterval(heartbeat); }
   }
+  /** Recover periodically and process at most four due messages without overlapping. */
   async function batch(): Promise<void> {
     // Due work stays responsive without scanning durable receipt history every
     // second. Recovery retries promptly on error and otherwise runs every 30s.
@@ -54,13 +61,16 @@ export function createScheduledMailWorker(execute: SendExecutor = executeSend) {
       await deliver(row);
     }
   }
+  /** Share the running batch promise across manual and timed polls. */
   function tick(): Promise<void> {
     if (stopped) return Promise.resolve();
     if (!active) active = batch().finally(() => { active = null; });
     return active;
   }
+  /** Start one poll loop; constructing the worker performs no delivery. */
   function start(): void {
     if (timer || stopped) return;
+    /** Schedule the next poll only after this batch settles. */
     const loop = () => {
       timer = null;
       void tick().catch(error => console.error('Scheduled mail worker failed:', error instanceof Error ? error.message : 'database error'))
@@ -69,6 +79,7 @@ export function createScheduledMailWorker(execute: SendExecutor = executeSend) {
     timer = setTimeout(loop, 0);
     timer.unref();
   }
+  /** Refuse further dispatch gates, cancel polls and await the active batch. */
   async function stop(): Promise<void> {
     stopped = true;
     if (timer) clearTimeout(timer);

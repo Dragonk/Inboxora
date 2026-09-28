@@ -301,4 +301,159 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
     expect(await stored(row.id)).toMatchObject({ state: 'uncertain', last_error_code: 'SEND_OUTCOME_UNKNOWN' });
     expect(await queue.claimScheduledMail()).toBeNull();
   });
+
+  it('dismisses only an owner-matched current uncertain outcome and purges private content with replayable receipts', async () => {
+    const key = randomUUID(); const input = { scheduledAt: instant() };
+    const row = await enqueue(key, input);
+    const pending = await stored(row.id);
+    await expect(queue.dismissScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    expect(await stored(row.id)).toEqual(pending);
+    const claim = await claimed(row.id);
+    const preparing = await stored(row.id);
+    await expect(queue.dismissScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    expect(await stored(row.id)).toEqual(preparing);
+    expect(await queue.beginScheduledDispatch(claim)).toBe(true);
+    const sending = await stored(row.id);
+    await expect(queue.dismissScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    expect(await stored(row.id)).toEqual(sending);
+    await queue.completeScheduledMail(claim, { status: 503, body: { code: 'SEND_OUTCOME_UNKNOWN', rejected: ['private@example.test'] } });
+    const uncertain = await stored(row.id);
+    expect(uncertain.state).toBe('uncertain');
+    expect(JSON.stringify(uncertain.payload)).toContain('private@example.test');
+    expect(uncertain.result).toMatchObject({ rejected: ['private@example.test'] });
+    for (const [actor, revision] of [[outsider, 1], [user, 2]] as const) {
+      await expect(queue.dismissScheduledMail(actor, row.id, revision)).rejects.toMatchObject({ status: 409 });
+      expect(await stored(row.id)).toEqual(uncertain);
+    }
+    await expect(queue.cancelScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    const receipt = await queue.dismissScheduledMail(user, row.id, 1);
+    expect(receipt).toMatchObject({ id: row.id, state: 'dismissed', revision: 2, errorCode: null });
+    const dismissed = await stored(row.id);
+    expect(dismissed).toMatchObject({ payload: {}, result: null, revision: 2, state: 'dismissed', last_error_code: null });
+    expect(JSON.stringify(dismissed)).not.toContain('private@example.test');
+    expect(await queue.dismissScheduledMail(user, row.id, 1)).toEqual(receipt);
+    expect(await stored(row.id)).toEqual(dismissed);
+    await expect(queue.dismissScheduledMail(outsider, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    await expect(queue.dismissScheduledMail(user, row.id, 2)).rejects.toMatchObject({ status: 409 });
+    expect(await enqueue(key, input)).toEqual(receipt);
+    await expect(enqueue(key, { ...input, message: { ...message, bcc: ['changed@example.test'] } })).rejects.toMatchObject({ code: 'SCHEDULE_KEY_MISMATCH' });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(1);
+    for (const revision of [1, 2]) {
+      await expect(queue.editScheduledMail(user, row.id, revision)).rejects.toMatchObject({ status: 409 });
+      await expect(queue.rescheduleMail(user, row.id, { revision, scheduledAt: instant(), timeZone: 'UTC' })).rejects.toMatchObject({ status: 409 });
+      await expect(queue.updateScheduledMail(user, row.id, { revision, message, sendNow: true, timeZone: 'UTC' }, prepare)).rejects.toMatchObject({ status: 409 });
+      await expect(queue.cancelScheduledMail(user, row.id, revision)).rejects.toMatchObject({ status: 409 });
+    }
+    expect(await queue.claimScheduledMail()).toBeNull();
+    expect(await stored(row.id)).toEqual(dismissed);
+  });
+
+  it('frees exactly one of 100 active quota slots when an uncertain outcome is dismissed', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id);
+    await queue.beginScheduledDispatch(claim);
+    await queue.completeScheduledMail(claim, { status: 503, body: { code: 'SEND_OUTCOME_UNKNOWN' } });
+    await query(`INSERT INTO scheduled_mail(id,user_id,account_id,idempotency_key,request_fingerprint,mode,scheduled_at,time_zone,payload)
+      SELECT gen_random_uuid(),$1,$2,'fixture-'||n,repeat('a',64),'schedule',clock_timestamp()+interval '1 day','UTC','{}'::jsonb FROM generate_series(1,99) n`, [user, account]);
+    await expect(enqueue()).rejects.toMatchObject({ code: 'SCHEDULE_QUEUE_FULL' });
+    await queue.dismissScheduledMail(user, row.id, 1);
+    expect(await enqueue()).toMatchObject({ state: 'pending', revision: 1 });
+    await expect(enqueue()).rejects.toMatchObject({ code: 'SCHEDULE_QUEUE_FULL' });
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(101);
+  });
+
+  it('never resurrects dismissed outcomes from late receipts or workers and lists only seven days of metadata', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id);
+    await queue.beginScheduledDispatch(claim);
+    await queue.completeScheduledMail(claim, { status: 503, body: { code: 'SEND_OUTCOME_UNKNOWN' } });
+    const receipt = await queue.dismissScheduledMail(user, row.id, 1);
+    const before = await stored(row.id);
+    for (const revision of [1, 2]) {
+      await query(`INSERT INTO send_idempotency(user_id,idempotency_key,request_fingerprint,status,intent_token,result)
+        VALUES ($1,$2,$3,'completed',$4,$5)`, [user, `scheduled:${row.id}:${revision}`, 'a'.repeat(64), randomUUID(), ok.body]);
+    }
+    await queue.completeScheduledMail(claim, ok);
+    await queue.releaseScheduledClaim(claim);
+    expect(await queue.beginScheduledDispatch(claim)).toBe(false);
+    expect(await queue.renewScheduledClaim(claim)).toBe(false);
+    await queue.recoverScheduledMail(); await queue.recoverScheduledMail();
+    expect(await stored(row.id)).toEqual(before);
+    expect(await queue.claimScheduledMail()).toBeNull();
+    expect(await queue.listScheduledMail(user)).toEqual([receipt]);
+    expect(receipt).not.toHaveProperty('payload'); expect(receipt).not.toHaveProperty('result');
+    expect(JSON.stringify(receipt)).not.toContain('private@example.test');
+    expect(await queue.listScheduledMail(outsider)).toEqual([]);
+    await query("UPDATE scheduled_mail SET updated_at=clock_timestamp()-interval '6 days 23 hours' WHERE id=$1", [row.id]);
+    expect(await queue.listScheduledMail(user)).toHaveLength(1);
+    await query("UPDATE scheduled_mail SET updated_at=clock_timestamp()-interval '7 days 1 second' WHERE id=$1", [row.id]);
+    expect(await queue.listScheduledMail(user)).toEqual([]);
+    expect(await queue.dismissScheduledMail(user, row.id, 1)).toEqual(receipt);
+    expect(await stored(row.id)).toMatchObject({ state: 'dismissed', revision: 2, payload: {}, result: null });
+  });
+
+  it('fences recovery that read a completed receipt before dismissal won the update race', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id);
+    await queue.beginScheduledDispatch(claim);
+    await queue.completeScheduledMail(claim, { status: 503, body: { code: 'SEND_OUTCOME_UNKNOWN' } });
+    await query(`INSERT INTO send_idempotency(user_id,idempotency_key,request_fingerprint,status,intent_token,result)
+      VALUES ($1,$2,$3,'completed',$4,$5)`, [user, `scheduled:${row.id}:1`, 'a'.repeat(64), randomUUID(), ok.body]);
+    let observed = false;
+    await queue.recoverScheduledMail({
+      /** Dismiss after the real receipt read, before recovery can apply its stale result. */
+      async query<T>(sql: string, params?: unknown[]) {
+        const result = await query<T>(sql, params);
+        if (sql.includes('JOIN send_idempotency')) {
+          expect(result.rows).toHaveLength(1);
+          observed = true;
+          await queue.dismissScheduledMail(user, row.id, 1);
+        }
+        return result;
+      },
+    });
+    expect(observed).toBe(true);
+    expect(await stored(row.id)).toMatchObject({ state: 'dismissed', revision: 2, payload: {}, result: null });
+    expect(await queue.claimScheduledMail()).toBeNull();
+  });
+
+  it.each(['preparing', 'sending'])('releases proven undispatched %s work with a fresh revision and fences every old worker operation', async state => {
+    const row = await enqueue(); const stale = await claimed(row.id);
+    if (state === 'sending') expect(await queue.beginScheduledDispatch(stale)).toBe(true);
+    const before = await stored(row.id);
+    expect(before.state).toBe(state);
+    await queue.releaseScheduledClaim({ ...stale, lease_token: randomUUID() });
+    expect(await stored(row.id)).toEqual(before);
+    await queue.releaseScheduledClaim(stale);
+    expect(await stored(row.id)).toMatchObject({ state: 'pending', revision: 2,
+      lease_token: null, lease_until: null, dispatch_started_at: null, payload: before.payload });
+    const released = await stored(row.id);
+    await queue.releaseScheduledClaim(stale);
+    expect(await stored(row.id)).toEqual(released);
+    const current = await queue.claimScheduledMail();
+    expect(current).toMatchObject({ id: row.id, revision: 2, state: 'preparing' });
+    expect(current?.lease_token).toEqual(expect.any(String));
+    expect(current?.lease_token).not.toBe(stale.lease_token);
+    if (!current) throw new Error('Expected fresh claim');
+    const fresh = await stored(row.id);
+    await queue.releaseScheduledClaim(stale);
+    await queue.completeScheduledMail(stale, ok);
+    expect(await queue.beginScheduledDispatch(stale)).toBe(false);
+    expect(await queue.renewScheduledClaim(stale)).toBe(false);
+    expect(await stored(row.id)).toEqual(fresh);
+    expect(await queue.beginScheduledDispatch(current)).toBe(true);
+    await queue.completeScheduledMail(current, ok);
+    expect(await stored(row.id)).toMatchObject({ state: 'sent', revision: 2 });
+  });
+
+  it('cannot release an uncertain outcome even with a matching lease token', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id);
+    await queue.beginScheduledDispatch(claim);
+    await queue.completeScheduledMail(claim, { status: 503, body: { code: 'SEND_OUTCOME_UNKNOWN' } });
+    // Retain the old token deliberately to prove state fencing independently of token fencing.
+    await query('UPDATE scheduled_mail SET lease_token=$2 WHERE id=$1', [row.id, claim.lease_token]);
+    const before = await stored(row.id);
+    await queue.releaseScheduledClaim(claim);
+    expect(await stored(row.id)).toEqual(before);
+    expect(await queue.claimScheduledMail()).toBeNull();
+  });
+
 });
