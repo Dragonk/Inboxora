@@ -52,6 +52,7 @@ afterEach(() => vi.restoreAllMocks());
 
 // Dispatch through the mounted Express router without opening a TCP listener.
 // The repository's request/response doubles retain middleware and UUID routing.
+/** Dispatch through the mounted Express router without TCP, retaining middleware and UUID validation. */
 function request(method: string, body?: unknown): Promise<{ status: number; json: () => Promise<unknown> }> {
   return new Promise((resolve, reject) => {
     const req = mockRequest({ method, url: `/api/accounts${method === 'PUT' ? `/${id}` : ''}`, headers: {}, body });
@@ -68,6 +69,7 @@ function request(method: string, body?: unknown): Promise<{ status: number; json
     app(req, res, (error?: unknown) => reject(error ?? new Error('No mounted route matched')));
   });
 }
+/** Assert rejected settings made no database, plugin-persistence or in-memory account changes. */
 function expectNoWrites() {
   expect(query.mock.calls.filter(([sql]) => /\b(INSERT|UPDATE|DELETE)\b/.test(sql))).toEqual([]);
   expect(vi.mocked(pluginRegistry.collectHook).mock.calls.some(([name]) => name === 'persistAccountSettings')).toBe(false);

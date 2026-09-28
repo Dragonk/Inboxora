@@ -31,6 +31,7 @@ suite('account default recipients migration (PostgreSQL)', () => {
       try { await client.query('ROLLBACK'); } finally { client.release(); client = undefined; }
     }
   });
+  /** Require the transaction-scoped PostgreSQL client rather than silently bypassing database assertions. */
   function db(): PoolClient {
     if (!client) throw new Error('PostgreSQL fixture not initialized');
     return client;

@@ -12,6 +12,7 @@ const accountB = () => ({ ...accountA(), id: 'account-outlook', name: 'Other mai
   default_alias_id: null, aliases: [], default_cc: ['next@example.test'], default_bcc: ['hidden@example.test'] });
 const mobile = (page: Page) => (page.viewportSize()?.width ?? 1280) < 768;
 const field = (page: Page, role: 'to' | 'cc' | 'bcc') => page.getByTestId(`compose-${role}`).locator('..');
+/** Provision isolated browser mocks, optionally delaying account loading to exercise startup races. */
 async function boot(page: Page, accounts: object[], options: { accountsGate?: Promise<void>; url?: string; waitForList?: boolean } = {}) {
   await page.route('**/api/accounts', async route => {
     await options.accountsGate;
@@ -29,6 +30,7 @@ async function boot(page: Page, accounts: object[], options: { accountsGate?: Pr
   await page.goto(options.url ?? '/');
   if (options.waitForList !== false) await expect(page.getByTestId('message-list-scroll')).toBeVisible();
 }
+/** Open the account settings editor using the active desktop or mobile navigation. */
 async function settings(page: Page) {
   if (mobile(page)) await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('sidebar-user-menu').click();
@@ -37,10 +39,12 @@ async function settings(page: Page) {
   await page.getByRole('button', { name: 'Edit', exact: true }).first().click();
   await expect(page.getByTestId('account-default-cc')).toBeVisible();
 }
+/** Open a new message and wait for the real sender selector to become available. */
 async function compose(page: Page) {
   await page.getByRole('button', { name: 'Compose', exact: true }).first().click();
   await expect(page.getByTestId('compose-from')).toBeVisible();
 }
+/** Remove the specified visible recipient chip through its real UI control. */
 async function remove(page: Page, role: 'to' | 'cc' | 'bcc', address: string) {
   await field(page, role).getByText(address, { exact: true }).locator('..').getByRole('button').click();
 }
@@ -241,3 +245,48 @@ test('partial delivery retries preserve rejected recipients across sender accoun
   expect(payloads[1]).not.toHaveProperty('aliasId');
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
 });
+
+for (const outcome of ['partial', 'failure'] as const) {
+  test(`recipient editing is locked during sending and restored after ${outcome}`, async ({ page, fixtureApi }) => {
+    await fixtureApi; await boot(page, [accountA(), accountB()]); await compose(page);
+    let releaseSend: () => void = () => { throw new Error('Send gate was not initialized'); };
+    const sendGate = new Promise<void>(resolve => { releaseSend = resolve; });
+    let submitted = false;
+    await page.route('**/api/mail/send', async route => {
+      submitted = true;
+      await sendGate;
+      return outcome === 'partial'
+        ? route.fulfill({ json: { partialDelivery: true, rejected: ['cc@example.test', 'private@example.test'] } })
+        : route.fulfill({ status: 503, json: { error: 'Temporary test failure' } });
+    });
+    await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Pending send controls');
+    await page.getByTestId('compose-to').fill('accepted@example.test');
+    try {
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect.poll(() => submitted).toBe(true);
+      await expect(page.getByTestId('compose-from')).toBeDisabled();
+      for (const role of ['to', 'cc', 'bcc'] as const) {
+        await expect(page.getByTestId(`compose-${role}`)).toBeDisabled();
+      }
+      const copyChip = field(page, 'cc').getByText('cc@example.test', { exact: true }).locator('..');
+      await expect(copyChip.getByRole('button')).toBeDisabled();
+      // Chip spans are not native inputs: double-click/context-menu paths must also be guarded.
+      await copyChip.dispatchEvent('dblclick');
+      await copyChip.dispatchEvent('contextmenu');
+      await expect(field(page, 'cc')).toContainText('cc@example.test');
+      await expect(page.getByTestId('compose-cc')).toHaveValue('');
+      await expect(page.getByText('Copy address', { exact: true })).toHaveCount(0);
+    } finally {
+      releaseSend();
+    }
+    await expect(page.getByTestId('compose-from')).toBeEnabled();
+    for (const role of ['to', 'cc', 'bcc'] as const) {
+      await expect(page.getByTestId(`compose-${role}`)).toBeEnabled();
+    }
+    await expect(field(page, 'cc')).toContainText('cc@example.test');
+    await expect(field(page, 'bcc')).toContainText('private@example.test');
+    await page.getByTestId('compose-cc').fill('added-after-response@example.test');
+    await page.getByTestId('compose-cc').press('Enter');
+    await expect(field(page, 'cc')).toContainText('added-after-response@example.test');
+  });
+}
