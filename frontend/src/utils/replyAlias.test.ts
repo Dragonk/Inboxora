@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAddressListField, pickReplyAlias } from './replyAlias.ts';
+import { collectOwnAddresses, parseAddressListField, pickReplyAlias } from './replyAlias.ts';
 
 const aliases = [
   { id: 'alias-1', email: 'sales@example.com' },
@@ -178,5 +178,25 @@ describe('reply identity priority and defensive address parsing (#9)', () => {
   });
   it('never promotes an unconfigured delivery address to a sender', () => {
     assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', deliveryAddresses: ['unconfigured@example.com'] }), null);
+  });
+});
+
+
+describe('normalized email/address fallback (CodeRabbit #21)', () => {
+  for (const email of [undefined, null, '', '  ', 'not-an-email', 'Label < >']) {
+    it(`falls back to address when email is ${JSON.stringify(email)}, consistently for sender and own identities`, () => {
+      const entry = { email, address: ' Support <SUPPORT@example.com> ' };
+      for (const deliveryAddresses of [[entry], JSON.stringify([entry])]) {
+        assert.equal(pickReplyAlias({ aliases, deliveryAddresses }), 'alias-2');
+        assert.deepEqual([...collectOwnAddresses({ message: { delivery_addresses: deliveryAddresses } })], ['support@example.com']);
+      }
+      assert.equal(pickReplyAlias({ aliases, toAddresses: [entry] }), 'alias-2');
+      assert.equal(pickReplyAlias({ aliases, ccAddresses: [entry] }), 'alias-2');
+    });
+  }
+  it('keeps a valid normalized email ahead of a conflicting address', () => {
+    const entry = { email: ' Sales <SALES@example.com> ', address: 'support@example.com' };
+    assert.equal(pickReplyAlias({ aliases, deliveryAddresses: [entry] }), 'alias-1');
+    assert.deepEqual([...collectOwnAddresses({ message: { delivery_addresses: [entry] } })], ['sales@example.com']);
   });
 });

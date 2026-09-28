@@ -30,6 +30,15 @@ function normalizeAddress(raw: unknown): string | null {
   return null;
 }
 
+/** Resolve both stored address shapes consistently, after normalization. */
+function addressOf(value: unknown): string | null {
+  if (value && typeof value === 'object') {
+    const email = 'email' in value ? normalizeAddress(value.email) : null;
+    return email || ('address' in value ? normalizeAddress(value.address) : null);
+  }
+  return typeof value === 'string' ? normalizeAddress(value) : null;
+}
+
 /**
  * P1-16: Central own-identity resolver for Reply All self-exclusion.
  *
@@ -85,7 +94,7 @@ export function collectOwnAddresses({ account, message }: { account?: OwnAddress
           ? (() => { try { return JSON.parse(raw); } catch { return []; } })()
           : []);
     if (Array.isArray(list)) {
-      for (const item of list) push(typeof item === 'string' ? item : item?.email ?? item?.address);
+      for (const item of list) push(addressOf(item));
     }
   }
 
@@ -110,14 +119,6 @@ export function pickReplyAlias({
     const email = normalizeAddress(alias.email);
     if (email && !identities.has(email)) identities.set(email, alias.id);
   }
-  const addressOf = (value: unknown) => {
-    if (value && typeof value === 'object') {
-      if ('email' in value) return normalizeAddress(value.email);
-      if ('address' in value) return normalizeAddress(value.address);
-      return null;
-    }
-    return typeof value === 'string' ? normalizeAddress(value) : null;
-  };
   const delivered = parseAddressListField<unknown>(deliveryAddresses);
   // Ingest flattens final Delivered-To and original-recipient headers into one
   // list. A configured delivery alias is specific; the primary mailbox may only

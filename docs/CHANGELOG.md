@@ -28,6 +28,7 @@ finalized below and dated with its publication date.
 ### Added
 
 - **Account sender defaults (#9).** Sender addresses lists the protected primary mailbox identity alongside configured aliases and stores one default sender per account. New messages and forwards use that default; explicit choices and saved drafts retain their identity. Replies/Reply All prefer specific configured delivery aliases, then To/Cc identities, including the primary address. A final primary-mailbox delivery header cannot hide the originally contacted alias. Deleting the default alias restores the primary default; a removed explicit draft/sender alias still requires manual reselection instead of silently changing From. Provider send-as permissions remain required.
+- **Mixed recipient metadata:** sender selection and Reply All self-exclusion now share normalized `email` → `address` fallback, so an empty or invalid `email` field cannot hide a valid alias or copy a catch-all recipient back to itself.
 - **Upgrade order:** apply `0150_account_default_sender.sql` after `0149_body_cache_retention.sql` and before starting the updated backend. Existing accounts keep their primary default; the migration scopes the optional alias reference to its account and clears it on alias deletion. No new environment setting or release version is introduced. See [development release notes](wiki/Release-notes-Unreleased.md).
 
 ## [4.1.2] - 2026-09-28
