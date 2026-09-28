@@ -879,6 +879,11 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
         </button>
       </div>
 
+      <button type="button" data-testid="sidebar-scheduled" title={t('queue.title')} aria-label={t('queue.title')}
+        onClick={() => window.dispatchEvent(new Event('inboxora:open-scheduled'))}
+        style={{ margin: 8, padding: 10, color: 'var(--text-primary)', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        {sidebarCollapsed ? ICONS.sent : t('queue.title')}
+      </button>
       {/* Compose button */}
       <div style={{ padding: '12px 10px' }}>
         <button

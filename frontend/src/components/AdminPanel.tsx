@@ -1,6 +1,7 @@
 import { splitDefaultRecipients } from '../utils/defaultRecipients.ts';
 import StorageRetentionSettings from './StorageRetentionSettings.tsx';
 import MailPrefetchSettings from './MailPrefetchSettings.tsx';
+import UndoSendSettings from './UndoSendSettings.tsx';
 import { CalendarAccountsSettings, ContactAccountsSettings, SectionTabs } from './accountUi/SettingsSections.tsx';
 import MailAccountEditor from './accountUi/MailAccountEditor.tsx';
 import { useSettingsTarget, isCurrentSettingsTarget } from './accountUi/navigation.ts';
@@ -2657,6 +2658,8 @@ function LayoutsTab() {
           })}
         </div>
       </div>
+
+      <UndoSendSettings />
 
       {/* Default reply action */}
       <div style={{ marginTop: 28, paddingTop: 22, borderTop: '1px solid var(--border-subtle)' }}>

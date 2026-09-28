@@ -1,0 +1,304 @@
+import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pool, query } from './db.js';
+import * as queue from './scheduledMail.js';
+import type { SendRequestBody } from './sendMail.js';
+
+const required = process.env.REQUIRE_SCHEDULED_MAIL_POSTGRES === '1';
+const configured = Boolean(process.env.DB_HOST && process.env.DB_NAME);
+const suite = required || configured ? describe : describe.skip;
+const schema = `scheduled_test_${randomUUID().replaceAll('-', '')}`;
+const admin = new pg.Pool({ host: process.env.DB_HOST, port: Number(process.env.DB_PORT ?? 5432),
+  database: process.env.DB_NAME, user: process.env.DB_USER, password: process.env.DB_PASSWORD, connectionTimeoutMillis: 3000 });
+let created = false;
+let user: string; let outsider: string; let account: string; let otherAccount: string;
+let message: SendRequestBody;
+const instant = () => new Date(Date.now() + 3600_000).toISOString();
+const prepare = vi.fn<queue.SendExecutor>(async (_user, payload, key, options) => {
+  expect(key).toBeNull(); expect(options).toEqual({ prepareOnly: true });
+  return { status: 200, body: {}, prepared: { payload: structuredClone(payload), senderEmail: 'sender@example.test' } };
+});
+const enqueue = (key = randomUUID(), overrides: Record<string, unknown> = {}) => queue.enqueueScheduledMail(user,
+  { mode: 'schedule', timeZone: 'Europe/Prague', scheduledAt: instant(), message, ...overrides }, key, prepare);
+async function stored(id: string) { return (await query('SELECT * FROM scheduled_mail WHERE id=$1', [id])).rows[0]; }
+async function due(id: string) { await query("UPDATE scheduled_mail SET scheduled_at=clock_timestamp()-interval '1 second' WHERE id=$1", [id]); }
+async function claimed(id: string) {
+  await due(id); const row = await queue.claimScheduledMail(); expect(row?.id).toBe(id);
+  if (!row) throw new Error('Expected claim'); return row;
+}
+const ok = { status: 200, body: { ok: true } };
+
+suite('durable scheduled mail with real PostgreSQL and fake preparation', () => {
+  beforeAll(async () => {
+    if (!configured) throw new Error('REQUIRE_SCHEDULED_MAIL_POSTGRES=1 requires DB_HOST and DB_NAME');
+    const ready = await admin.query("SELECT to_regclass('public.scheduled_mail') AS queue");
+    if (!ready.rows[0]?.queue) throw new Error('Apply migration 0152 before scheduled-mail integration tests');
+    await admin.query(`CREATE SCHEMA "${schema}"`); created = true;
+    // Clone deployed columns/checks/indexes, preserving foreign-key definitions explicitly.
+    for (const table of ['users', 'email_accounts', 'send_idempotency', 'scheduled_mail']) {
+      await admin.query(`CREATE TABLE "${schema}".${table} (LIKE public.${table} INCLUDING ALL)`);
+      const constraints = await admin.query<{ definition: string }>(`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+        WHERE conrelid=$1::regclass AND contype='f'`, [`public.${table}`]);
+      for (const { definition } of constraints.rows) {
+        if (!/REFERENCES (?:public\.)?(users|email_accounts)\(/.test(definition)) continue;
+        const local = definition.replace(/REFERENCES (?:public\.)?(users|email_accounts)\(/, `REFERENCES "${schema}".$1(`);
+        await admin.query(`ALTER TABLE "${schema}".${table} ADD ${local}`);
+      }
+    }
+    pool.options.options = `-c statement_timeout=30000 -c search_path=${schema}`;
+  });
+  beforeEach(async () => {
+    await query('TRUNCATE scheduled_mail, send_idempotency, email_accounts, users CASCADE');
+    user = randomUUID(); outsider = randomUUID(); account = randomUUID(); otherAccount = randomUUID();
+    await query('INSERT INTO users(id,username) VALUES ($1,$2),($3,$4)', [user, user, outsider, outsider]);
+    await query("INSERT INTO email_accounts(id,user_id,name,email_address) VALUES ($1,$3,'Test','sender@example.test'),($2,$4,'Other','other@example.test')", [account, otherAccount, user, outsider]);
+    message = { accountId: account, body: 'original body', bodyIsHtml: false, subject: 'original',
+      to: ['Accepted <accepted@example.test>', 'Rejected <to@example.test>'], cc: ['cc@example.test'], bcc: ['private@example.test'],
+      attachments: [{ filename: 'bytes.bin', content: 'AAH/', contentType: 'application/octet-stream' }],
+      editedSignature: '<p>Frozen signature</p>', editedSignatureIsHtml: true };
+    prepare.mockClear();
+  });
+  afterAll(async () => {
+    await pool.end();
+    if (created) await admin.query(`DROP SCHEMA "${schema}" CASCADE`);
+    await admin.end();
+  });
+
+  it('persists exact time and frozen content; lists metadata only; scopes ownership and cascades account deletion', async () => {
+    const scheduledAt = instant(); const row = await enqueue(undefined, { scheduledAt });
+    expect(row.scheduledAt.toISOString()).toBe(scheduledAt);
+    expect((await stored(row.id)).payload).toEqual({ payload: message, senderEmail: 'sender@example.test' });
+    expect(await queue.listScheduledMail(outsider)).toEqual([]);
+    const [summary] = await queue.listScheduledMail(user);
+    expect(summary).toEqual(row); expect(summary).not.toHaveProperty('payload');
+    await expect(queue.editScheduledMail(outsider, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    await query('DELETE FROM email_accounts WHERE id=$1', [account]);
+    expect(await stored(row.id)).toBeUndefined();
+  });
+
+  it('replays immutable enqueue keys after cancellation and rejects changed bodies without preparing twice', async () => {
+    const key = randomUUID(); const scheduledAt = instant(); const input = { scheduledAt };
+    const row = await enqueue(key, input); await queue.cancelScheduledMail(user, row.id, 1);
+    expect(await enqueue(key, input)).toMatchObject({ id: row.id, state: 'cancelled', revision: 2 });
+    await expect(enqueue(key, { ...input, message: { ...message, body: 'changed' } })).rejects.toMatchObject({ code: 'SCHEDULE_KEY_MISMATCH' });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(1);
+  });
+
+  it('serializes concurrent enqueue and enforces the active quota at the boundary', async () => {
+    const key = randomUUID(); const input = { scheduledAt: instant() };
+    const copies = await Promise.all(Array.from({ length: 8 }, () => enqueue(key, input)));
+    expect(new Set(copies.map(row => row.id)).size).toBe(1);
+    await query(`INSERT INTO scheduled_mail(id,user_id,account_id,idempotency_key,request_fingerprint,mode,scheduled_at,time_zone,payload)
+      SELECT gen_random_uuid(),$1,$2,'fixture-'||n,repeat('a',64),'schedule',clock_timestamp()+interval '1 day','UTC','{}'::jsonb FROM generate_series(1,98) n`, [user, account]);
+    const results = await Promise.allSettled([enqueue(), enqueue()]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find(r => r.status === 'rejected')).toMatchObject({ reason: { code: 'SCHEDULE_QUEUE_FULL' } });
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(100);
+  });
+
+  it('rejects disabled undo and starts 60 seconds only after preparation finishes', async () => {
+    await expect(enqueue(undefined, { mode: 'undo' })).rejects.toMatchObject({ status: 400 });
+    expect(prepare).not.toHaveBeenCalled();
+    await query('UPDATE users SET preferences=$2 WHERE id=$1', [user, { undoSendSeconds: 60 }]);
+    let finished = 0;
+    prepare.mockImplementationOnce(async (_user, payload) => {
+      await new Promise(resolve => setTimeout(resolve, 30)); finished = Date.now();
+      return { status: 200, body: {}, prepared: { payload, senderEmail: 'sender@example.test' } };
+    });
+    const row = await enqueue(undefined, { mode: 'undo' });
+    expect(row.scheduledAt.getTime()).toBeGreaterThanOrEqual(finished + 60_000);
+    expect(row.scheduledAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+  });
+
+  it('rejects foreign account enqueue and unauthorized or stale mutations without changing the stored row', async () => {
+    await expect(enqueue(undefined, { message: { ...message, accountId: otherAccount } })).rejects.toMatchObject({ status: 404 });
+    const row = await enqueue(); const before = await stored(row.id);
+    for (const [actor, revision] of [[outsider, 1], [user, 2]] as const) {
+      await expect(queue.editScheduledMail(actor, row.id, revision)).rejects.toMatchObject({ status: 409 });
+      await expect(queue.cancelScheduledMail(actor, row.id, revision)).rejects.toMatchObject({ status: 409 });
+      await expect(queue.rescheduleMail(actor, row.id, { revision, scheduledAt: instant(), timeZone: 'UTC' })).rejects.toMatchObject({ status: 409 });
+      await expect(queue.updateScheduledMail(actor, row.id, { revision, message, keepEditing: true }, prepare)).rejects.toMatchObject({ status: 409 });
+    }
+    expect(await stored(row.id)).toEqual(before);
+  });
+
+  it('refuses replacement using a foreign account and binds enqueue receipts to the original account', async () => {
+    const key = randomUUID(); const scheduledAt = instant(); const row = await enqueue(key, { scheduledAt });
+    await queue.editScheduledMail(user, row.id, 1); const before = await stored(row.id);
+    await expect(queue.updateScheduledMail(user, row.id, { revision: 1, keepEditing: true,
+      message: { ...message, accountId: otherAccount } }, prepare)).rejects.toMatchObject({ status: 409 });
+    expect(await stored(row.id)).toEqual(before);
+    const sameOwnerAccount = randomUUID();
+    await query("INSERT INTO email_accounts(id,user_id,name,email_address) VALUES ($1,$2,'Second','second@example.test')", [sameOwnerAccount, user]);
+    await expect(enqueue(key, { scheduledAt, message: { ...message, accountId: sameOwnerAccount } })).rejects.toMatchObject({ code: 'SCHEDULE_KEY_MISMATCH' });
+    expect(await stored(row.id)).toEqual(before);
+  });
+
+  it('pauses autosave past its due time, persists edited bytes and signature through reopening, and replays lost acknowledgements', async () => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1); await due(row.id);
+    const original = await stored(row.id);
+    const edited = { ...message, body: 'saved while closed', attachments: [{ filename: 'new.bin', content: '/wAA' }], editedSignature: 'saved signature' };
+    const action = { revision: 1, message: edited, keepEditing: true };
+    const saved = await queue.updateScheduledMail(user, row.id, action, prepare);
+    expect(saved).toMatchObject({ state: 'editing', revision: 2, timeZone: row.timeZone, scheduledAt: original.scheduled_at });
+    expect(await queue.claimScheduledMail()).toBeNull();
+    expect((await queue.editScheduledMail(user, row.id, 2)).payload.payload).toEqual(edited);
+    expect(await queue.updateScheduledMail(user, row.id, action, prepare)).toEqual(saved);
+    await expect(queue.updateScheduledMail(user, row.id, { ...action, message }, prepare)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it.each([0, 60])('sendNow requeues the same row using persisted undo preference %i and replays even after sent', async seconds => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1);
+    await query('UPDATE users SET preferences=$2 WHERE id=$1', [user, { undoSendSeconds: seconds }]);
+    const action = { revision: 1, message, sendNow: true, timeZone: 'UTC' }; const before = Date.now();
+    const saved = await queue.updateScheduledMail(user, row.id, action, prepare);
+    expect(saved).toMatchObject({ id: row.id, state: 'pending', mode: 'undo', revision: 2 });
+    expect(saved.scheduledAt.getTime()).toBeGreaterThanOrEqual(before + seconds * 1000);
+    expect(saved.scheduledAt.getTime()).toBeLessThanOrEqual(Date.now() + seconds * 1000);
+    const claim = await claimed(row.id); expect(await queue.beginScheduledDispatch(claim)).toBe(true);
+    await queue.completeScheduledMail(claim, ok);
+    expect(await queue.updateScheduledMail(user, row.id, action, prepare)).toMatchObject({ id: row.id, state: 'sent', revision: 2 });
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(1);
+  });
+
+  it('validates mutually exclusive update actions and requeues an exact scheduled replacement', async () => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1);
+    await expect(queue.updateScheduledMail(user, row.id, { revision: 1, message, keepEditing: true, sendNow: true }, prepare)).rejects.toMatchObject({ status: 400 });
+    const scheduledAt = instant(); const action = { revision: 1, message, scheduledAt, timeZone: 'UTC' };
+    const saved = await queue.updateScheduledMail(user, row.id, action, prepare);
+    expect(saved).toMatchObject({ id: row.id, state: 'pending', mode: 'schedule', revision: 2 });
+    expect(saved.scheduledAt.toISOString()).toBe(scheduledAt);
+    expect(await queue.updateScheduledMail(user, row.id, action, prepare)).toEqual(saved);
+  });
+
+  it.each(['save', 'sendNow', 'schedule'])('applies simultaneous identical %s retries once and conflicts different edits', async kind => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1);
+    const action = { revision: 1, message, ...(kind === 'save' ? { keepEditing: true }
+      : kind === 'sendNow' ? { sendNow: true, timeZone: 'UTC' } : { scheduledAt: instant(), timeZone: 'UTC' }) };
+    const retries = await Promise.all(Array.from({ length: 6 }, () => queue.updateScheduledMail(user, row.id, action, prepare)));
+    expect(retries.every(r => r.revision === 2 && r.id === row.id)).toBe(true);
+    await queue.editScheduledMail(user, row.id, 2);
+    const edits = await Promise.allSettled(['A', 'B'].map(body => queue.updateScheduledMail(user, row.id,
+      { revision: 2, message: { ...message, body }, keepEditing: true }, prepare)));
+    expect(edits.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(edits.find(r => r.status === 'rejected')).toMatchObject({ reason: { status: 409 } });
+    expect((await stored(row.id)).revision).toBe(3);
+  });
+
+  it('reschedules before due without rebuilding frozen payload', async () => {
+    const row = await enqueue(); const before = await stored(row.id); const scheduledAt = new Date(Date.now() + 7200_000).toISOString();
+    const saved = await queue.rescheduleMail(user, row.id, { revision: 1, scheduledAt, timeZone: 'UTC' });
+    expect(saved.revision).toBe(2); expect(saved.scheduledAt.toISOString()).toBe(scheduledAt);
+    expect((await stored(row.id)).payload).toEqual(before.payload); expect(prepare).toHaveBeenCalledTimes(1);
+    expect(await queue.claimScheduledMail()).toBeNull();
+  });
+
+  it('allows only one worker to claim and excludes cancellation or editing after claim', async () => {
+    const row = await enqueue(); await due(row.id);
+    const claims = await Promise.all(Array.from({ length: 8 }, () => queue.claimScheduledMail()));
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    await expect(queue.cancelScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    await expect(queue.editScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('arbitrates simultaneous pause/cancel/claim without dispatching a paused or cancelled row', async () => {
+    const row = await enqueue(); await due(row.id);
+    const results = await Promise.allSettled([queue.editScheduledMail(user, row.id, 1), queue.cancelScheduledMail(user, row.id, 1), queue.claimScheduledMail()]);
+    const state = (await stored(row.id)).state;
+    const claimResult = results[2];
+    if (state === 'preparing') {
+      expect(results[0].status).toBe('rejected'); expect(results[1].status).toBe('rejected');
+      expect(claimResult).toMatchObject({ status: 'fulfilled', value: { id: row.id } });
+    } else {
+      expect(['editing', 'cancelled']).toContain(state);
+      expect(claimResult).toMatchObject({ status: 'fulfilled', value: null });
+      expect(await queue.claimScheduledMail()).toBeNull();
+    }
+  });
+
+  it('recovers expired preparation with a new revision and rejects every stale lease operation', async () => {
+    const row = await enqueue(); const stale = await claimed(row.id);
+    await query("UPDATE scheduled_mail SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", [row.id]);
+    await queue.recoverScheduledMail();
+    expect(await stored(row.id)).toMatchObject({ state: 'pending', revision: 2, lease_token: null });
+    const current = await queue.claimScheduledMail(); expect(current?.lease_token).not.toBe(stale.lease_token);
+    const before = await stored(row.id);
+    expect(await queue.renewScheduledClaim(stale)).toBe(false); expect(await queue.beginScheduledDispatch(stale)).toBe(false);
+    await queue.completeScheduledMail(stale, ok); expect(await stored(row.id)).toEqual(before);
+  });
+
+  it('parks expired sending uncertain and reconciles observed durable success without executing send', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id); expect(await queue.beginScheduledDispatch(claim)).toBe(true);
+    await query("UPDATE scheduled_mail SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", [row.id]);
+    await queue.recoverScheduledMail();
+    expect(await stored(row.id)).toMatchObject({ state: 'uncertain', revision: 1, lease_token: null });
+    expect(await queue.claimScheduledMail()).toBeNull();
+    await expect(queue.editScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    await expect(queue.rescheduleMail(user, row.id, { revision: 1, scheduledAt: instant(), timeZone: 'UTC' })).rejects.toMatchObject({ status: 409 });
+    await query(`INSERT INTO send_idempotency(user_id,idempotency_key,request_fingerprint,status,intent_token,result)
+      VALUES ($1,$2,$3,'completed',$4,$5)`, [user, `scheduled:${row.id}:1`, 'a'.repeat(64), randomUUID(), ok.body]);
+    prepare.mockClear(); await queue.recoverScheduledMail();
+    expect(await stored(row.id)).toMatchObject({ state: 'sent', payload: {}, result: { ok: true } });
+    expect(prepare).not.toHaveBeenCalled(); expect(await queue.claimScheduledMail()).toBeNull();
+  });
+
+  it('retains only rejected original To/Cc/Bcc roles after partial delivery and never requeues accepted recipients', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id); await queue.beginScheduledDispatch(claim);
+    await queue.completeScheduledMail(claim, { status: 200, body: { ok: true, partialDelivery: true,
+      accepted: ['accepted@example.test'], rejected: ['TO@example.test', 'cc@example.test', 'private@example.test'] } });
+    const partial = await queue.editScheduledMail(user, row.id, 1);
+    expect(partial.payload.payload).toEqual({ ...message, to: ['Rejected <to@example.test>'] });
+    await queue.updateScheduledMail(user, row.id, { revision: 1, message: partial.payload.payload, sendNow: true, timeZone: 'UTC' }, prepare);
+    const next = await claimed(row.id);
+    expect(next.payload.payload.to).toEqual(['Rejected <to@example.test>']);
+    expect(next.payload.payload.cc).toEqual(['cc@example.test']); expect(next.payload.payload.bcc).toEqual(['private@example.test']);
+    expect(JSON.stringify(next.payload)).not.toContain('accepted@example.test');
+  });
+
+  it('does not reconcile another user or revision receipt as this delivery', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id); await queue.beginScheduledDispatch(claim);
+    await query("UPDATE scheduled_mail SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", [row.id]);
+    for (const [owner, revision] of [[outsider, 1], [user, 2]] as const) {
+      await query(`INSERT INTO send_idempotency(user_id,idempotency_key,request_fingerprint,status,intent_token,result)
+        VALUES ($1,$2,$3,'completed',$4,$5)`, [owner, `scheduled:${row.id}:${revision}`, 'a'.repeat(64), randomUUID(), ok.body]);
+    }
+    await queue.recoverScheduledMail();
+    expect(await stored(row.id)).toMatchObject({ state: 'uncertain', revision: 1 });
+    expect(await queue.claimScheduledMail()).toBeNull();
+    expect(await queue.renewScheduledClaim(claim)).toBe(false);
+    expect(await queue.beginScheduledDispatch(claim)).toBe(false);
+    const before = await stored(row.id); await queue.completeScheduledMail(claim, ok);
+    expect(await stored(row.id)).toEqual(before);
+  });
+
+  it.each([
+    { name: 'partial', result: { ok: true, partialDelivery: true, accepted: ['accepted@example.test'], rejected: ['private@example.test'] }, state: 'partial' },
+    { name: 'overlapping evidence', result: { ok: true, partialDelivery: true, accepted: ['private@example.test'], rejected: ['PRIVATE@example.test'] }, state: 'uncertain' },
+    { name: 'foreign recipient', result: { ok: true, rejected: ['unknown@example.test'] }, state: 'uncertain' },
+    { name: 'malformed rejected list', result: { ok: true, rejected: [null] }, state: 'uncertain' },
+    { name: 'missing recipient evidence', result: { ok: true, partialDelivery: true }, state: 'uncertain' },
+  ])('observes $name durable receipts without resubmission', async ({ result, state }) => {
+    const row = await enqueue(); const claim = await claimed(row.id); await queue.beginScheduledDispatch(claim);
+    await query("UPDATE scheduled_mail SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", [row.id]);
+    await query(`INSERT INTO send_idempotency(user_id,idempotency_key,request_fingerprint,status,intent_token,result)
+      VALUES ($1,$2,$3,'completed',$4,$5)`, [user, `scheduled:${row.id}:1`, 'a'.repeat(64), randomUUID(), result]);
+    prepare.mockClear(); await queue.recoverScheduledMail(); await queue.recoverScheduledMail();
+    const observed = await stored(row.id); expect(observed.state).toBe(state);
+    if (state === 'partial') {
+      expect(observed.payload).toEqual({ senderEmail: 'sender@example.test', payload: { ...message, to: [], cc: [], bcc: ['private@example.test'] } });
+    } else {
+      expect(observed.last_error_code).toBe('SEND_OUTCOME_UNKNOWN');
+      await expect(queue.editScheduledMail(user, row.id, 1)).rejects.toMatchObject({ status: 409 });
+    }
+    expect(prepare).not.toHaveBeenCalled(); expect(await queue.claimScheduledMail()).toBeNull();
+  });
+
+  it('parks incomplete partial outcomes rather than offering every recipient for retry', async () => {
+    const row = await enqueue(); const claim = await claimed(row.id); await queue.beginScheduledDispatch(claim);
+    await queue.completeScheduledMail(claim, { status: 200, body: { ok: true, partialDelivery: true } });
+    expect(await stored(row.id)).toMatchObject({ state: 'uncertain', last_error_code: 'SEND_OUTCOME_UNKNOWN' });
+    expect(await queue.claimScheduledMail()).toBeNull();
+  });
+});

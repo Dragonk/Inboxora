@@ -9,7 +9,7 @@ const draftSave = source.slice(draftSaveStart, draftSaveEnd);
 
 test('draft save uses its invocation snapshot as both payload and dirty baseline', () => {
   const snapshot = draftSave.indexOf('const draftSnapshot = {');
-  const request = draftSave.indexOf('const result = await api.saveDraft');
+  const request = draftSave.indexOf('const result = pausedSave ? await api.put');
   const baseline = draftSave.indexOf('initialBodyRef.current = draftSnapshot.body;');
 
   assert.ok(snapshot >= 0, 'draft save captures an invocation snapshot');

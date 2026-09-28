@@ -1,0 +1,1355 @@
+import { randomBytes, createHash, randomUUID } from 'crypto';
+import { query, withTransaction } from '../services/db.js';
+import sanitizeHtml from 'sanitize-html';
+import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
+import { embedInlineDataImages } from '../utils/inlineImages.js';
+import { redisClient } from '../services/redis.js';
+import { redactEmail } from '../utils/redact.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
+import { resolveSentFolder } from '../utils/mailUtils.js';
+import { learnLocalRecipient } from '../services/contactRecipientLearning.js';
+import { createAccountMailTransport, transportKindForAccount, type MailTransport } from '../services/sendTransport.js';
+import {
+  attachmentRefusal,
+  attachmentsRefusal,
+  decodedBase64Bytes,
+  effectiveSendLimits,
+  inlineImagesRefusal,
+  messageSizeRefusal,
+  sendLimitRefusalBody,
+} from '../services/sendLimits.js';
+import { parseMailbox, renderSmtpMessage, type ComposedMail } from '../services/composedMail.js';
+import { fetchSourceAttachment, SourceAttachmentError } from '../services/sourceAttachments.js';
+import { imapManager } from '../index.js';
+import { pluginRegistry } from '../plugins/registry.js';
+import { toAppError } from '../utils/errors.js';
+import { resolveSenderIdentity } from '../services/senderIdentity.js';
+import { resolveIncomingBodyIsHtml, resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
+import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
+import { recordReplyDiagnostic } from '../services/diagnosticsRing.js';
+import type { InlineAttachment } from '../utils/inlineImages.js';
+
+/** One client-supplied attachment of an outgoing message (base64 payload). */
+interface ComposerAttachment {
+  filename: string;
+  content: string;
+  contentType?: string;
+}
+
+/** One client-supplied reference to an attachment stored on a synced message. */
+interface ForwardedAttachmentRef {
+  messageId: string;
+  part: string;
+}
+
+/** A single attachment entry as persisted in messages.attachments (jsonb or JSON text). */
+interface StoredAttachment {
+  part: string;
+  filename?: string | null;
+  type?: string | null;
+  size?: number | string | null;
+}
+
+/** The columns selected from messages when resolving forwarded attachments. */
+interface ForwardedMessageRow {
+  id: string;
+  uid: number;
+  folder: string;
+  attachments: string | StoredAttachment[] | null;
+  account_id: string;
+  /** Present on a natively-ingested message; the Graph source's immutable id. */
+  provider_message_id?: string | null;
+}
+
+/** A forwarded attachment whose bytes were fetched over IMAP. */
+interface ResolvedForwardedAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+}
+
+/** The POST /send JSON payload after the request body is destructured. */
+export interface SendRequestBody {
+  accountId?: string;
+  aliasId?: string;
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body?: unknown;
+  bodyIsHtml?: boolean;
+  quotedBody?: string;
+  quotedBodyHtml?: string;
+  inReplyTo?: string;
+  /**
+   * The stored message this send answers, by its row id.
+   *
+   * The composer already sends `In-Reply-To`, but a client path can lose it — the live case was every reply sent
+   * from the conversation view arriving with neither `In-Reply-To` nor `References`, so the copy orphaned in its
+   * own conversation. The row id is the one thing the client always has, and the server can read the message's
+   * own Message-ID from it, so the header no longer depends on the client carrying the value through.
+   */
+  replyToMessageId?: string;
+  /** Durable same-account RFC parent identity persisted by reply drafts after MOVE/reingest. */
+  replyParentMessageId?: string;
+  replyParentAccountId?: string;
+  /**
+   * What this send *is*, semantically: a new message, a reply, a reply to all, or a forward.
+   *
+   * The transport needs it where the provider has its own reply action: Graph's `createReply` is what gives a
+   * message the threading edge it recognises, because the RFC headers cannot be set in its JSON payload
+   * (MAIL-03). Omitting it is allowed; the server derives it from the reply target and the recipients.
+   */
+  sendKind?: string;
+  references?: string;
+  attachments?: ComposerAttachment[];
+  editedSignature?: string;
+  editedSignatureIsHtml?: boolean;
+  forwardedAttachments?: ForwardedAttachmentRef[];
+  priority?: string;
+}
+
+type EmailPriority = 'high' | 'normal' | 'low';
+
+function isEmailPriority(value: unknown): value is EmailPriority {
+  return value === 'high' || value === 'normal' || value === 'low';
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function escapeHtml(str: string) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Map SMTP/connection errors to user-friendly messages that don't expose server internals.
+function sanitizeSmtpError(err: unknown): string {
+  const msg = toAppError(err).message || '';
+  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EHOSTUNREACH/i.test(msg)) {
+    return 'Could not connect to the mail server. Check your SMTP settings.';
+  }
+  if (/535|534|530|invalid.?login|authentication.?fail|bad.*credentials|username.*password|password.*username/i.test(msg)) {
+    return 'Authentication failed. Check your email account credentials.';
+  }
+  if (/throttl|rate.?limit|too many|4\.2\.|4\.7\.94/i.test(msg)) {
+    return 'The mail server is rate limiting sends. Please try again shortly.';
+  }
+  if (/550|5\.[13]\.|reject|blacklist|spam|not.?accept/i.test(msg)) {
+    return 'Message was rejected by the mail server.';
+  }
+  if (/TLS|SSL|certificate|handshake/i.test(msg)) {
+    return 'Secure connection to the mail server failed. Check your TLS settings.';
+  }
+  return 'Failed to send message. Please try again.';
+}
+
+// Extract name and email from an RFC 5322 address string.
+// Handles "Name <email>", "Name<email>", bare "<email>", and bare "email" forms.
+function parseAddress(str: string) {
+  const m = str.match(/^(.+?)\s*<([^>]+)>\s*$/);
+  if (m) return { name: m[1].trim().replace(/^"|"$/g, '').trim(), email: m[2].trim().toLowerCase() };
+  const bare = str.match(/^\s*<([^>]+)>\s*$/);
+  if (bare) return { name: '', email: bare[1].trim().toLowerCase() };
+  return { name: '', email: str.trim().toLowerCase() };
+}
+
+function mapRecipientList(list: unknown): Array<{ name: string; email: string }> {
+  return (Array.isArray(list) ? list : []).map((addr: unknown) => parseAddress(String(addr ?? '')));
+}
+
+function buildSentSnippet(body: unknown, bodyIsHtml: boolean): string {
+  return bodyToPlain(body, bodyIsHtml).replace(/\s+/g, ' ').trim().substring(0, 200);
+}
+
+// OAuth providers are expected to add a Sent copy themselves, but that is a
+// provider behaviour rather than an SMTP guarantee. Verify it by the stable
+// Message-ID, then append the exact CRLF MIME message once if it never appears.
+// The fallback is deliberately not retried: IMAP APPEND is not idempotent and a
+// timed-out first APPEND might still have reached the server.
+interface SentCopyLookupResult {
+  state: 'found' | 'missing' | 'ambiguous';
+  uid?: number | null;
+}
+
+/** The narrow slice of the IMAP manager this recovery path depends on. */
+export interface SentCopyManager {
+  findSentMessageByMessageId(account: unknown, folder: string, messageId: string): Promise<SentCopyLookupResult>;
+  appendToSent(account: unknown, folder: string, rawMessage: Buffer): Promise<{ uid?: number | null }>;
+  upsertSentMessageRecord(account: unknown, folder: string, uid: number | null | undefined, sentMeta: unknown): Promise<unknown>;
+}
+
+interface EnsureServerAutoSavedSentCopyInput {
+  account: { id?: string; email_address?: string };
+  sentFolder: string;
+  messageId: string;
+  rawMessage: Buffer;
+  sentMeta?: unknown;
+  manager?: SentCopyManager;
+  delays?: number[];
+  sleep?: (delay: number) => Promise<unknown>;
+}
+
+export async function ensureServerAutoSavedSentCopy({
+  account,
+  sentFolder,
+  messageId,
+  rawMessage,
+  sentMeta,
+  manager = imapManager,
+  delays = [3000, 10000, 20000],
+  sleep = (delay) => new Promise(resolve => setTimeout(resolve, delay)),
+}: EnsureServerAutoSavedSentCopyInput) {
+  if (!sentFolder || !messageId || !rawMessage) return { saved: false, appended: false };
+
+  let verificationFailed = false;
+  for (const delay of delays) {
+    await sleep(delay);
+    try {
+      const result = await manager.findSentMessageByMessageId(account, sentFolder, messageId);
+      if (result.state === 'found') {
+        if (sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, result.uid, sentMeta);
+        return { saved: true, appended: false };
+      }
+      if (result.state === 'ambiguous') verificationFailed = true;
+    } catch (caught) {
+      const err = toAppError(caught);
+      verificationFailed = true;
+      console.warn('Post-send Sent-copy verification failed:', err.message);
+    }
+  }
+
+  // An IMAP error means "unknown", not "absent". APPEND only after every
+  // lookup completed and confirmed absence, otherwise a late provider copy
+  // could be duplicated when connectivity recovers.
+  if (verificationFailed) return { saved: false, appended: false };
+
+  // Close the practical gap after the delayed observations: a provider can
+  // materialize its Sent copy just after the final timer fires. This cannot be
+  // made fully atomic across independent SMTP and IMAP servers, but it prevents
+  // the ordinary late-visibility race without ever appending on uncertainty.
+  try {
+    const finalResult = await manager.findSentMessageByMessageId(account, sentFolder, messageId);
+    if (finalResult.state === 'found') {
+      if (sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, finalResult.uid, sentMeta);
+      return { saved: true, appended: false };
+    }
+    if (finalResult.state !== 'missing') return { saved: false, appended: false };
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.warn('Post-send final Sent-copy verification failed:', err.message);
+    return { saved: false, appended: false };
+  }
+
+  try {
+    const { uid } = await manager.appendToSent(account, sentFolder, rawMessage);
+    if (uid && sentMeta) await manager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta);
+    return { saved: true, appended: true };
+  } catch (caught) {
+    const err = toAppError(caught);
+    console.error(`Post-send Sent-copy fallback APPEND failed for ${redactEmail(account.email_address || '')}/${sentFolder}: ${err.message}`);
+    return { saved: false, appended: true };
+  }
+}
+
+// Reject any recipient address that contains newlines, null bytes, or looks
+// malformed — these are the classic email header-injection vectors.
+function normalizeRecipients(list: unknown, fieldName: string): string[] {
+  if (!Array.isArray(list)) throw Object.assign(new Error(`${fieldName} must be an array`), { status: 400 });
+  return list.map((addr, i) => {
+    if (typeof addr !== 'string' || !addr.trim()) {
+      throw Object.assign(new Error(`${fieldName}[${i}] is empty or not a string`), { status: 400 });
+    }
+    const trimmed = addr.trim();
+    if (/[\r\n\0]/.test(trimmed)) {
+      throw Object.assign(new Error(`${fieldName}[${i}] contains invalid characters`), { status: 400 });
+    }
+    const at = trimmed.lastIndexOf('@');
+    if (at < 1 || at === trimmed.length - 1) {
+      throw Object.assign(new Error(`${fieldName}[${i}] is not a valid email address`), { status: 400 });
+    }
+    return trimmed;
+  });
+}
+
+// Strip header-injection characters from single-line header values.
+function sanitizeHeaderValue(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\r\n\0]/g, '').trim();
+}
+
+function textToHtml(text: string) {
+  return '<div style="font-family:sans-serif;font-size:14px;line-height:1.6">' +
+    text.split('\n').map(l => `<p style="margin:0">${escapeHtml(l) || '&nbsp;'}</p>`).join('') +
+    '</div>';
+}
+
+function sigToPlainText(html: string) {
+  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} }).trim();
+}
+
+function bodyToPlain(body: unknown, isHtml: boolean): string {
+  if (!isHtml) return String(body ?? '');
+  return sanitizeHtml(String(body ?? ''), { allowedTags: [], allowedAttributes: {} });
+}
+
+function bodyToHtml(body: unknown, isHtml: boolean): string {
+  const text = String(body ?? '');
+  if (!isHtml) return textToHtml(text);
+  return sanitizeComposeBody(text);
+}
+
+const IDEMPOTENCY_LEASE_SECONDS = 300;
+const IDEMPOTENCY_RENEW_MS = 60_000;
+const INFLIGHT_PREFIX = '__inflight__:';
+
+// Redis is only a fast path for replaying completed responses and coordinating the
+// live lease. The database intent below is authoritative: it survives Redis loss,
+// process restarts, and requests that were still preparing their MIME message when a
+// different request lost its lease.
+type SendIntentRow = {
+  status: 'pending' | 'uncertain' | 'completed';
+  request_fingerprint: string;
+  result: unknown;
+};
+
+type SendIntentClaim =
+  | { state: 'claimed' }
+  | { state: 'inflight' | 'uncertain' }
+  | { state: 'completed'; result: unknown }
+  | { state: 'mismatch' };
+
+async function claimSendIntent(userId: string, idempotencyKey: string, fingerprint: string, compatibleFingerprints: readonly string[], token: string): Promise<SendIntentClaim> {
+  const inserted = await query<SendIntentRow>(
+    `INSERT INTO send_idempotency (user_id, idempotency_key, request_fingerprint, status, intent_token)
+     VALUES ($1, $2, $3, 'pending', $4::uuid)
+     ON CONFLICT (user_id, idempotency_key) DO NOTHING
+     RETURNING status`,
+    [userId, idempotencyKey, fingerprint, token],
+  );
+  if (inserted.rows.length) return { state: 'claimed' };
+
+  const existing = await query<SendIntentRow>(
+    `SELECT status, request_fingerprint, result
+     FROM send_idempotency WHERE user_id = $1 AND idempotency_key = $2`,
+    [userId, idempotencyKey],
+  );
+  const row = existing.rows[0];
+  // A pre-send failure may have released the row between the INSERT conflict and
+  // SELECT. Fail closed; the client can safely make a fresh request.
+  if (!row) return { state: 'inflight' };
+  if (!compatibleFingerprints.includes(row.request_fingerprint)) return { state: 'mismatch' };
+  if (row.status === 'completed') return { state: 'completed', result: row.result };
+  return { state: row.status === 'uncertain' ? 'uncertain' : 'inflight' };
+}
+
+async function markSendIntentUncertain(userId: string, idempotencyKey: string, token: string) {
+  return query(
+    `UPDATE send_idempotency SET status = 'uncertain', updated_at = NOW()
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid AND status = 'pending'`,
+    [userId, idempotencyKey, token],
+  );
+}
+
+async function completeSendIntent(userId: string, idempotencyKey: string, token: string, result: unknown) {
+  return query(
+    `UPDATE send_idempotency SET status = 'completed', result = $4::jsonb, updated_at = NOW()
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid
+       AND status IN ('pending', 'uncertain')`,
+    [userId, idempotencyKey, token, JSON.stringify(result)],
+  );
+}
+
+async function releaseSendIntent(userId: string, idempotencyKey: string, token: string) {
+  return query(
+    `DELETE FROM send_idempotency
+     WHERE user_id = $1 AND idempotency_key = $2 AND intent_token = $3::uuid`,
+    [userId, idempotencyKey, token],
+  );
+}
+
+interface CachedSendResult {
+  version: 1;
+  fingerprint: string;
+  result: unknown;
+}
+
+function parseCachedSendResult(value: string): CachedSendResult | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<CachedSendResult>;
+    if (parsed?.version === 1 && typeof parsed.fingerprint === 'string' && 'result' in parsed) {
+      return parsed as CachedSendResult;
+    }
+  } catch { /* A malformed or legacy cache value must fall back to PostgreSQL. */ }
+  return null;
+}
+
+function isExplicitSmtpRejection(error: unknown): boolean {
+  const candidate = error as { responseCode?: unknown };
+  const responseCode = Number(candidate?.responseCode);
+  // responseCode is nodemailer's structured SMTP reply. A reply in either error
+  // class is a known rejection, including a temporary DATA/STARTTLS rejection.
+  // Do not infer this from message text: a connection loss can contain a stale
+  // 5xx-looking transcript after DATA was already accepted.
+  return Number.isInteger(responseCode) && responseCode >= 400 && responseCode < 600;
+}
+
+function isDefinitelyPreDeliveryFailure(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = String(candidate?.code || '');
+  return ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'EAUTH'].includes(code)
+    || /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|authentication failed/i.test(String(candidate?.message || ''));
+}
+
+function retainedLease(result: unknown): boolean {
+  return result === 1 || result === 'OK';
+}
+
+async function renewIdempotencyLease(key: string, token: string) {
+  return redisClient.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
+    { keys: [key], arguments: [token, String(IDEMPOTENCY_LEASE_SECONDS)] },
+  );
+}
+
+async function releaseIdempotencyLease(key: string, token: string) {
+  return redisClient.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+    { keys: [key], arguments: [token] },
+  );
+}
+
+async function completeIdempotencyLease(key: string, token: string, result: unknown) {
+  return redisClient.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) end return 0",
+    { keys: [key], arguments: [token, JSON.stringify(result), '86400'] },
+  );
+}
+
+
+/** Frozen, ownership-validated input retained by the durable send queue. */
+export interface PreparedSend { payload: SendRequestBody; senderEmail: string }
+/** Application-level delivery result, independent of Express and HTTP sessions. */
+export interface SendExecutionResult {
+  status: number;
+  body: Record<string, unknown>;
+  prepared?: PreparedSend;
+}
+export interface SendExecutionOptions {
+  prepareOnly?: boolean;
+  expectedSenderEmail?: string;
+  beforeDispatch?: () => Promise<boolean>;
+}
+function sendResponse(status: number, body: unknown): SendExecutionResult {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { status: 503, body: { code: 'SEND_OUTCOME_UNKNOWN', error: 'The stored delivery result is unavailable. Do not resend automatically.' } };
+  }
+  return { status, body: body as Record<string, unknown> };
+}
+/** Shared SMTP/Gmail/Graph validation, durable submission and Sent-copy pipeline. */
+export async function executeSend(userId: string, payload: SendRequestBody, idempotencyKey: string | null,
+  options: SendExecutionOptions = {}): Promise<SendExecutionResult> {
+  const { accountId, aliasId, to, cc = [], bcc = [], subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, sendKind, attachments, editedSignature, editedSignatureIsHtml, forwardedAttachments, priority }: SendRequestBody = payload;
+  const emailPriority = isEmailPriority(priority) ? priority : 'normal';
+  if (!accountId) return sendResponse(400, { error: 'accountId required' });
+  if (bodyIsHtml !== undefined && typeof bodyIsHtml !== 'boolean') return sendResponse(400, { error: 'bodyIsHtml must be a boolean' });
+  if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return sendResponse(400, { error: 'editedSignatureIsHtml must be a boolean' });
+
+  // Idempotency guard. The client sends a stable X-Idempotency-Key per logical send: a
+  // sequential retry after a lost success response returns the cached result, and a
+  // concurrent same-key submit is blocked by the reservation set just before delivery
+  // (below). Neither can produce a duplicate email.
+  const idemKeyRedis = idempotencyKey ? `send_idem:${userId}:${idempotencyKey}` : null;
+
+  if (attachments !== undefined) {
+    if (!Array.isArray(attachments)) return sendResponse(400, { error: 'attachments must be an array' });
+    if (attachments.length > 100) return sendResponse(400, { error: 'Too many attachments (max 100)' });
+    // The size of these attachments is checked below, once the account's transport is known: 25 MB is one
+    // transport's ceiling, not a ceiling on the message (P06).
+    for (const [i, a] of attachments.entries()) {
+      if (typeof a.filename !== 'string' || !a.filename.trim()) return sendResponse(400, { error: `attachments[${i}].filename is required` });
+      if (typeof a.content !== 'string') return sendResponse(400, { error: `attachments[${i}].content must be a base64 string` });
+    }
+  }
+
+  if (forwardedAttachments !== undefined) {
+    if (!Array.isArray(forwardedAttachments)) return sendResponse(400, { error: 'forwardedAttachments must be an array' });
+    if (forwardedAttachments.length > 100) return sendResponse(400, { error: 'Too many forwarded attachments (max 100)' });
+    for (const [i, fa] of forwardedAttachments.entries()) {
+      if (typeof fa.messageId !== 'string' || !UUID_RE.test(fa.messageId)) return sendResponse(400, { error: `forwardedAttachments[${i}].messageId is invalid` });
+      if (typeof fa.part !== 'string' || !fa.part.trim()) return sendResponse(400, { error: `forwardedAttachments[${i}].part is required` });
+    }
+  }
+
+  let normalizedTo, normalizedCc, normalizedBcc;
+  try {
+    normalizedTo  = normalizeRecipients(to ?? [],  'to');
+    normalizedCc  = normalizeRecipients(cc ?? [],  'cc');
+    normalizedBcc = normalizeRecipients(bcc ?? [], 'bcc');
+  } catch (caught) {
+    const err = toAppError(caught);
+    return sendResponse(err.status || 400, { error: err.message });
+  }
+  if (!normalizedTo.length && !normalizedCc.length && !normalizedBcc.length) {
+    return sendResponse(400, { error: 'At least one recipient is required' });
+  }
+  const normalizedSubject = sanitizeHeaderValue(subject || '');
+
+  const [result, prefResult] = await Promise.all([
+    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, userId]),
+    query<{ preferences?: { plaintextEmail?: boolean; [key: string]: unknown } | null }>('SELECT preferences FROM users WHERE id = $1', [userId]),
+  ]);
+  if (!result.rows.length) return sendResponse(404, { error: 'Account not found' });
+  const plaintextEmail = prefResult.rows[0]?.preferences?.plaintextEmail === true;
+  // Omitted legacy fields were always literal text input. The profile may select
+  // an additional HTML MIME representation, but must never reinterpret that input.
+  const inputBodyIsHtml = resolveIncomingBodyIsHtml(bodyIsHtml);
+  const outputBodyIsHtml = resolveOutgoingBodyIsHtml(bodyIsHtml, plaintextEmail);
+  let account = result.rows[0];
+  // The limits this send is measured against belong to its **transport**, not to the installation alone: a
+  // Graph account carries a file above 25 MB through an upload session, while an SMTP account is bounded by
+  // the server's own ceiling. Resolved from the account row by the same rule the seam binds the transport
+  // with, and before any attachment is fetched, so an impossible message is refused before the work.
+  const transportKind = transportKindForAccount(account);
+  const limits = effectiveSendLimits(transportKind);
+  if (attachments?.length) {
+    for (const a of attachments) {
+      const bytes = decodedBase64Bytes(a.content);
+      const tooLarge = attachmentRefusal(bytes, limits, sanitizeHeaderValue(a.filename));
+      if (tooLarge) return sendResponse(413, sendLimitRefusalBody(tooLarge));
+    }
+    const uploadedTotal = attachments.reduce((sum, a) => sum + decodedBase64Bytes(a.content), 0);
+    const totalRefusal = attachmentsRefusal(uploadedTotal, limits);
+    if (totalRefusal) return sendResponse(413, sendLimitRefusalBody(totalRefusal));
+  }
+  let sender;
+  try {
+    sender = await resolveSenderIdentity(account, aliasId);
+  } catch (caught) {
+    const err = toAppError(caught);
+    return sendResponse(err.status || 400, { error: err.message });
+  }
+  const { fromName, fromEmail, fromReplyTo, fromSignature } = sender;
+  if (options.expectedSenderEmail && fromEmail.toLowerCase() !== options.expectedSenderEmail.toLowerCase()) {
+    return sendResponse(409, { code: 'SCHEDULE_SENDER_CHANGED', error: 'The scheduled sender address changed. Edit the message and select its sender again.' });
+  }
+
+  // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
+  // Sanitize client-supplied HTML to prevent injecting scripts or tracking pixels into sent mail.
+  const signatureIsHtml = editedSignatureIsHtml !== false;
+  const effectiveSignature = editedSignature !== undefined
+    ? (editedSignature ? (signatureIsHtml ? sanitizeSignature(editedSignature) : textToHtml(editedSignature)) : null)
+    : fromSignature;  // fromSignature from DB is already sanitized on write
+  const effectiveSignatureText = editedSignature !== undefined && !signatureIsHtml
+    ? editedSignature
+    : (effectiveSignature ? sigToPlainText(effectiveSignature) : null);
+
+  // Fetch forwarded attachment content from IMAP before entering the SMTP try-block so that
+  // attachment errors return descriptive messages rather than being sanitized as SMTP errors.
+  let resolvedFwdAttachments: ResolvedForwardedAttachment[] = [];
+  if (forwardedAttachments?.length) {
+    try {
+      // Resolve every referenced message in a SINGLE ownership-scoped query so a large
+      // forwardedAttachments array can't fan out into one DB round-trip per entry.
+      const distinctMsgIds = [...new Set(forwardedAttachments.map(fa => fa.messageId))];
+      const msgRows = await query<ForwardedMessageRow>(
+        `SELECT m.id, m.uid, m.folder, m.attachments, m.account_id, m.provider_message_id FROM messages m
+         JOIN email_accounts a ON m.account_id = a.id
+         WHERE m.id = ANY($1::uuid[]) AND a.user_id = $2`,
+        [distinctMsgIds, userId]
+      );
+      const msgById = new Map<string, ForwardedMessageRow>(msgRows.rows.map(m => [m.id, m]));
+
+      // Build the fetch plan (one entry per requested attachment, order preserved) and sum the
+      // DECLARED sizes so an oversized batch is rejected BEFORE any IMAP fetch happens.
+      const uploadedBytes = (attachments || []).reduce(
+        (sum, a) => sum + (typeof a.content === 'string' ? Math.ceil(a.content.length * 0.75) : 0), 0
+      );
+      let declaredFwdBytes = 0;
+      const fetchPlan = forwardedAttachments.map((fa) => {
+        const msg = msgById.get(fa.messageId);
+        if (!msg) throw Object.assign(new Error('Forwarded message not found'), { status: 404, code: 'RESOURCE_NOT_FOUND' });
+        const storedAtts: StoredAttachment[] = typeof msg.attachments === 'string'
+          ? JSON.parse(msg.attachments || '[]')
+          : (msg.attachments || []);
+        const att = storedAtts.find(a => a.part === fa.part);
+        if (!att) throw Object.assign(new Error('Attachment not found in message'), { status: 404, code: 'RESOURCE_NOT_FOUND' });
+        declaredFwdBytes += Number(att.size) || 0;
+        return { msg, att };
+      });
+      // Attachments that were uploaded and attachments still on the server are one total:
+      // a forwarded attachment costs the same as an uploaded one.
+      const declaredRefusal = attachmentsRefusal(uploadedBytes + declaredFwdBytes, limits);
+      if (declaredRefusal) return sendResponse(413, sendLimitRefusalBody(declaredRefusal));
+
+      // Load the owning accounts once, then fetch bodies with bounded concurrency so we never
+      // open a burst of fresh IMAP connections (fetchAttachment opens a connection per call).
+      const distinctAcctIds = [...new Set(fetchPlan.map(p => p.msg.account_id))];
+      const acctRows = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = ANY($1::uuid[])', [distinctAcctIds]);
+      const acctById = new Map<string, EmailAccountRow>(acctRows.rows.map(a => [a.id, a]));
+
+      const FWD_FETCH_CONCURRENCY = 4;
+      for (let i = 0; i < fetchPlan.length; i += FWD_FETCH_CONCURRENCY) {
+        const batch = fetchPlan.slice(i, i + FWD_FETCH_CONCURRENCY);
+        const fetched = await Promise.all(batch.map(async ({ msg, att }) => {
+          const acct = acctById.get(msg.account_id);
+          if (!acct) throw Object.assign(new Error('Account not found'), { status: 404, code: 'RESOURCE_NOT_FOUND' });
+          // Fetched from the account that OWNS the message, not from the sender: a forward whose source
+          // is a native Graph account must read the bytes over Graph and never open IMAP. §22.1 names a
+          // failed fetch, and its rule is §12.9's sentence: the read can be retried, and the message is
+          // not sent without the file.
+          const buffer = await fetchSourceAttachment({
+            account: acct,
+            message: { uid: msg.uid, folder: msg.folder, provider_message_id: msg.provider_message_id ?? null },
+            attachment: { part: att.part, filename: att.filename },
+            imap: (sourceAccount, uid, folder, part) =>
+              imapManager.fetchAttachment(sourceAccount as EmailAccountRow, uid as number, folder, part),
+            maxBytes: limits.singleAttachmentBytes,
+          }).catch((caught: unknown) => {
+            if (caught instanceof SourceAttachmentError) {
+              throw Object.assign(new Error(caught.message), { status: caught.status, code: caught.code });
+            }
+            throw caught;
+          });
+          return {
+            filename: sanitizeHeaderValue(att.filename || 'attachment'),
+            content: buffer,
+            contentType: att.type || 'application/octet-stream',
+          };
+        }));
+        resolvedFwdAttachments.push(...fetched);
+      }
+
+      // Exact backstop: declared sizes can under-report, so re-check against fetched bytes.
+      // It answers like its two siblings above — 413 with a domain code and the numbers —
+      // rather than the bare 400 with English prose it used to return. A client had to
+      // match that sentence to learn what happened, which is the reason the other two
+      // guards gained codes in the first place, and this one is the *last* line of defence
+      // so it is the one most likely to be reached.
+      const fwdBytes = resolvedFwdAttachments.reduce((sum, a) => sum + (a.content?.length || 0), 0);
+      const forwardedTotal = uploadedBytes + fwdBytes;
+      const exactRefusal = attachmentsRefusal(forwardedTotal, limits);
+      if (exactRefusal) return sendResponse(413, sendLimitRefusalBody(exactRefusal));
+    } catch (caught) {
+      const err = toAppError(caught);
+      // Carry the domain code through, so the interface can answer in the user's language instead of echoing
+      // this sentence — the same reason the uncertainty and size refusals gained codes.
+      const failure = err as Error & { status?: number; code?: string };
+      return sendResponse(failure.status || 500, {
+        ...(failure.code ? { code: failure.code } : {}),
+        error: failure.message || 'Failed to fetch forwarded attachments',
+      });
+    }
+  }
+
+  let reservationAcquired = false;
+  let reservationToken: string | null = null;
+  let intentToken: string | null = null;
+  let intentClaimed = false;
+  // The answered message is part of what makes this request *this* request. Two replies with identical text to
+  // two different messages are different sends, and without it in the fingerprint they collide and the second
+  // replays the first delivery (MAIL-05).
+  const normalizedReplyToMessageId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
+  // A moved draft can retain these RFC/account fallbacks while its physical row
+  // changes. They and the requested provider action are delivery semantics, not
+  // incidental client metadata, so idempotency must distinguish them.
+  const normalizedReplyParentMessageId = typeof replyParentMessageId === 'string' && replyParentMessageId ? replyParentMessageId : null;
+  const normalizedReplyParentAccountId = typeof replyParentAccountId === 'string' && replyParentAccountId ? replyParentAccountId : null;
+  const normalizedSendKind = sendKind === 'reply' || sendKind === 'reply_all' || sendKind === 'forward' ? sendKind : null;
+  const sendFingerprint = createHash('sha256').update(JSON.stringify({
+    accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+    subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+    replyToMessageId: normalizedReplyToMessageId,
+    replyParentMessageId: normalizedReplyParentMessageId,
+    replyParentAccountId: normalizedReplyParentAccountId,
+    sendKind: normalizedSendKind,
+    attachments, forwardedAttachments, editedSignature,
+    editedSignatureIsHtml: editedSignature === undefined ? null : editedSignatureIsHtml !== false,
+    priority: emailPriority,
+  })).digest('hex');
+  // V1 used the raw API field (defaulting to false). Keep this recognisable
+  // during upgrades so a lost response cannot turn into a new delivery.
+  const legacyFingerprint = createHash('sha256').update(JSON.stringify({
+    accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+    subject: normalizedSubject, body, bodyIsHtml: bodyIsHtml ?? false, quotedBody, quotedBodyHtml, inReplyTo, references,
+    attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+  })).digest('hex');
+  // Only requests without the newer signature-format contract may match V1.
+  // Otherwise a changed signature interpretation must conflict, not replay.
+  // The earlier fingerprints did not cover the answered message at all, so a reply must not match them — that is
+  // exactly the collision this field removes. They stay compatible for a send with no reply context, where they
+  // are still unambiguous, so an in-flight send from before the upgrade is not turned into a second delivery.
+  const compatibleFingerprints = [sendFingerprint];
+  // d7f514c3 used the two body-format flags but had no signature-format field.
+  // It is unambiguous only when no signature override was supplied.
+  if (!normalizedReplyToMessageId && !normalizedReplyParentMessageId && !normalizedReplyParentAccountId && !normalizedSendKind && editedSignature === undefined) {
+    const priorTwoFormatFingerprint = createHash('sha256').update(JSON.stringify({
+      accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+      subject: normalizedSubject, body, inputBodyIsHtml, outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+      attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+    })).digest('hex');
+    compatibleFingerprints.push(priorTwoFormatFingerprint);
+  }
+  if (!normalizedReplyToMessageId && !normalizedReplyParentMessageId && !normalizedReplyParentAccountId && !normalizedSendKind && editedSignatureIsHtml === undefined) compatibleFingerprints.push(legacyFingerprint);
+  // 2b3d927e also used its profile-derived output flag as bodyIsHtml when the
+  // field was omitted. Recognise that precise historical form, never broadly.
+  if (!normalizedReplyToMessageId && !normalizedReplyParentMessageId && !normalizedReplyParentAccountId && !normalizedSendKind && bodyIsHtml === undefined && editedSignatureIsHtml === undefined) {
+    const historicalFingerprint = createHash('sha256').update(JSON.stringify({
+      accountId, aliasId: aliasId || null, to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+      subject: normalizedSubject, body, bodyIsHtml: outputBodyIsHtml, quotedBody, quotedBodyHtml, inReplyTo, references,
+      attachments, forwardedAttachments, editedSignature, priority: emailPriority,
+    })).digest('hex');
+    compatibleFingerprints.push(historicalFingerprint);
+  }
+  if (idemKeyRedis) {
+    let cached: string | null;
+    try { cached = await redisClient.get(idemKeyRedis); }
+    catch { return sendResponse(503, { error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+    if (cached?.startsWith(INFLIGHT_PREFIX)) return sendResponse(409, { error: 'This message is already being sent.' });
+    if (cached) {
+      const replay = parseCachedSendResult(cached);
+      if (replay) {
+        if (!compatibleFingerprints.includes(replay.fingerprint)) {
+          return sendResponse(409, { error: 'This idempotency key belongs to a different message.' });
+        }
+        return sendResponse(200, replay.result);
+      }
+      // Legacy cache entries have no canonical request identity. Ignore them and
+      // obtain the authoritative result (or mismatch) from the durable intent.
+    }
+  }
+  let reservationRenewal: ReturnType<typeof setInterval> | null = null;
+  const stopReservationRenewal = () => {
+    if (reservationRenewal) clearInterval(reservationRenewal);
+    reservationRenewal = null;
+  };
+  let delivered = false; // true once the transport has actually accepted the message for delivery
+  let dispatchStarted = false;
+  let finalizationStarted = false;
+  let transportRecipients: { accepted: string[]; rejected: string[] } | null = null;
+  const markLeaseUncertain = (fromRenewal = false) => {
+    // A renewal response can arrive after finalization has begun. It no longer
+    // owns the lease and must not overwrite a completed-result reconciliation.
+    if (fromRenewal && finalizationStarted) return;
+    if (idempotencyKey && intentToken) {
+      void markSendIntentUncertain(userId, idempotencyKey!, intentToken!).catch(() => {});
+    }
+  };
+  try {
+    const bound = await createAccountMailTransport(account);
+    if ('error' in bound) {
+      return sendResponse(bound.status, {
+        ...(bound.code ? { code: bound.code } : {}),
+        error: bound.error,
+      });
+    }
+    account = bound.account;
+    const transport: MailTransport = bound.transport;
+
+    // Use a stable Message-ID so the SMTP copy and any IMAP APPEND reference the same message.
+    const domain = (fromEmail || '').split('@')[1] || 'mailflow.local';
+    const messageId = `<${randomBytes(16).toString('hex')}@${domain}>`;
+    // The semantic content. Composition into a wire format happens once, in the transport's renderer
+    // below — this is what will also let a Graph renderer build `bccRecipients` from the same model.
+    const plainBodyText = effectiveSignature
+      ? bodyToPlain(body, inputBodyIsHtml) + '\n\n-- \n' + effectiveSignatureText + (quotedBody || '')
+      : bodyToPlain(body, inputBodyIsHtml) + (quotedBody || '');
+    let htmlBody: string | null = null;
+    let inReplyToHeader: string | null = null;
+    let referencesHeader: string | null = null;
+
+    let inlineImageAttachments: InlineAttachment[] = [];
+    if (outputBodyIsHtml) {
+      const rawHtml = bodyToHtml(body, inputBodyIsHtml) +
+        (effectiveSignature
+          ? '<div style="margin-top:16px;color:#555;font-size:13px">' + effectiveSignature + '</div>'
+          : '') +
+        (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
+      const embedded = embedInlineDataImages(rawHtml);
+      htmlBody = embedded.html;
+      inlineImageAttachments = embedded.attachments;
+    }
+
+    // A reply always gets its edge, even when the client did not carry one: the row it answers is in this
+    // database, and its Message-ID is the value the header needs.
+    let resolvedInReplyTo = typeof inReplyTo === 'string' && inReplyTo.trim() ? inReplyTo : null;
+    let resolvedReferences = typeof references === 'string' && references.trim() ? references : null;
+    // The answered message's provider id, when it is in **this** mailbox: that is what a provider-native reply
+    // action needs (MAIL-03).
+    let parentProviderMessageId: string | null = null;
+    let parentGmailThreadId: string | null = null;
+    let providerResolution: 'direct' | 'legacy_alias' | 'not_applicable' | 'unresolved' = transportKind === 'microsoft_graph' ? 'unresolved' : 'not_applicable';
+    // Infer the old headers-only shape before choosing the transport. Microsoft
+    // cannot safely turn that shape into POST /me/messages: its reply action
+    // needs a resolvable physical parent. SMTP/Gmail retain this legacy path
+    // only while older clients are upgraded, and explicit reply kinds are strict
+    // on every transport.
+    const requestedReply = sendKind === 'reply' || sendKind === 'reply_all'
+      || (!sendKind && (Boolean(resolvedInReplyTo) || Boolean(resolvedReferences)));
+    const strictReplyParent = sendKind === 'reply' || sendKind === 'reply_all'
+      || (transportKind === 'microsoft_graph' && requestedReply);
+    const parentRowId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
+    const durableParentMessageId = typeof replyParentMessageId === 'string' && replyParentMessageId.trim()
+      ? replyParentMessageId.trim() : resolvedInReplyTo;
+    const durableParentAccountId = typeof replyParentAccountId === 'string' && replyParentAccountId
+      ? replyParentAccountId : null;
+    if (parentRowId && !UUID_RE.test(parentRowId)) {
+      return sendResponse(422, { code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent is invalid' });
+    }
+    // The physical row is authoritative. Client RFC headers may be stale or
+    // deliberately forged; never let them select a different thread/provider
+    // parent than the row the user selected.
+    if (parentRowId) {
+      if (durableParentAccountId && durableParentAccountId !== accountId) {
+        return sendResponse(422, { code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The saved reply parent belongs to a different account' });
+      }
+      const parent = await query<{
+        id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
+        thread_references: string | null; provider_message_id: string | null; provider_thread_id: string | null;
+        thread_id: string | null; account_id: string;
+      }>(
+        `SELECT m.id, m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
+                m.provider_message_id, m.provider_thread_id, m.thread_id, m.account_id
+           FROM messages m JOIN email_accounts a ON a.id = m.account_id
+          WHERE m.id = $1 AND a.user_id = $2`,
+        [parentRowId, userId],
+      );
+      // A draft can outlive its original physical row after a MOVE/ARCHIVE
+      // resync. Its RFC parent is only a durable lookup hint; a matched row still
+      // supplies all authoritative RFC and provider identity below.
+      let row = parent.rows[0];
+      if (!row && durableParentMessageId) {
+        const movedParent = await query<{
+          id: string; message_id: string | null; canonical_message_id: string | null; in_reply_to: string | null;
+          thread_references: string | null; provider_message_id: string | null; provider_thread_id: string | null;
+          thread_id: string | null; account_id: string;
+        }>(
+          `SELECT m.id, m.message_id, m.canonical_message_id, m.in_reply_to, m.thread_references,
+                  m.provider_message_id, m.provider_thread_id, m.thread_id, m.account_id
+             FROM messages m JOIN email_accounts a ON a.id = m.account_id
+            WHERE m.message_id = $1 AND m.account_id = $2 AND a.user_id = $3 AND m.is_deleted = false
+            ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST LIMIT 1`,
+          [durableParentMessageId, accountId, userId],
+        );
+        row = movedParent.rows[0];
+      }
+      if (!row || row.account_id !== accountId) {
+        return sendResponse(422, { code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent is unavailable for this account' });
+      }
+      const parentId = row.message_id || row.canonical_message_id || null;
+      if (!parentId) {
+        return sendResponse(422, { code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent has no RFC message identity' });
+      }
+      resolvedInReplyTo = parentId;
+      // The chain is the parent's own references plus its Message-ID. Keep the
+      // first occurrence only so repeated sync headers do not grow indefinitely.
+      const ids = [row.thread_references, row.in_reply_to, parentId]
+        .flatMap(value => String(value || '').match(/<[^<>\r\n]+>/g) || []);
+      resolvedReferences = [...new Set(ids)].join(' ') || parentId;
+      if (transportKind === 'microsoft_graph') {
+        const identity = await resolveGraphMessageIdentity({ query }, {
+          messageId: row.id,
+          accountId,
+          connectionId: account.provider_connection_id,
+          directProviderMessageId: row.provider_message_id,
+        });
+        if (identity.kind !== 'resolved') {
+          return sendResponse(422, { code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'The selected reply parent has no usable Microsoft identity' });
+        }
+        parentProviderMessageId = identity.providerMessageId;
+        providerResolution = row.provider_message_id ? 'direct' : 'legacy_alias';
+      } else if (transportKind === 'gmail_api') {
+        parentGmailThreadId = row.provider_thread_id?.trim()
+          || (row.thread_id?.startsWith('gmail:') ? row.thread_id.slice('gmail:'.length).trim() : '')
+          || null;
+      }
+    } else if (strictReplyParent) {
+      // Do not silently turn an explicit reply, or a Graph headers-only reply,
+      // into a new message. SMTP/Gmail legacy callers remain a narrow
+      // compatibility branch until they carry the physical parent field.
+      return sendResponse(422, { code: 'REPLY_PARENT_NOT_RESOLVABLE', error: 'A reply requires a selected message' });
+    }
+    if (resolvedInReplyTo) {
+      inReplyToHeader = sanitizeHeaderValue(resolvedInReplyTo);
+    }
+    // References is valid and useful even when In-Reply-To is absent. Preserve
+    // the complete ordered chain independently so RFC-only References replies
+    // remain attached to the existing Conversation after Sent ingest.
+    if (resolvedReferences || resolvedInReplyTo) {
+      referencesHeader = sanitizeHeaderValue(resolvedReferences || resolvedInReplyTo);
+    }
+    const allAttachments = [
+      ...inlineImageAttachments,
+      ...(attachments?.length ? attachments.map(a => ({
+        filename: sanitizeHeaderValue(a.filename),
+        content: Buffer.from(a.content, 'base64'),
+        contentType: typeof a.contentType === 'string' ? a.contentType : 'application/octet-stream',
+      })) : []),
+      ...resolvedFwdAttachments,
+    ];
+
+
+    // §22.1 wants an oversized attachment named rather than only totalled, and §12.2 requires the real bytes
+    // rather than a declared size: these contents are the decoded ones, so this is measurement, not trust. The
+    // total check below would refuse the same message, which is why this runs first — same policy, but the
+    // administrator learns which file caused it.
+    // The inline images the composer created from `data:` URIs have their own budget: they are attachments
+    // too, but a body full of pasted screenshots is a different problem from one oversized file, and the
+    // dimension is what lets the interface say which it is.
+    const inlineBytes = inlineImageAttachments.reduce((sum, a) => sum + (a.content?.length || 0), 0);
+    const inlineRefusal = inlineImagesRefusal(inlineBytes, limits);
+    if (inlineRefusal) return sendResponse(413, sendLimitRefusalBody(inlineRefusal));
+
+    for (const candidate of allAttachments) {
+      if (!Buffer.isBuffer(candidate.content)) continue;
+      const refusal = attachmentRefusal(candidate.content.length, limits, candidate.filename);
+      if (refusal) return sendResponse(413, sendLimitRefusalBody(refusal));
+    }
+
+    // OAuth providers (Gmail, Microsoft) save sent mail to IMAP automatically via their
+    // servers — skip APPEND and sync after a delay.  All other accounts use direct IMAP
+    // APPEND so sent mail reliably appears regardless of what the SMTP server does.
+    // Gmail may server-save Sent even when authenticated with an app password;
+    // OAuth configuration alone is not a reliable capability signal. Gmail's
+    // provider policy therefore avoids a second local APPEND and relies on the
+    // bounded metadata/search re-observation path below.
+    const serverAutoSaves = !!account.oauth_provider || /gmail/i.test(account.imap_host || account.smtp_host || '');
+
+    // The canonical, transport-independent model. Composition into a wire format happens **once**, in the
+    // transport's renderer: SMTP renders MIME, Graph renders its own JSON message from the same model.
+    // Recipients are parsed once, here: every transport reads the same structured recipients, and each
+    // renders the half it needs (SMTP the display name in headers and the bare address in the envelope,
+    // Graph two separate JSON fields).
+    const composed: ComposedMail = {
+      messageId,
+      from: { email: fromEmail, name: fromName },
+      replyTo: fromReplyTo ? parseMailbox(fromReplyTo) : null,
+      to: normalizedTo.map(parseMailbox),
+      cc: normalizedCc.map(parseMailbox),
+      bcc: normalizedBcc.map(parseMailbox),
+      subject: normalizedSubject,
+      plainBody: plainBodyText,
+      htmlBody,
+      inReplyTo: inReplyToHeader,
+      references: referencesHeader,
+      priority: emailPriority,
+      attachments: allAttachments.map(attachment => ({
+        filename: attachment.filename,
+        content: attachment.content as Buffer,
+        contentType: (attachment as { contentType?: string }).contentType,
+        cid: (attachment as { cid?: string }).cid,
+        contentDisposition: (attachment as { contentDisposition?: 'attachment' | 'inline' }).contentDisposition,
+      })),
+    };
+
+    // Only the transport that dispatches the RFC-822 message needs it rendered — for the size ceiling and
+    // for the Sent-folder APPEND. A native Graph account renders its own representation from `composed`, so
+    // no SMTP message is constructed for it at all.
+    //
+    // CRLF ('windows'): RFC 5322 / IMAP APPEND require it. A bare-LF message is stored verbatim by strict
+    // servers (e.g. PurelyMail/Dovecot), and downstream clients then mis-parse the headers — the reporter
+    // saw Subject and the To display-name dropped (#365). This delivered copy uses a separate transport
+    // that is already CRLF, so only the Sent copy was wrong.
+    const rendered = transport.sendsRenderedMessage ? await renderSmtpMessage(composed) : null;
+
+    // §12.2: the interface's estimate is preliminary, and this is the message as actually compiled — headers,
+    // base64 growth, separators and CRLF included — counted on the server side, before any dispatch. Nothing has
+    // been claimed or handed to the transport at this point, so refusing here leaves no uncertain send behind.
+    if (rendered) {
+      // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
+      // encoding. The first two are known here, and the refusal carries all of them so the interface can tell
+      // the user whether to remove a file or shorten the message.
+      const renderedRefusal = messageSizeRefusal(rendered.raw.length, limits);
+      if (renderedRefusal) {
+        // §12.2 counts three figures, not one: the raw attachment bytes, the compiled MIME, and the transport
+        // encoding. The first two are known here, and naming the attachment subtotal tells the user whether to
+        // remove a file or shorten the message — the difference between advice and a number.
+        const rawAttachmentBytes = allAttachments.reduce(
+          (sum, a) => sum + (Buffer.isBuffer(a.content) ? a.content.length : 0), 0,
+        );
+        const body = sendLimitRefusalBody(renderedRefusal);
+        return sendResponse(413, { ...body, error: `${body.error} Attachments account for ${rawAttachmentBytes} of them.` });
+      }
+    }
+
+    // A transport that can decide its own size question decides it here — **before** the durable intent is
+    // claimed. That ordering is the point: an over-limit message then leaves no intent to reconcile, no
+    // `provider_operations` row, and no room for the answer to be mistaken for an unknown outcome.
+    const preflightRefusal = transport.preflight ? await transport.preflight(composed) : null;
+    if (preflightRefusal) {
+      return sendResponse(preflightRefusal.statusCode, {
+        ...sendLimitRefusalBody(preflightRefusal),
+        error: preflightRefusal.error,
+      });
+    }
+
+    const effectiveSendKind: 'new' | 'reply' | 'reply_all' | 'forward' = sendKind === 'reply' || sendKind === 'reply_all' || sendKind === 'forward'
+      ? sendKind
+      : forwardedAttachments?.length ? 'forward'
+        : (replyToMessageId || inReplyTo) ? (normalizedCc.length ? 'reply_all' : 'reply') : 'new';
+
+    // Validate/render through the normal provider pipeline, but snapshot before any
+    // delivery claim. Forwarded bytes and the signature must survive source removal.
+    if (options.prepareOnly) {
+      if ((attachments?.length ?? 0) + resolvedFwdAttachments.length > 100) {
+        return sendResponse(400, { code: 'SCHEDULE_ATTACHMENTS_LIMIT', error: 'A queued message may contain at most 100 uploaded and forwarded attachments combined.' });
+      }
+      return { status: 200, body: { ok: true }, prepared: {
+        senderEmail: fromEmail,
+        payload: {
+          ...payload,
+          // Preserve the legacy headers-only reply contract when the kind was
+          // omitted. Materialized forwards must carry the inferred action because
+          // their source-reference array deliberately becomes empty below.
+          ...(forwardedAttachments?.length ? { sendKind: effectiveSendKind } : {}),
+          to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
+          subject: normalizedSubject,
+          editedSignature: editedSignature ?? fromSignature ?? '',
+          editedSignatureIsHtml: editedSignature === undefined ? true : editedSignatureIsHtml !== false,
+          inReplyTo: resolvedInReplyTo ?? undefined, references: resolvedReferences ?? undefined,
+          attachments: [...(attachments ?? []), ...resolvedFwdAttachments.map(attachment => ({
+            filename: attachment.filename, content: attachment.content.toString('base64'), contentType: attachment.contentType,
+          }))],
+          forwardedAttachments: [],
+        },
+      } };
+    }
+
+    // A database-backed intent is the final, cross-process gate immediately before SMTP.
+    // It remains authoritative if Redis is flushed while another request is still preparing.
+    if (idempotencyKey) {
+      intentToken = randomUUID();
+      let claim: SendIntentClaim;
+      try { claim = await claimSendIntent(userId, idempotencyKey, sendFingerprint, compatibleFingerprints, intentToken!); }
+      catch { return sendResponse(503, { error: 'Sending is temporarily unavailable. Please try again shortly.' }); }
+      if (claim.state === 'completed') return sendResponse(200, claim.result);
+      if (claim.state === 'mismatch') return sendResponse(409, { error: 'This idempotency key belongs to a different message.' });
+      if (claim.state === 'uncertain') {
+        // §22.1 names this outcome `SEND_OUTCOME_UNKNOWN`, and a code is what lets an interface say what the
+        // server is doing correctly instead of showing its sentence.
+        return sendResponse(409, {
+          code: 'SEND_OUTCOME_UNKNOWN',
+          error: 'The result of this send is still being confirmed. It will not be sent again automatically.',
+        });
+      }
+      if (claim.state === 'inflight') return sendResponse(409, { error: 'This message is already being sent.' });
+      intentClaimed = true;
+    }
+    if (idemKeyRedis) {
+      // TTL comfortably above the worst-case send (large attachment over a slow SMTP
+      // server) so the in-flight guard cannot lapse while this request is still running.
+      reservationToken = `${INFLIGHT_PREFIX}${intentToken || randomUUID()}`;
+      let reserved;
+      try { reserved = await redisClient.set(idemKeyRedis, reservationToken, { NX: true, EX: IDEMPOTENCY_LEASE_SECONDS }); }
+      catch {
+        if (idempotencyKey && intentToken) await releaseSendIntent(userId, idempotencyKey, intentToken!).catch(() => {});
+        return sendResponse(503, { error: 'Sending is temporarily unavailable. Please try again shortly.' });
+      }
+      if (reserved !== 'OK') {
+        if (idempotencyKey && intentToken) await releaseSendIntent(userId, idempotencyKey, intentToken!).catch(() => {});
+        return sendResponse(409, { error: 'This message is already being sent.' });
+      }
+      reservationAcquired = true;
+      reservationRenewal = setInterval(() => {
+        if (!reservationToken) return;
+        void renewIdempotencyLease(idemKeyRedis, reservationToken)
+          .then(result => { if (!retainedLease(result)) markLeaseUncertain(true); })
+          .catch(() => markLeaseUncertain(true));
+      }, IDEMPOTENCY_RENEW_MS);
+      reservationRenewal.unref?.();
+    }
+
+    // The queue owns the final cancellation/lease boundary. A stale preparing
+    // worker may finish reads, but cannot submit after another worker reclaimed it.
+    if (options.beforeDispatch && !await options.beforeDispatch()) {
+      throw new Error('Scheduled message claim is no longer owned');
+    }
+
+    // Persist the uncertain state before invoking the transport: a process crash or lost
+    // final acknowledgement cannot then turn into an automatic re-dispatch.
+    if (idempotencyKey && intentToken) {
+      await markSendIntentUncertain(userId, idempotencyKey, intentToken!);
+    }
+    dispatchStarted = true;
+    // The transport answers with an outcome it can tell apart. Only `accepted` means the message is on its
+    // way; a definite refusal is released so the same key can retry, and an unknown outcome is parked and
+    // never re-dispatched. SMTP still throws its protocol failures (the catch below classifies those), and
+    // a successful hand-off arrives as `accepted` with nodemailer's recipient lists.
+    // MAIL-03: what this send is, and — for a provider with its own reply action — the answered message's id in
+    // this mailbox. The explicit `sendKind` wins when the client sent one; otherwise it follows the reply target
+    // and the recipients. A reply to a message that lives in another mailbox keeps the header-only path rather
+    // than borrowing an id from a different mailbox, which would address the wrong provider item.
+    const replyContext =
+      parentProviderMessageId
+        && transportKind === 'microsoft_graph'
+        && (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all' || effectiveSendKind === 'forward')
+        ? { transport: 'microsoft_graph' as const, kind: effectiveSendKind, providerMessageId: parentProviderMessageId }
+        : parentGmailThreadId
+          && transportKind === 'gmail_api'
+          && (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all')
+          ? { transport: 'gmail_api' as const, kind: effectiveSendKind, providerThreadId: parentGmailThreadId }
+          : undefined;
+    if (effectiveSendKind === 'reply' || effectiveSendKind === 'reply_all') {
+      recordReplyDiagnostic({
+        event: 'mail_reply_resolution', accountId, transport: transportKind, sendKind: effectiveSendKind,
+        replyParentPresent: Boolean(parentRowId), parentRfcMessageIdPresent: Boolean(resolvedInReplyTo),
+        referencesCount: (resolvedReferences?.match(/<[^<>\r\n]+>/g) || []).length,
+        providerParentResolved: Boolean(parentProviderMessageId), providerResolution,
+        transportReplyMode: transportKind === 'microsoft_graph'
+          ? effectiveSendKind === 'reply_all' ? 'graph_create_reply_all' : 'graph_create_reply'
+          : transportKind === 'gmail_api' && parentGmailThreadId
+            ? 'gmail_thread_id'
+            : 'rfc_headers',
+      });
+    }
+    const outcome = await transport.send({ composed, ...(rendered ? { rendered } : {}), ...(replyContext ? { replyContext } : {}) });
+    if (outcome.status === 'outcome_unknown') {
+      // The provider may or may not have the message. Keep the durable uncertain intent and the Redis
+      // lease: a retry must reconcile rather than send again.
+      if (idempotencyKey && intentToken) {
+        await markSendIntentUncertain(userId, idempotencyKey, intentToken).catch(() => {});
+      }
+      return sendResponse(502, {
+        code: 'SEND_OUTCOME_UNKNOWN',
+        error: 'The mail provider response was interrupted after dispatch began. This message will not be sent again automatically.',
+      });
+    }
+    if (outcome.status === 'refused') {
+      // A refusal read before acceptance: nothing has left for the recipients, so both gates are released
+      // and the same idempotency key can make a deliberate retry.
+      console.error(`Transport refused the send (${outcome.code}): ${outcome.error}`);
+      stopReservationRenewal();
+      if (idempotencyKey && intentClaimed && intentToken) {
+        await releaseSendIntent(userId, idempotencyKey, intentToken)
+          .catch(() => markSendIntentUncertain(userId, idempotencyKey!, intentToken!).catch(() => {}));
+      }
+      if (idemKeyRedis && reservationAcquired && reservationToken) {
+        await releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      }
+      const statusCode = outcome.statusCode >= 400 && outcome.statusCode < 600 ? outcome.statusCode : 502;
+      return sendResponse(statusCode, {
+        code: outcome.code,
+        ...(outcome.retryable ? { retryable: true } : {}),
+        error: outcome.error,
+      });
+    }
+    delivered = true;
+    // Capture recipient outcomes immediately. Any later Sent-folder/metadata failure
+    // must return the same transport result to both the client and idempotency replay.
+    const acceptedRecipients = outcome.accepted;
+    const rejectedRecipients = outcome.rejected;
+    transportRecipients = { accepted: acceptedRecipients, rejected: rejectedRecipients };
+
+    // Auto-learn sent recipients so they rank above inbound-only senders in autocomplete.
+    // Fire-and-forget — a DB error here must never affect the send response.
+    const allRecipients = [...normalizedTo, ...normalizedCc, ...normalizedBcc];
+    if (allRecipients.length) {
+      const now = new Date();
+      setImmediate(async () => {
+        try {
+          // Ensure the user's default address book exists
+          const abResult = await query<{ id: string }>(
+            `INSERT INTO address_books (user_id, name) VALUES ($1, 'Personal')
+             ON CONFLICT (user_id, name) DO UPDATE SET updated_at = NOW()
+             RETURNING id`,
+            [userId]
+          );
+          const addressBookId = abResult.rows[0].id;
+
+          // A provider contact's e-mail is not an identity. Recipient learning
+          // therefore owns its own local key, atomically linking one Personal-book
+          // contact to an e-mail without touching Google/Graph/DAV projections.
+          const learned = await Promise.allSettled(allRecipients.map(async addr => {
+            const { name, email } = parseAddress(String(addr ?? ''));
+            if (!email) return null;
+            const primaryEmail = email.toLowerCase();
+            return withTransaction(client => learnLocalRecipient(client, {
+              userId,
+              addressBookId,
+              email: primaryEmail,
+              displayName: name || primaryEmail,
+              source: 'sent',
+              sentAt: now,
+            }));
+          }));
+
+          const failed = learned.filter(result => result.status === 'rejected');
+          if (failed.length) console.warn('Contact learning errors:', failed.map(result => result.reason?.message));
+
+          // All recipient learning in this path belongs to the Personal book.
+          const booksToSync = new Set([addressBookId]);
+
+          await Promise.all([...booksToSync].map(bookId =>
+            query('UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1', [bookId])
+          ));
+        } catch (caught) {
+          const err = toAppError(caught);
+          console.warn('Contact upsert setup error:', err.message);
+        }
+      });
+    }
+
+    // Get the Sent folder path (manual mapping takes priority over special_use auto-detect,
+    // but a mapping pointing at a non-selectable folder is ignored in favour of \Sent — #386).
+    const sentFolder = await resolveSentFolder(accountId, account.folder_mappings);
+    console.log(`Post-send: ${redactEmail(account.email_address || '')} sentFolder=${sentFolder} autoSaves=${serverAutoSaves}`);
+
+    // sentCopySaved: null = not applicable (server auto-saves, no Sent folder resolved, or a non-SMTP
+    // transport); true/false = whether OUR IMAP APPEND landed the Sent copy. Surfaced to the client so
+    // it can warn when a delivered message could not be saved to Sent.
+    let sentCopySaved = null;
+    const sentMeta = sentFolder ? {
+      messageId,
+      subject: normalizedSubject,
+      fromName,
+      fromEmail,
+      to: mapRecipientList(normalizedTo),
+      cc: mapRecipientList(normalizedCc),
+      snippet: buildSentSnippet(body, inputBodyIsHtml),
+      date: new Date(),
+      // Read from the canonical model, not from nodemailer's options: those exist only on the SMTP arm,
+      // and the threading metadata belongs to the message rather than to one rendering of it. Carried so
+      // the Sent row threads into its conversation via the References chain rather than orphaning at its
+      // own Message-ID (#378).
+      inReplyTo: composed.inReplyTo || null,
+      references: composed.references || null,
+    } : null;
+
+    // The Sent copy is an SMTP concern. A native Graph account has no IMAP endpoint to append to, and the
+    // provider itself files the sent message in Sent Items — the mail sync ingests it from there, so the
+    // verified-APPEND fallback below must not open an IMAP connection for it.
+    if (sentFolder && transport.sendsRenderedMessage && rendered) {
+      if (!serverAutoSaves) {
+        // Non-auto-saving account: APPEND the Sent copy ourselves — exactly ONCE. IMAP
+        // APPEND is NOT idempotent (unlike a \Seen flag), so we must not retry: a retry
+        // whose first attempt merely timed out (but still lands on the server) would store
+        // a SECOND copy. Bound the wait so a stalled connection can't hang the response;
+        // the abandoned append can at worst still save the single copy. On failure, warn
+        // the user and schedule a fallback sync in case the append landed late. Audit [2].
+        sentCopySaved = false;
+        try {
+          const { uid } = await Promise.race([
+            imapManager.appendToSent(account, sentFolder, rendered.raw),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Sent APPEND timed out')), 20000)),
+          ]);
+          sentCopySaved = true;
+          if (uid && sentMeta) {
+            await imapManager.upsertSentMessageRecord(account, sentFolder, uid, sentMeta)
+              .catch(err => console.warn('Sent metadata upsert failed:', err.message));
+          }
+          setTimeout(() => {
+            imapManager.syncFolderOnDemand(account, sentFolder)
+              // Once the Sent copy is in the DB, notify label plugins the message synced: GTD
+              // re-runs transitions for its thread (a reply to a Todo/Someday thread means the
+              // owner acted, so that label should drop). The sent message reaches no other hook
+              // (Sent isn't INBOX, and the tick watches only the state folders), so this is the
+              // only trigger. The hook swallows per-plugin errors — the next inbound sync / tick
+              // self-heals.
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: composed.messageId }))
+              .catch(e => console.error(`Post-append sync failed: ${e.message}`));
+          }, 1000);
+        } catch (caught) {
+          const appendErr = toAppError(caught);
+          console.error(`IMAP append to Sent failed for ${redactEmail(account.email_address || '')}/${sentFolder}: ${appendErr.message}`);
+          // The append may still have landed (or land shortly) — pull the folder so a
+          // late-completing append self-corrects the DB rather than staying invisible.
+          setTimeout(() => {
+            imapManager.syncFolderOnDemand(account, sentFolder)
+              .catch(e => console.error(`Post-append fallback sync failed: ${e.message}`));
+          }, 8000);
+        }
+      } else {
+        // Verify provider autosave before falling back to exactly one APPEND. This keeps
+        // OAuth/Gmail accounts free of routine duplicates while preventing a delivered
+        // message from being absent in another IMAP client when provider autosave fails.
+        setImmediate(() => {
+          ensureServerAutoSavedSentCopy({
+            account,
+            sentFolder,
+            messageId,
+            rawMessage: rendered.raw,
+            sentMeta,
+          }).then(result => {
+            if (!result.saved) return;
+            return imapManager.syncFolderOnDemand(account, sentFolder)
+              .then(() => pluginRegistry.runHook('onSentMessage', { imapManager: imapManager.pluginFacade, account, messageId: composed.messageId }));
+          }).catch(err => console.error(`Post-send Sent-copy verification failed: ${err.message}`));
+        });
+      }
+    }
+
+    const sendResult: { ok: boolean; sentCopySaved?: boolean; sentFolder?: string; accepted?: string[]; rejected?: string[]; partialDelivery?: boolean } = { ok: true };
+    // A server can accept some RCPT commands and reject others without throwing. Preserve
+    // that non-retryable partial outcome so the client never assumes every recipient got it.
+    if (rejectedRecipients.length) {
+      sendResult.partialDelivery = true;
+      sendResult.accepted = acceptedRecipients;
+      sendResult.rejected = rejectedRecipients;
+    }
+    // Surface only the problem case so existing success handling is unchanged; the UI warns
+    // when a delivered message could not be saved to the account's Sent folder.
+    if (sentCopySaved === false) sendResult.sentCopySaved = false;
+    // Tell the client which Sent folder we actually resolved to, so its post-send "View"
+    // navigates to the real folder rather than recomputing from a possibly-stale mapping (#386).
+    if (sentFolder) sendResult.sentFolder = sentFolder;
+    // Overwrite the in-flight reservation with the final result so a retry after a lost
+    // response returns this instead of re-sending.
+    stopReservationRenewal();
+    if (idempotencyKey && intentToken) {
+      finalizationStarted = true;
+      await completeSendIntent(userId, idempotencyKey, intentToken!, sendResult)
+        .catch(() => markSendIntentUncertain(userId, idempotencyKey!, intentToken!).catch(() => {}));
+    }
+    if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, {
+      version: 1, fingerprint: sendFingerprint, result: sendResult,
+    }).catch(() => markLeaseUncertain());
+    return sendResponse(200, sendResult);
+  } catch (caught) {
+    const err = toAppError(caught);
+    if (delivered) {
+      // The transport already accepted this message. A Sent-folder or metadata failure
+      // must not invite the user to send it again.
+      console.error('Post-send processing failed:', err.message);
+      const sendResult = {
+        ok: true,
+        sentCopySaved: false,
+        ...(transportRecipients?.rejected.length ? {
+          partialDelivery: true,
+          accepted: transportRecipients.accepted,
+          rejected: transportRecipients.rejected,
+        } : {}),
+      };
+      stopReservationRenewal();
+      if (idempotencyKey && intentToken) {
+        finalizationStarted = true;
+        await completeSendIntent(userId, idempotencyKey, intentToken!, sendResult)
+          .catch(() => markSendIntentUncertain(userId, idempotencyKey!, intentToken!).catch(() => {}));
+      }
+      if (idemKeyRedis && reservationToken) void completeIdempotencyLease(idemKeyRedis, reservationToken, {
+        version: 1, fingerprint: sendFingerprint, result: sendResult,
+      }).catch(() => markLeaseUncertain());
+      return sendResponse(200, sendResult);
+    }
+    console.error('Send failed:', err.message);
+    stopReservationRenewal();
+    const retryableFailure = !dispatchStarted || isExplicitSmtpRejection(caught) || isDefinitelyPreDeliveryFailure(caught);
+    if (retryableFailure) {
+      // A structured 4xx/5xx response is a known SMTP rejection, so DATA was not
+      // accepted. Complete both releases before responding: the same idempotency
+      // key can then make a sequential retry without racing a stale reservation.
+      if (idempotencyKey && intentClaimed && intentToken) {
+        await releaseSendIntent(userId, idempotencyKey, intentToken!)
+          .catch(() => markSendIntentUncertain(userId, idempotencyKey!, intentToken!).catch(() => {}));
+      }
+      if (idemKeyRedis && reservationAcquired && reservationToken) {
+        await releaseIdempotencyLease(idemKeyRedis, reservationToken).catch(() => {});
+      }
+      return sendResponse(500, { error: sanitizeSmtpError(err) });
+    }
+    // sendMail rejected after dispatch began without an explicit SMTP rejection.
+    // DATA may have been accepted, so retain the durable uncertain intent and do
+    // not release the Redis lease; retries must reconcile rather than re-dispatch.
+    if (idempotencyKey && intentToken) void markSendIntentUncertain(userId, idempotencyKey, intentToken!).catch(() => {});
+    return sendResponse(502, { code: 'SEND_OUTCOME_UNKNOWN', error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
+  } finally {
+    stopReservationRenewal();
+  }
+}

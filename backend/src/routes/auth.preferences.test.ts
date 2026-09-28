@@ -260,3 +260,23 @@ describe('PATCH /auth/preferences calendar preferences', () => {
     expect(res.json).toHaveBeenCalledWith({ ok: true });
   });
 });
+
+
+describe('PATCH /auth/preferences Undo Send delay', () => {
+  it.each([0, 1, 30, 60])('persists the exact valid delay %s without replacing other preferences', async value => {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { undoSendSeconds: value } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(req, res);
+    const [sql, params] = recordedQueryCall(0);
+    expect(sql).toContain("jsonb_build_object('undoSendSeconds', $53::int)");
+    expect(params[52]).toBe(value);
+    expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+  it.each([-1, 61, 0.5, '30', true, null, {}, []])('rejects invalid delay atomically: %j', async value => {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { undoSendSeconds: value, plaintextEmail: true } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(req, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+});

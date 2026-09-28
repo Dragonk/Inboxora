@@ -1,3 +1,4 @@
+import ScheduledMail from './ScheduledMail.tsx';
 import { requestMailRefresh, mailListNeedsRefresh } from '../utils/mailRefresh.ts';
 import { syncMailIndicators, clearMailIndicators } from '../utils/mailIndicators.ts';
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
@@ -1087,6 +1088,7 @@ export default function MailApp() {
       {/* Records every Inboxora view change so the desktop title bar's Back and
           Forward walk app views instead of browser documents. */}
       {desktopShell && <AppViewHistoryRecorder />}
+      <ScheduledMail />
       <NotificationToasts />
       <PluginRuntime />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

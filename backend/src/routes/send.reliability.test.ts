@@ -166,7 +166,7 @@ describe('send failure semantics', () => {
     sendMail.mockRejectedValueOnce(Object.assign(new Error('connection lost after DATA: ' + code), { code, command: 'DATA' }));
     const response = await post();
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
+    expect(await response.json()).toEqual({ code: 'SEND_OUTCOME_UNKNOWN', error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
     expect(redisClient.eval).not.toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.anything());
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'uncertain'"), expect.any(Array));
   });
