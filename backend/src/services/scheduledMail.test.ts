@@ -1,9 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { requireScheduledId, validateScheduledAt, validateScheduledPayload, validateTimeZone } from './scheduledMail.js';
+import { mailMergeRecipients, requireScheduledId, validateScheduledAt, validateScheduledPayload, validateTimeZone } from './scheduledMail.js';
 
 const message = { accountId: randomUUID(), body: '<p>body</p>', bodyIsHtml: true };
 describe('scheduled mail input validation', () => {
+  it('deduplicates To, Cc and Bcc by mailbox address while keeping the first display form', () => {
+    expect(mailMergeRecipients({ ...message, to: ['Alice <Alice@example.test>'], cc: ['alice@example.test', 'bob@example.test'],
+      bcc: ['BOB@example.test', 'private@example.test'] })).toEqual(['Alice <Alice@example.test>', 'bob@example.test', 'private@example.test']);
+  });
+  it.each(['bad', 'Name <bad>', 'a@example.test\r\nBcc: x@example.test', '<a@example.test> extra',
+    'A <a@example.test> B <b@example.test>'])('rejects invalid merge recipient %s', recipient => {
+    expect(() => mailMergeRecipients({ ...message, bcc: [recipient] })).toThrow(expect.objectContaining({ code: 'SCHEDULE_INVALID' }));
+  });
+  it('bounds a batch to the queue capacity', () => {
+    expect(() => mailMergeRecipients({ ...message, to: Array.from({ length: 101 }, (_, i) => `person${i}@example.test`) }))
+      .toThrow(expect.objectContaining({ code: 'SCHEDULE_INVALID' }));
+  });
   it('preserves the precise explicit UTC instant independently of display zone', () => {
     expect(validateScheduledAt('2036-02-29T12:34:56.789Z', 0).toISOString()).toBe('2036-02-29T12:34:56.789Z');
     expect(validateScheduledAt('2036-02-29T12:34:56Z', 0).toISOString()).toBe('2036-02-29T12:34:56.000Z');

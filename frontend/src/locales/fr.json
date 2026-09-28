@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "Délai actuel : {{count}} s. Choisissez l’une des quatre options pour le modifier.",
     "title": "Annuler l’envoi",
     "description": "Retardez les messages sortants de 0 à 60 secondes entières. Zéro envoie immédiatement. Ce réglage s’applique à tous vos appareils.",
-    "off": "Désactivé (0 seconde)",
-    "seconds": "Délai : {{count}} s",
     "loading": "Chargement des préférences d’envoi…",
     "saveError": "Impossible d’enregistrer le délai d’envoi. Vérifiez le réglage du serveur avant d’envoyer.",
     "loadError": "Les préférences d’envoi sont indisponibles. L’envoi reste bloqué jusqu’à leur vérification.",
@@ -2568,6 +2567,12 @@
   "queue": {
     "title": "Planifiés / boîte d’envoi",
     "scheduleSend": "Planifier l’envoi",
+    "startMailMerge": "Démarrer un publipostage",
+    "sendOptions": "Options d’envoi",
+    "mergeConfirm": "Envoyer un message distinct à chacun des {{count}} destinataires uniques ? Chaque message n’affichera que son destinataire. Le délai d’annulation commence après la préparation.",
+    "mergeQueued": "{{count}} messages individuels mis en attente",
+    "mergeQueuedBlocked": "Terminez ou annulez le message déjà en attente avant de lancer un publipostage.",
+    "mergeInvalidRecipient": "Vérifiez les destinataires du publipostage avant l’envoi.",
     "queued": "Message mis en attente",
     "retryEnqueue": "Réessayer la même demande",
     "pendingAcknowledgement": "La confirmation d’envoi manque. Réessayez la même demande pour éviter les doublons.",

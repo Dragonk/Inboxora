@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pool, query } from './db.js';
@@ -16,7 +17,7 @@ let user: string; let outsider: string; let account: string; let otherAccount: s
 let message: SendRequestBody;
 const instant = () => new Date(Date.now() + 3600_000).toISOString();
 const prepare = vi.fn<queue.SendExecutor>(async (_user, payload, key, options) => {
-  expect(key).toBeNull(); expect(options).toEqual({ prepareOnly: true });
+  expect(key).toBeNull(); expect(options).toMatchObject({ prepareOnly: true });
   return { status: 200, body: {}, prepared: { payload: structuredClone(payload), senderEmail: 'sender@example.test' } };
 });
 const enqueue = (key = randomUUID(), overrides: Record<string, unknown> = {}) => queue.enqueueScheduledMail(user,
@@ -46,10 +47,19 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
         await admin.query(`ALTER TABLE "${schema}".${table} ADD ${local}`);
       }
     }
+    const migration = readFileSync(new URL('../../migrations/0154_mail_merge_batches.sql', import.meta.url), 'utf8');
+    const migrationClient = await admin.connect();
+    try {
+      await migrationClient.query('BEGIN');
+      await migrationClient.query(`SET LOCAL search_path TO "${schema}"`);
+      await migrationClient.query(migration);
+      await migrationClient.query('COMMIT');
+    } catch (error) { await migrationClient.query('ROLLBACK'); throw error; }
+    finally { migrationClient.release(); }
     pool.options.options = `-c statement_timeout=30000 -c search_path=${schema}`;
   });
   beforeEach(async () => {
-    await query('TRUNCATE scheduled_mail, send_idempotency, email_accounts, users CASCADE');
+    await query('TRUNCATE mail_merge_batches, scheduled_mail, send_idempotency, email_accounts, users CASCADE');
     user = randomUUID(); outsider = randomUUID(); account = randomUUID(); otherAccount = randomUUID();
     await query('INSERT INTO users(id,username) VALUES ($1,$2),($3,$4)', [user, user, outsider, outsider]);
     await query("INSERT INTO email_accounts(id,user_id,name,email_address) VALUES ($1,$3,'Test','sender@example.test'),($2,$4,'Other','other@example.test')", [account, otherAccount, user, outsider]);
@@ -57,7 +67,11 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
       to: ['Accepted <accepted@example.test>', 'Rejected <to@example.test>'], cc: ['cc@example.test'], bcc: ['private@example.test'],
       attachments: [{ filename: 'bytes.bin', content: 'AAH/', contentType: 'application/octet-stream' }],
       editedSignature: '<p>Frozen signature</p>', editedSignatureIsHtml: true };
-    prepare.mockClear();
+    prepare.mockReset();
+    prepare.mockImplementation(async (_user, payload, key, options) => {
+      expect(key).toBeNull(); expect(options).toMatchObject({ prepareOnly: true });
+      return { status: 200, body: {}, prepared: { payload: structuredClone(payload), senderEmail: 'sender@example.test' } };
+    });
   });
   afterAll(async () => {
     await pool.end();
@@ -75,6 +89,121 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
     await expect(queue.editScheduledMail(outsider, row.id, 1)).rejects.toMatchObject({ status: 409 });
     await query('DELETE FROM email_accounts WHERE id=$1', [account]);
     expect(await stored(row.id)).toBeUndefined();
+  });
+
+  it('atomically queues one private item per unique To/Cc/Bcc address and replays after cancellation', async () => {
+    const key = randomUUID();
+    message.to = ['Accepted <accepted@example.test>', 'accepted@example.test'];
+    message.cc = ['cc@example.test']; message.bcc = ['CC@example.test', 'private@example.test'];
+    await query('UPDATE users SET preferences=$2 WHERE id=$1', [user, { undoSendSeconds: 15 }]);
+    const input = { message };
+    const receipt = await queue.enqueueMailMerge(user, input, key, prepare);
+    expect(receipt.count).toBe(3);
+    expect(receipt.items).toHaveLength(3);
+    expect(prepare).toHaveBeenCalledTimes(3);
+    const rows = (await query<{ payload: { payload: SendRequestBody } }>('SELECT payload FROM scheduled_mail ORDER BY id')).rows;
+    expect(rows.map(row => row.payload.payload.to?.[0]).sort()).toEqual([
+      'Accepted <accepted@example.test>', 'cc@example.test', 'private@example.test'].sort());
+    for (const row of rows) {
+      expect(row.payload.payload.cc).toEqual([]);
+      expect(row.payload.payload.bcc).toEqual([]);
+      expect(row.payload.payload.attachments).toEqual(message.attachments);
+      expect(row.payload.payload.editedSignature).toBe(message.editedSignature);
+    }
+    expect(receipt.scheduledAt.getTime()).toBeGreaterThanOrEqual(Date.now() + 14_000);
+    await queue.cancelScheduledMail(user, receipt.items[0].id, 1);
+    await query("UPDATE scheduled_mail SET state='sent', payload='{}'::jsonb WHERE id=$1", [receipt.items[1].id]);
+    expect(await queue.enqueueMailMerge(user, input, key, prepare)).toMatchObject({ id: receipt.id, count: 3 });
+    expect(prepare).toHaveBeenCalledTimes(3);
+    await expect(queue.enqueueMailMerge(user, { message: { ...message, subject: 'changed' } }, key, prepare))
+      .rejects.toMatchObject({ code: 'MAIL_MERGE_KEY_MISMATCH' });
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(3);
+    await expect(queue.enqueueMailMerge(outsider, input, key, prepare)).rejects.toMatchObject({ code: 'SCHEDULE_ACCOUNT_MISSING' });
+    await expect(queue.enqueueMailMerge(user, { message: { ...message, accountId: otherAccount } }, randomUUID(), prepare))
+      .rejects.toMatchObject({ code: 'SCHEDULE_ACCOUNT_MISSING' });
+    expect((await query('SELECT count(*)::int AS n FROM mail_merge_batches')).rows[0].n).toBe(1);
+  });
+
+  it('starts zero-delay merge after all preparation and rolls back when capacity cannot fit every item', async () => {
+    message.to = ['first@example.test', 'second@example.test']; message.cc = []; message.bcc = [];
+    let finished = 0;
+    prepare.mockImplementation(async (_user, payload) => {
+      await new Promise(resolve => setTimeout(resolve, 10)); finished = Date.now();
+      return { status: 200, body: {}, prepared: { payload, senderEmail: 'sender@example.test' } };
+    });
+    const receipt = await queue.enqueueMailMerge(user, { message }, randomUUID(), prepare);
+    expect(receipt.scheduledAt.getTime()).toBeGreaterThanOrEqual(finished);
+    expect(receipt.scheduledAt.getTime()).toBeLessThanOrEqual(Date.now());
+    await query(`INSERT INTO scheduled_mail(id,user_id,account_id,idempotency_key,request_fingerprint,mode,scheduled_at,time_zone,payload)
+      SELECT gen_random_uuid(),$1,$2,'fixture-'||n,repeat('a',64),'schedule',clock_timestamp()+interval '1 day','UTC','{}'::jsonb FROM generate_series(1,97) n`, [user, account]);
+    await expect(queue.enqueueMailMerge(user, { message }, randomUUID(), prepare)).rejects.toMatchObject({ code: 'SCHEDULE_QUEUE_FULL' });
+    expect((await query('SELECT count(*)::int AS n FROM mail_merge_batches')).rows[0].n).toBe(1);
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(99);
+  });
+
+  it('starts the full Undo window after slow batch snapshot writes complete', async () => {
+    await query('UPDATE users SET preferences=$2 WHERE id=$1', [user, { undoSendSeconds: 15 }]);
+    message.to = ['first@example.test']; message.cc = ['second@example.test']; message.bcc = ['third@example.test'];
+    await query(`CREATE FUNCTION delay_merge_snapshot() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN PERFORM pg_sleep(0.6); RETURN NEW; END $$;
+      CREATE TRIGGER delay_merge_snapshot BEFORE INSERT ON scheduled_mail
+      FOR EACH ROW EXECUTE FUNCTION delay_merge_snapshot()`);
+    try {
+      const receipt = await queue.enqueueMailMerge(user, { message }, randomUUID(), prepare);
+      // Three slow inserts consume more than one second, but not the user's
+      // fifteen-second opportunity to undo once the atomic batch is visible.
+      expect(receipt.scheduledAt.getTime()).toBeGreaterThanOrEqual(Date.now() + 14_000);
+      const rows = (await query<{ scheduled_at: Date }>('SELECT scheduled_at FROM scheduled_mail')).rows;
+      expect(rows).toHaveLength(3);
+      expect(rows.every(row => row.scheduled_at.getTime() === receipt.scheduledAt.getTime())).toBe(true);
+    } finally {
+      await query('DROP TRIGGER delay_merge_snapshot ON scheduled_mail');
+      await query('DROP FUNCTION delay_merge_snapshot()');
+    }
+  });
+
+  it('serializes concurrent retries of one merge key into a single batch', async () => {
+    message.to = ['first@example.test', 'second@example.test']; message.cc = []; message.bcc = [];
+    const key = randomUUID();
+    const receipts = await Promise.all(Array.from({ length: 3 }, () => queue.enqueueMailMerge(user, { message }, key, prepare)));
+    expect(new Set(receipts.map(receipt => receipt.id)).size).toBe(1);
+    expect((await query('SELECT count(*)::int AS n FROM mail_merge_batches')).rows[0].n).toBe(1);
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(2);
+  });
+
+  it('leaves no batch or children when a later recipient fails preparation', async () => {
+    message.to = ['first@example.test', 'second@example.test']; message.cc = []; message.bcc = [];
+    prepare.mockImplementationOnce(async (_user, payload) => ({ status: 200, body: {}, prepared: {
+      payload, senderEmail: 'sender@example.test' } }));
+    prepare.mockImplementationOnce(async () => ({ status: 409, body: { code: 'SCHEDULE_SENDER_CHANGED' } }));
+    await expect(queue.enqueueMailMerge(user, { message }, randomUUID(), prepare))
+      .rejects.toMatchObject({ code: 'SCHEDULE_SENDER_CHANGED' });
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(0);
+    expect((await query('SELECT count(*)::int AS n FROM mail_merge_batches')).rows[0].n).toBe(0);
+  });
+
+  it('rolls back earlier children when a later insertion fails', async () => {
+    message.to = ['first@example.test', 'second@example.test']; message.cc = []; message.bcc = [];
+    await query(`ALTER TABLE scheduled_mail ADD CONSTRAINT reject_second_merge_child
+      CHECK (idempotency_key NOT LIKE 'merge:%:1')`);
+    try {
+      await expect(queue.enqueueMailMerge(user, { message }, randomUUID(), prepare)).rejects.toThrow();
+      expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(0);
+      expect((await query('SELECT count(*)::int AS n FROM mail_merge_batches')).rows[0].n).toBe(0);
+    } finally {
+      await query('ALTER TABLE scheduled_mail DROP CONSTRAINT reject_second_merge_child');
+    }
+  });
+
+  it('replays the batch receipt after its account and child rows are deleted', async () => {
+    message.to = ['first@example.test', 'second@example.test']; message.cc = []; message.bcc = [];
+    const key = randomUUID(); const input = { message };
+    const receipt = await queue.enqueueMailMerge(user, input, key, prepare);
+    await query('DELETE FROM email_accounts WHERE id=$1', [account]);
+    const replay = await queue.enqueueMailMerge(user, input, key, prepare);
+    expect(replay).toMatchObject({ id: receipt.id, count: 2, items: [] });
+    expect((await query('SELECT count(*)::int AS n FROM mail_merge_batches')).rows[0].n).toBe(1);
+    expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(0);
   });
 
   it('replays immutable enqueue keys after cancellation and rejects changed bodies without preparing twice', async () => {

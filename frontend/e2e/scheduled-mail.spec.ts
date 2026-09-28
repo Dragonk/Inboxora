@@ -134,7 +134,7 @@ test('failed preferences keep sending disabled until a successful server retry',
     queued++; return route.fulfill({ json: pending() });
   });
   await expect(page.getByTestId('compose-send')).toBeDisabled();
-  await expect(page.getByTestId('compose-schedule')).toBeDisabled();
+  await expect(page.getByTestId('compose-send-menu')).toBeDisabled();
   await expect(page.getByTestId('compose-preferences-loading')).toContainText('Send preferences could not be loaded');
   expect(immediate).toBe(0); expect(queued).toBe(0);
   options.preferencesError = false;
@@ -152,7 +152,7 @@ test('schedule sends the exact selected instant and rejects DST gaps and repeate
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     payload = route.request().postDataJSON(); return route.fulfill({ json: pending({ mode: 'schedule' }) });
   });
-  await page.getByTestId('compose-schedule').click();
+  await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-schedule').click();
   await selectSchedule(page, '2030-03-31', '02:30');
   await expect(page.getByTestId('schedule-confirm')).toBeDisabled();
   await selectSchedule(page, '2030-10-27', '02:30');
@@ -175,13 +175,13 @@ for (const mode of ['undo', 'schedule'] as const) {
       return writes.length === 1 ? route.abort('connectionfailed') : route.fulfill({ json: pending({ mode }) });
     });
     if (mode === 'schedule') {
-      await page.getByTestId('compose-schedule').click(); await selectSchedule(page);
+      await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-schedule').click(); await selectSchedule(page);
       await page.getByTestId('schedule-confirm').click();
     } else await page.getByTestId('compose-send').click();
     await expect.poll(() => writes.length).toBe(1);
     await expect(page.getByTestId('compose-send')).toBeEnabled();
     await expect(page.getByTestId('compose-to')).toBeDisabled();
-    await expect(page.getByTestId('compose-schedule')).toBeDisabled();
+    await expect(page.getByTestId('compose-send-menu')).toBeDisabled();
     await page.getByTestId('compose-send').click();
     await expect.poll(() => writes.length).toBe(2);
     expect(writes[0].key).toBeTruthy(); expect(writes[1]).toEqual(writes[0]);
@@ -224,7 +224,7 @@ test('a partial queued edit reschedules its original record and preserves bytes,
   await expect(page.getByText('frozen.txt', { exact: true })).toBeVisible();
   await page.getByTestId('compose-from').selectOption('account:account-gmail');
   await page.getByTestId('compose-from').selectOption('alias:work:account-gmail');
-  await page.getByTestId('compose-schedule').click(); await selectSchedule(page);
+  await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-schedule').click(); await selectSchedule(page);
   await page.getByTestId('schedule-confirm').click();
   await expect.poll(() => saved).toMatchObject({ revision: 1, scheduledAt: '2030-01-15T12:45:00.000Z', message });
   expect(created).toBe(0); expect(immediate).toBe(0);
@@ -373,7 +373,7 @@ test('schedule confirmation waits for an in-flight autosave without discarding t
     queued = route.request().postDataJSON(); return route.fulfill({ json: pending({ mode: 'schedule' }) });
   });
   try {
-    await page.getByTestId('compose-schedule').click(); await selectSchedule(page);
+    await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-schedule').click(); await selectSchedule(page);
     await page.clock.fastForward(30_000);
     await expect.poll(() => saving).toBe(true);
     await expect(page.getByTestId('schedule-confirm')).toBeDisabled();
@@ -438,7 +438,7 @@ test('held queued autosave allows body and recipient edits, serializes writes an
     await page.clock.fastForward(30_000);
     await expect.poll(() => writes.length).toBe(1);
     await expect(page.getByTestId('compose-send')).toBeDisabled();
-    await expect(page.getByTestId('compose-schedule')).toBeDisabled();
+    await expect(page.getByTestId('compose-send-menu')).toBeDisabled();
     await editor.fill('Newer body while saving');
     newerHtml = await editor.innerHTML();
     await page.getByTestId('compose-to').fill('newer@example.test');
@@ -615,31 +615,179 @@ test('queued autosave conflict preserves local text and never rebases or sends a
   expect(writes[0]).toMatchObject({ revision: 1, keepEditing: true });
 });
 
-test('schedule affordance keeps its accessible name and remains separated from Send in each viewport', async ({ page, fixtureApi }) => {
+test('split Send menu is accessible and stays in the viewport', async ({ page, fixtureApi }) => {
   await fixtureApi; await boot(page); await compose(page);
-  const schedule = page.getByTestId('compose-schedule');
+  const trigger = page.getByTestId('compose-send-menu');
   const send = page.getByTestId('compose-send');
-  await expect(schedule).toHaveAccessibleName('Schedule send');
-  await expect(schedule).toHaveAttribute('title', 'Schedule send');
-  await expect(schedule).toBeVisible(); await expect(send).toBeVisible();
-  const scheduleBox = await schedule.boundingBox(); const sendBox = await send.boundingBox();
-  const viewport = page.viewportSize();
-  if (!scheduleBox || !sendBox || !viewport) throw new Error('Compose action geometry is unavailable');
-  for (const box of [scheduleBox, sendBox]) {
-    expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
-    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
-  }
-  expect(scheduleBox.x + scheduleBox.width <= sendBox.x || sendBox.x + sendBox.width <= scheduleBox.x
-    || scheduleBox.y + scheduleBox.height <= sendBox.y || sendBox.y + sendBox.height <= scheduleBox.y).toBe(true);
-  if (viewport.width < 768) {
-    await expect(schedule).toHaveText('');
-    await expect(schedule.locator('svg[aria-hidden="true"]')).toBeVisible();
-    expect(scheduleBox.width).toBeLessThanOrEqual(44);
-    expect(sendBox.x - (scheduleBox.x + scheduleBox.width)).toBeGreaterThanOrEqual(6);
-  }
-  await schedule.click();
+  await expect(trigger).toHaveAccessibleName('Send options');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(send).toBeVisible(); await expect(trigger).toBeVisible();
+  const triggerBox = await trigger.boundingBox(); const sendBox = await send.boundingBox();
+  if (!triggerBox || !sendBox) throw new Error('Split Send geometry is unavailable');
+  expect(Math.abs(triggerBox.x - (sendBox.x + sendBox.width))).toBeLessThanOrEqual(2);
+  await trigger.focus(); await page.keyboard.press('ArrowDown');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  const menu = page.getByRole('menu', { name: 'Send options' });
+  await expect(menu.getByRole('menuitem')).toHaveCount(2);
+  await expect(page.getByTestId('compose-schedule')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('compose-mail-merge')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  const menuBox = await menu.boundingBox(); const viewport = page.viewportSize();
+  if (!menuBox || !viewport) throw new Error('Send menu geometry is unavailable');
+  expect(menuBox.x).toBeGreaterThanOrEqual(0); expect(menuBox.y).toBeGreaterThanOrEqual(0);
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
+  if (viewport.width >= 768) expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(sendBox.y);
+  await page.getByTestId('compose-schedule').click();
   await expect(page.getByTestId('schedule-date-time')).toBeVisible();
+});
+
+test('mail merge confirms separate private delivery and retries one frozen batch', async ({ page, fixtureApi }) => {
+  await fixtureApi; await boot(page, [], { undo: 15 }); await compose(page);
+  const requests: { key?: string; body: unknown }[] = [];
+  let ordinarySends = 0;
+  await page.route('**/api/mail/send', route => { ordinarySends++; return route.fulfill({ status: 503 }); });
+  await page.route('**/api/mail/merge', route => {
+    requests.push({ key: route.request().headers()['x-idempotency-key'], body: route.request().postDataJSON() });
+    return requests.length === 1 ? route.abort('connectionfailed')
+      : route.fulfill({ json: { id: 'batch-1', count: 3, scheduledAt: new Date().toISOString(), items: [] } });
+  });
+  await page.getByTestId('compose-to').fill('A <a@example.test> B <b@example.test>');
+  await page.getByTestId('compose-send-menu').click();
+  await page.getByTestId('compose-mail-merge').click();
+  await expect(page.getByText('Check the mail merge recipients before sending.')).toBeVisible();
+  expect(requests).toHaveLength(0);
+  // Blur commits a recipient chip; correcting the text input alone would leave
+  // the malformed chip in the authored recipient list.
+  await page.getByTitle('A <a@example.test> B <b@example.test>', { exact: true }).getByRole('button').click();
+  await expect(page.getByTitle('A <a@example.test> B <b@example.test>', { exact: true })).toHaveCount(0);
+  page.once('dialog', dialog => {
+    expect(dialog.message()).toContain('Each message will show only its recipient');
+    return dialog.accept();
+  });
+  await page.getByTestId('compose-send-menu').click();
+  await page.getByTestId('compose-mail-merge').click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].body).toMatchObject({ message: {
+    to: ['recipient@example.test'], cc: ['automatic@example.test'], bcc: ['private@example.test'],
+    subject: 'Queued fixture', bodyIsHtml: true,
+  } });
+  await expect(page.getByTestId('compose-send')).toHaveText(/Retry same request/);
+  await expect(page.getByTestId('compose-send-menu')).toBeDisabled();
+  await page.getByTestId('compose-send').click();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests[1]).toEqual(requests[0]);
+  expect(ordinarySends).toBe(0);
+  await expect(page.getByTestId('compose-from')).toHaveCount(0);
+});
+
+test('keyboard activity in merge warnings cannot send an ordinary message or change the selected schedule', async ({ page, fixtureApi }) => {
+  await fixtureApi; await boot(page, [], { undo: 15 }); await compose(page);
+  let immediate = 0; let merges = 0; const schedules: Record<string, unknown>[] = [];
+  await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ status: 503 }); });
+  await page.route('**/api/mail/merge', route => { merges++; return route.fulfill({ json: { id: 'batch', count: 3, items: [] } }); });
+  await page.route('**/api/mail/scheduled', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: [] });
+    schedules.push(route.request().postDataJSON());
+    return route.fulfill({ json: pending({ mode: 'schedule' }) });
+  });
+  await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('');
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-mail-merge').click();
+  await expect(page.getByText('Send without a subject?')).toBeVisible();
+  await page.keyboard.press('Control+Enter'); await page.keyboard.press('Meta+Enter');
+  expect(immediate).toBe(0); expect(merges).toBe(0); expect(schedules).toHaveLength(0);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).last().click();
+  await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-schedule').click();
+  await selectSchedule(page); await page.keyboard.press('Control+Enter');
+  expect(immediate).toBe(0); expect(merges).toBe(0); expect(schedules).toHaveLength(0);
+  await page.getByTestId('schedule-confirm').click();
+  await expect(page.getByText('Send without a subject?')).toBeVisible();
+  await page.keyboard.press('Control+Enter');
+  expect(immediate).toBe(0); expect(merges).toBe(0); expect(schedules).toHaveLength(0);
+  await page.getByRole('button', { name: 'Send anyway' }).last().click();
+  await expect.poll(() => schedules.length).toBe(1);
+  expect(schedules[0]).toMatchObject({ mode: 'schedule', scheduledAt: '2030-01-15T12:45:00.000Z' });
+  expect(immediate).toBe(0); expect(merges).toBe(0);
+});
+
+test('forgotten attachment warning keeps a confirmed merge through keyboard activity', async ({ page, fixtureApi }) => {
+  await fixtureApi; await boot(page); await compose(page);
+  await page.locator('.tiptap-compose [contenteditable="true"]').fill('Please see attached');
+  let immediate = 0; let scheduled = 0; let merge = 0;
+  await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ status: 503 }); });
+  await page.route('**/api/mail/scheduled', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: [] });
+    scheduled++; return route.fulfill({ status: 503 });
+  });
+  await page.route('**/api/mail/merge', route => {
+    merge++; return route.fulfill({ json: { id: 'batch', count: 3, items: [] } });
+  });
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-mail-merge').click();
+  await expect(page.getByText('Forgot an attachment?')).toBeVisible();
+  await page.keyboard.press('Control+Enter'); await page.keyboard.press('Meta+Enter');
+  expect(immediate).toBe(0); expect(scheduled).toBe(0); expect(merge).toBe(0);
+  await page.getByRole('button', { name: 'Send anyway' }).last().click();
+  await expect.poll(() => merge).toBe(1);
+  expect(immediate).toBe(0); expect(scheduled).toBe(0);
+});
+
+test('Undo Send presets preserve a legacy delay until the user chooses one', async ({ page, fixtureApi }) => {
+  await fixtureApi; await boot(page, [], { undo: 35 });
+  const saves: unknown[] = [];
+  await page.route('**/api/auth/preferences**', route => {
+    if (route.request().method() === 'PATCH') {
+      const patch: Record<string, unknown> = route.request().postDataJSON();
+      // Startup may seed unrelated AI preferences; only writes to this setting
+      // are evidence that the saved delay changed.
+      if (Object.hasOwn(patch, 'undoSendSeconds')) saves.push(patch);
+      return route.fulfill({ json: patch });
+    }
+    return route.fulfill({ json: { language: 'en', undoSendSeconds: 35 } });
+  });
+  await page.reload();
+  if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByTestId('mobile-topbar-menu').click();
+  await page.getByTestId('sidebar-user-menu').click();
+  if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByTestId('mobile-settings').click();
+  else await page.getByText('Settings', { exact: true }).first().click();
+  await page.getByTestId('admin-tab-appearance').click();
+  await page.getByRole('button', { name: 'Layout', exact: true }).first().click();
+  const control = page.getByRole('group', { name: 'Undo Send' });
+  await expect(control.getByRole('button')).toHaveCount(4);
+  await expect(control.getByRole('button')).toHaveText(['0 s', '15 s', '30 s', '60 s']);
+  await expect(control.getByRole('button', { pressed: true })).toHaveCount(0);
+  await expect(page.getByText('Current delay: 35 s.')).toBeVisible();
+  expect(saves).toHaveLength(0);
+  await control.getByRole('button', { name: '15 s' }).click();
+  await expect.poll(() => saves).toEqual([{ undoSendSeconds: 15 }]);
+  await expect(control.getByRole('button', { name: '15 s' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a queued editor cannot be converted to mail merge, including by keyboard shortcut', async ({ page, fixtureApi }) => {
+  await fixtureApi; await boot(page, [pending({ state: 'pending' })], { undo: 60 }); await outbox(page);
+  await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: {
+    ...pending({ state: 'editing' }), message,
+  } }));
+  let mergeRequests = 0; let queuedUpdates = 0;
+  await page.route('**/api/mail/merge', route => { mergeRequests++; return route.fulfill({ status: 503 }); });
+  await page.route('**/api/mail/scheduled/queued-1', route => {
+    if (route.request().method() === 'PUT') queuedUpdates++;
+    return route.fulfill({ json: pending({ state: 'pending', revision: 2 }) });
+  });
+  await page.getByTestId('scheduled-edit-queued-1').click();
+  await expect(page.getByTestId('compose-send-menu')).toBeEnabled();
+  await page.getByTestId('compose-send-menu').click();
+  await page.getByTestId('compose-mail-merge').click();
+  await expect(page.getByText('Finish or cancel the existing queued message')).toBeVisible();
+  expect(mergeRequests).toBe(0);
+  await page.getByTestId('compose-to').focus();
+  await page.keyboard.press('Control+Enter');
+  await expect.poll(() => queuedUpdates).toBe(1);
+  expect(mergeRequests).toBe(0);
 });
 
 for (const outcome of ['success', 'conflict', 'lost response', 'logout'] as const) {

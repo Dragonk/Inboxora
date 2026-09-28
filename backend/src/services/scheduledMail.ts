@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { validUndoSendSeconds } from '../utils/undoSend.js';
+import { parseMailbox } from './composedMail.js';
 import { query, withTransaction } from './db.js';
 import type { DbClient } from './db.js';
 import type { PreparedSend, SendExecutionOptions, SendExecutionResult, SendRequestBody } from './sendMail.js';
@@ -19,6 +20,9 @@ const SUMMARY = `id, account_id AS "accountId", subject, mode, state, scheduled_
 const DETAIL = `${SUMMARY}, user_id, payload, lease_token, request_fingerprint, edit_fingerprint`;
 const MAX_ACTIVE = 100;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+const ADDRESS = /^[^\s<>@,;]+@[^\s<>@,;]+$/;
+interface MergeBatchRow { id: string; request_fingerprint: string; item_ids: string[]; scheduled_at: Date }
+export interface MergeReceipt { id: string; count: number; scheduledAt: Date; items: ScheduledSummary[] }
 
 /** Expected user errors are safe to expose; infrastructure errors use normal middleware. */
 export class ScheduledMailError extends Error {
@@ -157,6 +161,98 @@ export async function enqueueScheduledMail(userId: string, inputValue: unknown, 
     return inserted.rows[0];
   });
 }
+/** Split every unique mailbox into an independently dispatched queue item. */
+export function mailMergeRecipients(message: SendRequestBody): string[] {
+  const unique = new Map<string, string>();
+  for (const field of ['to', 'cc', 'bcc'] as const) {
+    for (const value of message[field] ?? []) {
+      const mailbox = parseMailbox(value);
+      if (!ADDRESS.test(mailbox.email) || /[\r\n\0]/.test(value) || (value.includes('<') && !/^[^<>]*<[^<>]+>\s*$/.test(value))) {
+        invalid(`Invalid ${field} recipient`);
+      }
+      const address = mailbox.email.toLowerCase();
+      if (!unique.has(address)) unique.set(address, value.trim());
+    }
+  }
+  if (!unique.size) invalid('At least one recipient is required');
+  if (unique.size > MAX_ACTIVE) invalid('Mail merge supports at most 100 unique recipients');
+  return [...unique.values()];
+}
+
+/** Read batch children only for the same owner as the receipt, including after account deletion. */
+async function mergeReceipt(client: DbClient, userId: string, row: MergeBatchRow): Promise<MergeReceipt> {
+  const items = (await client.query<ScheduledSummary>(`SELECT ${SUMMARY} FROM scheduled_mail
+    WHERE id=ANY($1::uuid[]) AND user_id=$2 ORDER BY array_position($1::uuid[], id)`, [row.item_ids, userId])).rows;
+  return { id: row.id, count: row.item_ids.length, scheduledAt: row.scheduled_at, items };
+}
+
+/** Prepare every message before starting Undo Send, then insert the whole batch atomically. */
+export async function enqueueMailMerge(userId: string, inputValue: unknown, key: string, execute: SendExecutor): Promise<MergeReceipt> {
+  if (!key || key.length > 128) invalid('A stable idempotency key is required');
+  const input = record(inputValue);
+  const message = validateScheduledPayload(input.message);
+  const recipients = mailMergeRecipients(message);
+  const fingerprint = createHash('sha256').update(JSON.stringify({ message })).digest('hex');
+  const existing = (await query<MergeBatchRow>('SELECT * FROM mail_merge_batches WHERE user_id=$1 AND idempotency_key=$2', [userId, key])).rows[0];
+  if (existing) {
+    if (existing.request_fingerprint !== fingerprint) throw new ScheduledMailError(409, 'MAIL_MERGE_KEY_MISMATCH', 'This request key belongs to a different mail merge');
+    return mergeReceipt({ query }, userId, existing);
+  }
+  // Materialize forwarded bytes and the signature once. Every subsequent call still
+  // passes one recipient through the real provider validation with the frozen input.
+  const first = await prepare(userId, { ...message, to: [recipients[0]], cc: [], bcc: [] }, execute);
+  const frozen = { ...first.payload, to: [], cc: [], bcc: [], forwardedAttachments: [] };
+  for (const recipient of recipients.slice(1)) {
+    const validated = await execute(userId, { ...frozen, to: [recipient] }, null,
+      { prepareOnly: true, expectedSenderEmail: first.senderEmail });
+    if (validated.status !== 200 || !validated.prepared) {
+      throw new ScheduledMailError(validated.status >= 400 ? validated.status : 500,
+        typeof validated.body.code === 'string' ? validated.body.code : 'SCHEDULE_PREPARATION_FAILED',
+        typeof validated.body.error === 'string' ? validated.body.error : 'Message could not be prepared');
+    }
+    if (validated.prepared.senderEmail.toLowerCase() !== first.senderEmail.toLowerCase()) {
+      throw new ScheduledMailError(409, 'SCHEDULE_SENDER_CHANGED', 'The selected sender changed during mail merge preparation');
+    }
+  }
+  return withTransaction(async client => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('scheduled-mail'), hashtext($1))", [userId]);
+    const raced = (await client.query<MergeBatchRow>('SELECT * FROM mail_merge_batches WHERE user_id=$1 AND idempotency_key=$2', [userId, key])).rows[0];
+    if (raced) {
+      if (raced.request_fingerprint !== fingerprint) throw new ScheduledMailError(409, 'MAIL_MERGE_KEY_MISMATCH', 'This request key belongs to a different mail merge');
+      return mergeReceipt(client, userId, raced);
+    }
+    const count = await client.query<{ count: string }>("SELECT count(*) FROM scheduled_mail WHERE user_id=$1 AND state NOT IN ('sent','cancelled','dismissed')", [userId]);
+    if (Number(count.rows[0].count) + recipients.length > MAX_ACTIVE) {
+      throw new ScheduledMailError(409, 'SCHEDULE_QUEUE_FULL', 'At most 100 active scheduled messages are allowed');
+    }
+    const pref = await client.query<{ preferences: { undoSendSeconds?: unknown } | null }>('SELECT preferences FROM users WHERE id=$1', [userId]);
+    const delay = pref.rows[0]?.preferences?.undoSendSeconds ?? 0;
+    if (!validUndoSendSeconds(delay)) invalid('Invalid Undo Send preference');
+    let scheduledAt = new Date(Date.now() + delay * 1000);
+    const batchId = randomUUID();
+    const itemIds = recipients.map(() => randomUUID());
+    for (const [index, recipient] of recipients.entries()) {
+      const item: PreparedSend = { senderEmail: first.senderEmail,
+        payload: { ...frozen, to: [recipient] } };
+      const inserted = await client.query(`INSERT INTO scheduled_mail
+        (id,user_id,account_id,idempotency_key,request_fingerprint,subject,mode,scheduled_at,time_zone,payload)
+        SELECT $1,$2,a.id,$4,$5,$6,'undo',$7,'UTC',$8::jsonb FROM email_accounts a WHERE a.id=$3 AND a.user_id=$2
+        RETURNING id`, [itemIds[index], userId, message.accountId, `merge:${batchId}:${index}`,
+        createHash('sha256').update(JSON.stringify({ fingerprint, recipient: recipients[index] })).digest('hex'),
+        item.payload.subject ?? '', scheduledAt, JSON.stringify(item)]);
+      if (!inserted.rows[0]) throw new ScheduledMailError(404, 'SCHEDULE_ACCOUNT_MISSING', 'Sending account is no longer available');
+    }
+    // Large batches can spend time writing attachment snapshots. No worker can
+    // see these uncommitted rows; begin the full Undo window after those writes.
+    scheduledAt = new Date(Date.now() + delay * 1000);
+    await client.query('UPDATE scheduled_mail SET scheduled_at=$2 WHERE id=ANY($1::uuid[]) AND user_id=$3',
+      [itemIds, scheduledAt, userId]);
+    await client.query(`INSERT INTO mail_merge_batches(id,user_id,idempotency_key,request_fingerprint,item_ids,scheduled_at)
+      VALUES($1,$2,$3,$4,$5::uuid[],$6)`, [batchId, userId, key, fingerprint, itemIds, scheduledAt]);
+    return mergeReceipt(client, userId, { id: batchId, request_fingerprint: fingerprint, item_ids: itemIds, scheduled_at: scheduledAt });
+  });
+}
+
 /** List metadata only; attachment bytes and BCC are never broadcast/listed. */
 export async function listScheduledMail(userId: string): Promise<ScheduledSummary[]> {
   return (await query<ScheduledSummary>(`SELECT ${SUMMARY} FROM scheduled_mail WHERE user_id=$1

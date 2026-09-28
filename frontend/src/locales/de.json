@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "Aktuelle Verzögerung: {{count}} s. Wählen Sie eine der vier Optionen, um sie zu ändern.",
     "title": "Senden rückgängig machen",
     "description": "Ausgehende Nachrichten um 0–60 ganze Sekunden verzögern. Bei null wird sofort gesendet. Diese Einstellung gilt auf allen Ihren Geräten.",
-    "off": "Aus (0 Sekunden)",
-    "seconds": "Verzögerung: {{count}} s",
     "loading": "Sendeeinstellungen werden geladen…",
     "saveError": "Die Sendeverzögerung konnte nicht gespeichert werden. Prüfen Sie vor dem Senden die Servereinstellung.",
     "loadError": "Sendeeinstellungen sind nicht verfügbar. Das Senden bleibt gesperrt, bis sie überprüft werden können.",
@@ -2568,6 +2567,12 @@
   "queue": {
     "title": "Geplant / Postausgang",
     "scheduleSend": "Senden planen",
+    "startMailMerge": "Serienmail starten",
+    "sendOptions": "Sendeoptionen",
+    "mergeConfirm": "Eine separate Nachricht an jeden der {{count}} eindeutigen Empfänger senden? Jede Nachricht zeigt nur ihren eigenen Empfänger. Die Rückgängig-Frist beginnt nach der Vorbereitung.",
+    "mergeQueued": "{{count}} einzelne Nachrichten eingereiht",
+    "mergeQueuedBlocked": "Schließen Sie die vorhandene Nachricht in der Warteschlange ab oder brechen Sie sie ab, bevor Sie eine Serienmail starten.",
+    "mergeInvalidRecipient": "Überprüfen Sie vor dem Senden die Empfänger der Serienmail.",
     "queued": "Nachricht eingereiht",
     "retryEnqueue": "Dieselbe Anfrage wiederholen",
     "pendingAcknowledgement": "Die Versandbestätigung fehlt. Wiederholen Sie dieselbe Anfrage, um Duplikate zu vermeiden.",

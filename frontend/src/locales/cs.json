@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "Aktuální zpoždění: {{count}} s. Změňte je výběrem jedné ze čtyř možností.",
     "title": "Vrátit odeslání",
     "description": "Odložte odchozí zprávy o 0–60 celých sekund. Nula znamená okamžité odeslání. Nastavení platí na všech vašich zařízeních.",
-    "off": "Vypnuto (0 sekund)",
-    "seconds": "Prodleva: {{count}} s",
     "loading": "Načítání nastavení odesílání…",
     "saveError": "Prodlevu odesílání se nepodařilo uložit. Před odesláním ověřte nastavení na serveru.",
     "loadError": "Nastavení odesílání není dostupné. Odesílání je zablokováno, dokud nebude možné nastavení ověřit.",
@@ -2568,6 +2567,12 @@
   "queue": {
     "title": "Naplánované / k odeslání",
     "scheduleSend": "Naplánovat odeslání",
+    "startMailMerge": "Spustit hromadnou korespondenci",
+    "sendOptions": "Možnosti odeslání",
+    "mergeConfirm": "Odeslat samostatnou zprávu každému z {{count}} jedinečných příjemců? Každá zpráva zobrazí pouze svého příjemce. Lhůta pro vrácení odeslání začne až po přípravě.",
+    "mergeQueued": "Do fronty zařazeno {{count}} jednotlivých zpráv",
+    "mergeQueuedBlocked": "Před spuštěním hromadné korespondence dokončete nebo zrušte stávající zprávu ve frontě.",
+    "mergeInvalidRecipient": "Před odesláním zkontrolujte příjemce hromadné korespondence.",
     "queued": "Zpráva ve frontě",
     "retryEnqueue": "Zopakovat stejný požadavek",
     "pendingAcknowledgement": "Chybí potvrzení odeslání. Zopakujte stejný požadavek, aby nevznikly duplikáty.",

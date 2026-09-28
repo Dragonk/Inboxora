@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "Current delay: {{count}} s. Choose one of the four options to change it.",
     "title": "Undo Send",
     "description": "Delay outgoing messages by 0–60 whole seconds. Zero sends immediately. This preference applies on all your devices.",
-    "off": "Off (0 seconds)",
-    "seconds": "Delay: {{count}} s",
     "loading": "Loading send preferences…",
     "saveError": "Could not save the send delay. Check the server preference before sending.",
     "loadError": "Send preferences are unavailable. Sending is blocked until they can be verified.",
@@ -2568,6 +2567,12 @@
   "queue": {
     "title": "Scheduled / outbox",
     "scheduleSend": "Schedule send",
+    "startMailMerge": "Start mail merge",
+    "sendOptions": "Send options",
+    "mergeConfirm": "Send a separate message to each of {{count}} unique recipients? Each message will show only its recipient. Your Undo Send delay applies after preparation.",
+    "mergeQueued": "{{count}} individual messages queued",
+    "mergeQueuedBlocked": "Finish or cancel the existing queued message before starting a mail merge.",
+    "mergeInvalidRecipient": "Check the mail merge recipients before sending.",
     "queued": "Message queued",
     "retryEnqueue": "Retry same request",
     "pendingAcknowledgement": "Delivery acknowledgement is missing. Retry this same request to avoid duplicates.",

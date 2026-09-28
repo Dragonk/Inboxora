@@ -26,6 +26,9 @@ finalized below and dated with its publication date.
 ## [Unreleased]
 
 ### Added
+- Mail merge sends one independently queued message per unique To, Cc or Bcc recipient. Each delivery addresses only its recipient in To; the composer confirms the recipient count before dispatch.
+- Mail merge freezes forwarded attachment bytes, signature and sender across recipient copies, and warning dialogs preserve the confirmed merge or schedule action during keyboard input.
+- Send now has an adjacent menu for Schedule send and Start mail merge on desktop and mobile.
 - Undo Send with a per-user, server-saved delay of 0–60 seconds (disabled by default), a persistent countdown, and recovery of queued messages after a client reload.
 - Schedule Send with an exact date, time and IANA time zone, plus a Scheduled view for pausing/editing, rescheduling and cancelling messages before submission. Invalid or ambiguous daylight-saving local times are rejected rather than silently shifted.
 - A durable PostgreSQL send queue shared by SMTP, Gmail API and Microsoft Graph. Frozen attachment bytes and signatures survive client closure; optimistic edits and idempotent receipts protect against duplicate submissions after lost responses. Paused edits autosave without sending or blocking typing; interrupted acknowledgements replay the exact saved snapshot before a new revision can be submitted. Explicit Save continues with the latest edits after reconciliation instead of only acknowledging the earlier autosave. Graceful shutdown resumes a claimed message only when the final delivery gate proves no transport submission occurred. Worker receipt keys cannot be supplied to the public Send endpoint. Unknown delivery outcomes are never retried automatically; confirmed partial deliveries retain only rejected recipients for deliberate editing/retry.
@@ -38,7 +41,8 @@ finalized below and dated with its publication date.
 - **Upgrade order:** apply `0150_account_default_sender.sql` after `0149_body_cache_retention.sql` and before starting the updated backend. Existing accounts keep their primary default; the migration scopes the optional alias reference to its account and clears it on alias deletion. No new environment setting or release version is introduced. See [development release notes](wiki/Release-notes-Unreleased.md).
 
 ### Changed
-- Apply the migration chain through `0153_scheduled_mail_dismissal.sql`, in order after `0151_account_default_recipients.sql` and `0152_scheduled_mail.sql`, before starting the updated backend. Normal startup applies pending migrations. Deploy backend and frontend together; no new provider permissions or environment variables are required.
+- Undo Send settings use the same styled selection control as mail sync frequency, with 0, 15, 30 and 60 second choices. Previously saved whole-second values remain valid until changed.
+- Apply the migration chain through `0154_mail_merge_batches.sql`, in order after `0151_account_default_recipients.sql`, `0152_scheduled_mail.sql` and `0153_scheduled_mail_dismissal.sql`, before starting the updated backend. The new migration adds durable batch receipts for atomic mail merge enqueue and lost-ack replay; earlier migrations are unchanged. Normal startup applies pending migrations. Deploy backend and frontend together; no new provider permissions or environment variables are required.
 - Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
 
 ## [4.1.2] - 2026-09-28

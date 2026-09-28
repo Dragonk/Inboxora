@@ -11,6 +11,7 @@ import { useStore } from '../store/index.ts';
 import { createComposeTransactionGuard } from '../utils/composeTransactionGuard.ts';
 import { isDefiniteQueueRejection } from '../utils/queuedSubmission.ts';
 import SchedulePicker from './SchedulePicker.tsx';
+import SendSplitButton from './SendSplitButton.tsx';
 import { api } from '../utils/api.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
@@ -27,7 +28,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { toAppError } from '../utils/errors.ts';
 import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
-import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
+import { normalizeMailbox, partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 import { DefaultRecipients, type RecipientField } from '../utils/defaultRecipients.ts';
 import { initialComposeSender } from '../utils/composeSender.ts';
@@ -430,6 +431,7 @@ export default function ComposeModal() {
   const initialPriorityRef = useRef(priority);
   const initialAttachmentsRef = useRef(JSON.stringify({ attachments, fwdAttachments }));
   const [showSchedule, setShowSchedule] = useState(false);
+  const mergePendingRef = useRef(false);
   const queuedRevisionRef = useRef(composeData?.queuedMail?.revision);
   const scheduleSelectionRef = useRef<{ scheduledAt: string; timeZone: string } | null>(null);
   const frozenQueueRef = useRef<{ path: string; body: Record<string, unknown>; method: 'POST' | 'PUT' } | null>(null);
@@ -869,6 +871,8 @@ export default function ComposeModal() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
+      if (showEmptySubjectWarn || showForgottenAttachWarn || showSchedule || showCloseDialog || showDiscardSheet || showAttachWarnForDraft) return;
+      mergePendingRef.current = false;
       scheduleSelectionRef.current = null;
       handleSend();
     }
@@ -980,8 +984,9 @@ export default function ComposeModal() {
   };
 
   /** Submit only after all autosave acknowledgements reconcile the queued revision. */
-  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
+  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false, merge = false } = {}) => {
     if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || !currentCompose()) return;
+    if (merge && composeData?.queuedMail) { setError(t('queue.mergeQueuedBlocked')); return; }
     if (!frozenQueueRef.current && (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)) { setError(t('queue.preferencesLoading')); return; }
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
     // A saved draft is identified by its account, folder and compatibility number. `uidValidity` is the
@@ -1038,29 +1043,33 @@ export default function ComposeModal() {
     }
     try {
       const message = buildMessage();
-      if (frozenQueueRef.current || scheduleSelectionRef.current || composeData?.queuedMail || undoSendSeconds > 0) {
+      if (frozenQueueRef.current || merge || scheduleSelectionRef.current || composeData?.queuedMail || undoSendSeconds > 0) {
         if (!frozenQueueRef.current) {
           const selection = scheduleSelectionRef.current;
           const timeZone = selection?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-          frozenQueueRef.current = composeData?.queuedMail
+          frozenQueueRef.current = merge
+            ? { method: 'POST', path: '/mail/merge', body: { message } }
+            : composeData?.queuedMail
             ? { method: 'PUT', path: `/mail/scheduled/${encodeURIComponent(composeData.queuedMail.id)}`,
                 body: { revision: queuedRevisionRef.current, message, ...(selection ?? { sendNow: true, timeZone }) } }
             : { method: 'POST', path: '/mail/scheduled', body: { message,
                 mode: selection ? 'schedule' : 'undo', timeZone, ...(selection ? { scheduledAt: selection.scheduledAt } : {}) } };
         }
         const frozen = frozenQueueRef.current;
+        const isMergeQueue = frozen.path === '/mail/merge';
         const queued = frozen.method === 'PUT' ? await api.put(frozen.path, frozen.body)
           : await api.post(frozen.path, frozen.body, { 'X-Idempotency-Key': idempotencyKeyRef.current });
         if (!isCurrentOperation()) return;
         frozenQueueRef.current = null;
         idempotencyKeyRef.current = null;
+        mergePendingRef.current = false;
         window.dispatchEvent(new Event('inboxora:scheduled-changed'));
         if (frozen.body.keepEditing === true) {
           queuedRevisionRef.current = queued.revision;
           setSending(false); setQueueRetry(false); setError('');
           return;
         }
-        addNotification({ title: t('queue.queued'), body: subject || t('common.noSubject'),
+        addNotification({ title: isMergeQueue ? t('queue.mergeQueued', { count: queued.count }) : t('queue.queued'), body: subject || t('common.noSubject'),
           actionLabel: t('queue.title'), onAction: () => { if (isCurrentSession()) window.dispatchEvent(new Event('inboxora:open-scheduled')); } });
         closeCompose();
         if (sentDraftIdentity) api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity ?? null).catch(() => {});
@@ -1174,11 +1183,26 @@ export default function ComposeModal() {
     }
   };
 
+  /** Confirm the unique audience before handing one private batch to the server. */
+  const startMerge = () => {
+    if (composeData?.queuedMail) { setError(t('queue.mergeQueuedBlocked')); return; }
+    if (frozenQueueRef.current || sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || !currentCompose()) return;
+    const recipients = [...toChips, toInput, ...ccChips, ccInput, ...bccChips, bccInput]
+      .map(value => value.trim()).filter(Boolean);
+    if (recipients.some(value => !/^[^\s<>@,;]+@[^\s<>@,;]+$/.test(normalizeMailbox(value))
+      || /[\r\n\0]/.test(value) || (value.includes('<') && !/^[^<>]*<[^<>]+>\s*$/.test(value)))) {
+      setError(t('queue.mergeInvalidRecipient'));
+      return;
+    }
+    const count = new Set(recipients.map(normalizeMailbox)).size;
+    if (!count) { setError(t('queue.mergeInvalidRecipient')); return; }
+    if (!window.confirm(t('queue.mergeConfirm', { count }))) return;
+    mergePendingRef.current = true;
+    scheduleSelectionRef.current = null;
+    void handleSend({ merge: true });
+  };
+
   const scheduleControls = <>
-    <button type="button" data-testid="compose-schedule" disabled={sending || savingDraft || autosavePending || queuedConflict || queueRetry || (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)}
-      aria-label={t('queue.scheduleSend')} title={t('queue.scheduleSend')}
-      style={isMobile ? { width: 36, height: 36, flexShrink: 0, marginInline: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', color: 'var(--accent)' } : undefined}
-      onClick={() => setShowSchedule(true)}>{isMobile ? <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg> : t('queue.scheduleSend')}</button>
     {autosavePending && !savingDraft && <button type="button" data-testid="compose-autosave-retry" onClick={() => void doSaveDraft({ silent: true })}>{t('queue.retryEnqueue')}</button>}
     {(undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) && <span role="status" data-testid="compose-preferences-loading">{t(undoSendPreferencesStatus === 'error' ? 'queue.preferencesError' : 'queue.preferencesLoading')}{undoSendPreferencesStatus === 'error' && <button type="button" onClick={() => void useStore.getState().loadPreferences()}>{t('queue.refresh')}</button>}</span>}
     {showSchedule && <SchedulePicker busy={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'} initialTimeZone={composeData?.queuedMail?.timeZone}
@@ -1528,6 +1552,14 @@ export default function ComposeModal() {
     </svg>
   );
 
+  const sendButton = <SendSplitButton mobile={isMobile} disabled={sending || savingDraft || autosavePending || queuedConflict || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
+    menuDisabled={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving}
+    sendLabel={sending ? t('compose.sending') : queueRetry ? t('queue.retryEnqueue') : t('compose.send')}
+    scheduleLabel={t('queue.scheduleSend')} mergeLabel={t('queue.startMailMerge')} menuLabel={t('queue.sendOptions')}
+    title={sending ? undefined : t('compose.sendTooltip')}
+    onSend={() => { mergePendingRef.current = false; scheduleSelectionRef.current = null; void handleSend(); }}
+    onSchedule={() => { mergePendingRef.current = false; setShowSchedule(true); }} onMerge={startMerge}>{!isMobile && (sending ? sendSpinner : sendIcon)}</SendSplitButton>;
+
   /** Share reply-mode transitions between desktop and mobile without overriding retry recipients. */
   const switchReplyMode = (all: boolean) => {
     if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
@@ -1625,23 +1657,8 @@ export default function ComposeModal() {
                 <line x1="4" y1="22" x2="4" y2="15" stroke="currentColor" strokeWidth="2" fill="none"/>
               </svg>
             </button>
+            {sendButton}
             {scheduleControls}
-            <button
-              data-testid="compose-send"
-              onClick={() => { scheduleSelectionRef.current = null; void handleSend(); }}
-              disabled={sending || savingDraft || autosavePending || queuedConflict || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
-              style={{
-                background: 'none', border: 'none',
-                color: sending || !hasRecipients ? 'var(--text-tertiary)' : 'var(--accent)',
-                fontSize: 16, fontWeight: 600,
-                cursor: sending || !hasRecipients ? 'default' : 'pointer',
-                padding: '4px 0',
-                WebkitTapHighlightColor: 'transparent',
-                transition: 'color 0.15s',
-              }}
-            >
-              {sending ? sendSpinner : queueRetry ? t('queue.retryEnqueue') : t('compose.send')}
-            </button>
           </div>
         </div>
 
@@ -2064,7 +2081,7 @@ export default function ComposeModal() {
               {t('compose.emptySubject.title')}
             </div>
             <button
-              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true, merge: mergePendingRef.current }); }}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
               {t('compose.emptySubject.sendAnyway')}
@@ -2101,7 +2118,7 @@ export default function ComposeModal() {
               {t('compose.forgottenAttachment.body')}
             </div>
             <button
-              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true, merge: mergePendingRef.current }); }}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
               {t('compose.forgottenAttachment.sendAnyway')}
@@ -2578,25 +2595,8 @@ export default function ComposeModal() {
         padding: '10px 14px', borderTop: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
       }}>
+        {sendButton}
         {scheduleControls}
-            <button
-          data-testid="compose-send"
-              onClick={() => { scheduleSelectionRef.current = null; void handleSend(); }}
-          disabled={sending || savingDraft || autosavePending || queuedConflict || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
-          title={sending ? undefined : t('compose.sendTooltip')}
-          style={{
-            padding: '8px 20px', background: 'var(--accent)',
-            border: 'none', borderRadius: 7, color: 'var(--accent-text)',
-            fontSize: 13, fontWeight: 500,
-            cursor: sending || !hasRecipients ? 'not-allowed' : 'pointer',
-            opacity: sending || !hasRecipients ? 0.6 : 1,
-            display: 'flex', alignItems: 'center', gap: 6,
-            transition: 'opacity 0.15s',
-          }}
-        >
-          {sending ? sendSpinner : sendIcon}
-          {sending ? t('compose.sending') : queueRetry ? t('queue.retryEnqueue') : t('compose.send')}
-        </button>
 
         {plaintextCompose && (
           <button
@@ -2682,7 +2682,7 @@ export default function ComposeModal() {
               {t('compose.emptySubject.cancel')}
             </button>
             <button
-              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true, merge: mergePendingRef.current }); }}
               style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.emptySubject.sendAnyway')}
@@ -2719,7 +2719,7 @@ export default function ComposeModal() {
               {t('compose.forgottenAttachment.cancel')}
             </button>
             <button
-              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true, merge: mergePendingRef.current }); }}
               style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.forgottenAttachment.sendAnyway')}

@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "Ritardo attuale: {{count}} s. Scegli una delle quattro opzioni per modificarlo.",
     "title": "Annulla invio",
     "description": "Ritarda i messaggi in uscita da 0 a 60 secondi interi. Zero invia immediatamente. Questa preferenza si applica a tutti i tuoi dispositivi.",
-    "off": "Disattivato (0 secondi)",
-    "seconds": "Ritardo: {{count}} s",
     "loading": "Caricamento delle preferenze di invio…",
     "saveError": "Impossibile salvare il ritardo di invio. Verifica la preferenza sul server prima di inviare.",
     "loadError": "Le preferenze di invio non sono disponibili. L’invio è bloccato finché non sarà possibile verificarle.",
@@ -2568,6 +2567,12 @@
   "queue": {
     "title": "Programmati / posta in uscita",
     "scheduleSend": "Programma invio",
+    "startMailMerge": "Avvia stampa unione",
+    "sendOptions": "Opzioni di invio",
+    "mergeConfirm": "Inviare un messaggio separato a ciascuno dei {{count}} destinatari univoci? Ogni messaggio mostrerà solo il proprio destinatario. Il tempo per annullare inizia dopo la preparazione.",
+    "mergeQueued": "{{count}} messaggi individuali in coda",
+    "mergeQueuedBlocked": "Completa o annulla il messaggio già in coda prima di avviare la stampa unione.",
+    "mergeInvalidRecipient": "Controlla i destinatari della stampa unione prima di inviare.",
     "queued": "Messaggio in coda",
     "retryEnqueue": "Riprova la stessa richiesta",
     "pendingAcknowledgement": "Manca la conferma di invio. Riprova la stessa richiesta per evitare duplicati.",

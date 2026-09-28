@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "Retraso actual: {{count}} s. Elige una de las cuatro opciones para cambiarlo.",
     "title": "Deshacer envío",
     "description": "Retrasa los mensajes salientes entre 0 y 60 segundos enteros. Cero envía inmediatamente. Esta preferencia se aplica en todos tus dispositivos.",
-    "off": "Desactivado (0 segundos)",
-    "seconds": "Retraso: {{count}} s",
     "loading": "Cargando preferencias de envío…",
     "saveError": "No se pudo guardar el retraso de envío. Comprueba la preferencia del servidor antes de enviar.",
     "loadError": "Las preferencias de envío no están disponibles. El envío está bloqueado hasta que se puedan verificar.",
@@ -2568,6 +2567,12 @@
   "queue": {
     "title": "Programados / bandeja de salida",
     "scheduleSend": "Programar envío",
+    "startMailMerge": "Iniciar combinación de correspondencia",
+    "sendOptions": "Opciones de envío",
+    "mergeConfirm": "¿Enviar un mensaje distinto a cada uno de los {{count}} destinatarios únicos? Cada mensaje mostrará solo a su destinatario. El plazo para deshacer comienza después de la preparación.",
+    "mergeQueued": "{{count}} mensajes individuales en cola",
+    "mergeQueuedBlocked": "Finaliza o cancela el mensaje en cola antes de iniciar la combinación de correspondencia.",
+    "mergeInvalidRecipient": "Comprueba los destinatarios de la combinación de correspondencia antes de enviar.",
     "queued": "Mensaje en cola",
     "retryEnqueue": "Reintentar la misma solicitud",
     "pendingAcknowledgement": "Falta la confirmación de envío. Reintenta la misma solicitud para evitar duplicados.",

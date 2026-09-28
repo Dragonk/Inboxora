@@ -24,7 +24,8 @@ export function partitionRejectedRecipients(
   };
 }
 
-function normalizeMailbox(recipient: string): string {
+/** Use the mailbox, not its display name, when matching or deduplicating recipients. */
+export function normalizeMailbox(recipient: string): string {
   const trimmed = recipient.trim();
   const angleAddress = trimmed.match(/<([^<>]+)>/)?.[1];
   return (angleAddress ?? trimmed).trim().toLowerCase();

@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { executeSend } from '../services/sendMail.js';
 import { ScheduledMailError, cancelScheduledMail, dismissScheduledMail, editScheduledMail, enqueueScheduledMail,
-  listScheduledMail, rescheduleMail, updateScheduledMail } from '../services/scheduledMail.js';
+  enqueueMailMerge, listScheduledMail, rescheduleMail, updateScheduledMail } from '../services/scheduledMail.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -19,6 +19,8 @@ function handle(action: (req: Request) => Promise<unknown>) {
 }
 router.get('/scheduled', handle(req => listScheduledMail(req.session.userId!)));
 router.post('/scheduled', handle(req => enqueueScheduledMail(req.session.userId!, req.body,
+  typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'] : '', executeSend)));
+router.post('/merge', handle(req => enqueueMailMerge(req.session.userId!, req.body,
   typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'] : '', executeSend)));
 router.post('/scheduled/:id/edit', handle(async req => {
   const row = await editScheduledMail(req.session.userId!, String(req.params.id), req.body?.revision);

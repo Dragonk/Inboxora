@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "Obecne opóźnienie: {{count}} s. Wybierz jedną z czterech opcji, aby je zmienić.",
     "title": "Cofnij wysyłanie",
     "description": "Opóźnij wiadomości wychodzące o 0–60 pełnych sekund. Zero oznacza wysyłanie natychmiastowe. To ustawienie obowiązuje na wszystkich Twoich urządzeniach.",
-    "off": "Wyłączone (0 sekund)",
-    "seconds": "Opóźnienie: {{count}} s",
     "loading": "Wczytywanie ustawień wysyłania…",
     "saveError": "Nie udało się zapisać opóźnienia wysyłania. Sprawdź ustawienie na serwerze przed wysłaniem.",
     "loadError": "Ustawienia wysyłania są niedostępne. Wysyłanie jest zablokowane do czasu ich zweryfikowania.",
@@ -2567,7 +2566,13 @@
   },
   "queue": {
     "title": "Zaplanowane / do wysłania",
-    "scheduleSend": "Zaplanuj wysyłkę",
+    "scheduleSend": "Zaplanuj wysłanie",
+    "startMailMerge": "Rozpocznij korespondencję seryjną",
+    "sendOptions": "Opcje wysyłania",
+    "mergeConfirm": "Wysłać osobną wiadomość do każdego z {{count}} unikalnych odbiorców? Każda wiadomość pokaże tylko swojego odbiorcę. Opóźnienie cofania wysyłania zacznie się po przygotowaniu.",
+    "mergeQueued": "Dodano do kolejki {{count}} osobnych wiadomości",
+    "mergeQueuedBlocked": "Zakończ lub anuluj istniejącą wiadomość w kolejce przed rozpoczęciem korespondencji seryjnej.",
+    "mergeInvalidRecipient": "Sprawdź adresy odbiorców korespondencji seryjnej przed wysłaniem.",
     "queued": "Wiadomość w kolejce",
     "retryEnqueue": "Ponów to samo żądanie",
     "pendingAcknowledgement": "Brak potwierdzenia wysyłki. Ponów to samo żądanie, aby uniknąć duplikatów.",

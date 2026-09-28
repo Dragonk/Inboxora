@@ -2556,10 +2556,9 @@
     "transportMicrosoft": "Microsoft Graph"
   },
   "undoSendSetting": {
+    "legacyValue": "当前延迟：{{count}} 秒。选择四个选项之一进行更改。",
     "title": "撤销发送",
     "description": "将发出的邮件延迟 0–60 整秒。设为零时立即发送。此偏好设置会应用于您的所有设备。",
-    "off": "关闭（0 秒）",
-    "seconds": "延迟：{{count}} 秒",
     "loading": "正在加载发送偏好设置…",
     "saveError": "无法保存发送延迟。发送前请检查服务器上的偏好设置。",
     "loadError": "发送偏好设置不可用。在验证设置之前，发送功能将被禁用。",
@@ -2568,6 +2567,12 @@
   "queue": {
     "title": "计划发送 / 发件箱",
     "scheduleSend": "计划发送",
+    "startMailMerge": "开始邮件合并",
+    "sendOptions": "发送选项",
+    "mergeConfirm": "向 {{count}} 位不同的收件人分别发送邮件？每封邮件只显示对应的收件人。准备完成后才开始计算撤销发送时间。",
+    "mergeQueued": "{{count}} 封独立邮件已加入队列",
+    "mergeQueuedBlocked": "请先完成或取消现有的队列邮件，再开始邮件合并。",
+    "mergeInvalidRecipient": "发送前请检查邮件合并的收件人。",
     "queued": "邮件已排队",
     "retryEnqueue": "重试同一请求",
     "pendingAcknowledgement": "未收到发送确认。请重试同一请求以免重复发送。",

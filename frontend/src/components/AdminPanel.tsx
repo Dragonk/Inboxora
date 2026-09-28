@@ -2,6 +2,7 @@ import { splitDefaultRecipients } from '../utils/defaultRecipients.ts';
 import StorageRetentionSettings from './StorageRetentionSettings.tsx';
 import MailPrefetchSettings from './MailPrefetchSettings.tsx';
 import UndoSendSettings from './UndoSendSettings.tsx';
+import SegmentedChoices from './SegmentedChoices.tsx';
 import { CalendarAccountsSettings, ContactAccountsSettings, SectionTabs } from './accountUi/SettingsSections.tsx';
 import MailAccountEditor from './accountUi/MailAccountEditor.tsx';
 import { useSettingsTarget, isCurrentSettingsTarget } from './accountUi/navigation.ts';
@@ -2529,33 +2530,8 @@ function LayoutsTab() {
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
           {t('admin.messageList.syncFrequencyDesc')}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[
-            { value: 15,  label: '15s' },
-            { value: 30,  label: '30s' },
-            { value: 60,  label: '60s' },
-            { value: 120, label: '2 min' },
-          ].map(({ value, label }) => {
-            const active = syncInterval === value;
-            return (
-              <button
-                key={value}
-                onClick={() => setSyncInterval(value)}
-                style={{
-                  flex: 1, padding: '7px 4px', fontSize: 13, fontWeight: 500,
-                  background: active ? 'var(--bg-hover)' : 'var(--bg-tertiary)',
-                  border: `2px solid ${active ? 'var(--accent)' : 'var(--border-subtle)'}`,
-                  borderRadius: 7, cursor: 'pointer', transition: 'all 0.15s', outline: 'none',
-                  color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border)'; }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedChoices label={t('admin.messageList.syncFrequency')} value={syncInterval} onChange={setSyncInterval}
+          choices={[{ value: 15, label: '15s' }, { value: 30, label: '30s' }, { value: 60, label: '60s' }, { value: 120, label: '2 min' }]} />
       </div>
 
       {/* Folder-structure sync interval */}
