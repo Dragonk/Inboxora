@@ -4,13 +4,15 @@ export type PendingRecipients = Record<RecipientField, string>;
 export interface AccountDefaults { id: string; default_cc?: string[]; default_bcc?: string[] }
 const fields: RecipientField[] = ['to', 'cc', 'bcc'];
 
-// Match display-name chips without rewriting the user's authored representation.
+/** Match display-name chips without rewriting the user's authored representation. */
 export function recipientKey(value: string): string {
   return (value.match(/<([^<>]+)>/)?.[1] ?? value).trim().toLowerCase();
 }
+/** Split settings input without hiding malformed mailboxes from server-side validation. */
 export function splitDefaultRecipients(value: string): string[] {
   return value.split(/[,;]/).map(item => item.trim()).filter(Boolean);
 }
+/** Include unfinished recipient inputs in duplicate detection without splitting quoted names. */
 function pendingKeys(pending: PendingRecipients): string[] {
   return fields.flatMap(field => pending[field].split(/[,;](?=(?:[^"]*"[^"]*")*[^"]*$)/).map(recipientKey));
 }
@@ -19,10 +21,12 @@ function pendingKeys(pending: PendingRecipients): string[] {
 export class DefaultRecipients {
   private accountId: string;
   private mayAddDefaults: boolean;
+  private retryOnly = false;
   private account: AccountDefaults | undefined;
   private automatic: Recipients = { to: [], cc: [], bcc: [] };
   private replyCc: string[];
   private dismissed = new Set<string>();
+  /** Seed a new composer once; saved draft recipients are explicit and never seeded again. */
   constructor(account: AccountDefaults | undefined, recipients: Recipients, persisted = false, replyAll = false) {
     this.accountId = account?.id ?? '';
     this.mayAddDefaults = !persisted;
@@ -30,6 +34,7 @@ export class DefaultRecipients {
     this.replyCc = replyAll && !persisted ? [...recipients.cc] : [];
     if (!persisted) this.add(account, recipients, { to: '', cc: '', bcc: '' });
   }
+  /** Append unoccupied account defaults, preferring blind copies over automatic CC matches. */
   private add(account: AccountDefaults | undefined, recipients: Recipients, pending: PendingRecipients) {
     const occupied = new Set([...fields.flatMap(field => recipients[field].map(recipientKey)), ...pendingKeys(pending)]);
     // BCC wins only between automatic defaults. Authored recipients stay untouched.
@@ -43,6 +48,7 @@ export class DefaultRecipients {
       }
     }
   }
+  /** Relinquish automatic ownership as soon as a chip is removed or edited. */
   edit(field: RecipientField, next: string[]) {
     // Removing/editing a chip relinquishes ownership immediately, even if re-added later.
     for (const value of this.automatic[field]) if (!next.includes(value)) this.dismissed.add(recipientKey(value));
@@ -70,6 +76,7 @@ export class DefaultRecipients {
     const pending = { to: '', cc: '', bcc: '', [field]: value };
     return this.displaceAutomatic(new Set(pendingKeys(pending)), { ...current });
   }
+  /** Remove only owned duplicate occurrences, retaining the newly authored recipient. */
   private displaceAutomatic(manualKeys: Set<string>, next: Recipients): Recipients {
     for (const role of fields) {
       const displaced = this.automatic[role].filter(value => manualKeys.has(recipientKey(value)));
@@ -85,8 +92,20 @@ export class DefaultRecipients {
     }
     return next;
   }
+  /**
+   * Convert confirmed partial-delivery recovery into explicit recipient editing.
+   * Neither sender changes nor Reply All may alter retry targets automatically.
+   * This applies only to the retained composer; unknown send outcomes are untouched.
+   */
+  enterRetryMode(): void {
+    this.retryOnly = true;
+    this.mayAddDefaults = false;
+    this.automatic = { to: [], cc: [], bcc: [] };
+    this.replyCc = [];
+  }
+  /** Replace untouched account defaults, except during explicit partial-delivery recovery. */
   switchAccount(account: AccountDefaults | undefined, current: Recipients, pending: PendingRecipients): Recipients {
-    if (!account || account.id === this.accountId) return current;
+    if (!account || account.id === this.accountId || this.retryOnly) return current;
     const next = { ...current };
     for (const field of fields) next[field] = current[field].filter(value => !this.automatic[field].includes(value));
     this.automatic = { to: [], cc: [], bcc: [] };
@@ -97,7 +116,9 @@ export class DefaultRecipients {
     this.add(account, next, pending);
     return next;
   }
+  /** Reconcile implicit reply recipients without overriding edits or confirmed retry targets. */
   switchReply(all: boolean, candidates: string[], current: Recipients, pending: PendingRecipients): Recipients {
+    if (this.retryOnly) return current;
     const next = { to: [...current.to], cc: current.cc.filter(value => !this.replyCc.includes(value)), bcc: [...current.bcc] };
     const removedReplyKeys = new Set(this.replyCc.map(recipientKey));
     this.replyCc = [];

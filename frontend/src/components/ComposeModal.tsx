@@ -199,6 +199,7 @@ function parseChips(val: unknown): string[] {
   return parts;
 }
 
+/** Edit one session-scoped message, applying visible account defaults only before retry recovery. */
 export default function ComposeModal() {
   const { t } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail: preferredPlaintext } = useStore();
@@ -241,6 +242,7 @@ export default function ComposeModal() {
   const [ccInput, setCcInputState] = useState('');
   const [bccChips, setBccChipsState] = useState(() => recipientSeed.recipients.bcc);
   const [bccInput, setBccInputState] = useState('');
+  /** Apply manual chip edits while preserving draft revisions and relinquishing matching automatic recipients. */
   const setRecipientChips = (field: RecipientField, value: string[]) => {
     const current = { to: toChips, cc: ccChips, bcc: bccChips };
     const next = recipientSeed.owner.editRecipients(field, value, current);
@@ -248,6 +250,7 @@ export default function ComposeModal() {
     if (next.cc !== current.cc) { recordRecipientEdit('cc'); setCcChipsState(next.cc); }
     if (next.bcc !== current.bcc) { recordRecipientEdit('bcc'); setBccChipsState(next.bcc); }
   };
+  /** Reconcile unfinished input before keyboard submission and record the affected draft fields. */
   const setRecipientInput = (field: RecipientField, value: string) => {
     const current = { to: toChips, cc: ccChips, bcc: bccChips };
     const next = recipientSeed.owner.editPending(field, value, current);
@@ -259,11 +262,17 @@ export default function ComposeModal() {
     else if (field === 'cc') setCcInputState(value);
     else setBccInputState(value);
   };
+  /** Route committed TO edits through recipient ownership and draft tracking. */
   const setToChips = (value: string[]) => setRecipientChips('to', value);
+  /** Route uncommitted TO edits through recipient ownership and draft tracking. */
   const setToInput = (value: string) => setRecipientInput('to', value);
+  /** Route committed CC edits through recipient ownership and draft tracking. */
   const setCcChips = (value: string[]) => setRecipientChips('cc', value);
+  /** Route uncommitted CC edits through recipient ownership and draft tracking. */
   const setCcInput = (value: string) => setRecipientInput('cc', value);
+  /** Route committed BCC edits through recipient ownership and draft tracking. */
   const setBccChips = (value: string[]) => setRecipientChips('bcc', value);
+  /** Route uncommitted BCC edits through recipient ownership and draft tracking. */
   const setBccInput = (value: string) => setRecipientInput('bcc', value);
   const [subject, setSubjectState] = useState(() => composeData?.subject || '');
   const setSubject = (value: React.SetStateAction<string>) => { recordDraftEdit(); setSubjectState(value); };
@@ -332,6 +341,7 @@ export default function ComposeModal() {
     if (initialComposeData?.quotedBody !== undefined) setQuotedBodyState(initialComposeData.quotedBody);
   }, []);
 
+  /** Resolve the initial sender once from loaded account preferences and the compose intent. */
   const initialFromValue = () => initialComposeSender({
     accounts,
     draft: composeData,
@@ -339,6 +349,7 @@ export default function ComposeModal() {
     lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
   });
   const [fromValue, setFromValueState] = useState(initialFromValue);
+  /** Change the sender while retaining explicit recipients and the partial-delivery retry destination set. */
   const setFromValue = (value: string) => {
     const accountId = resolveFrom(value).accountId;
     const next = recipientSeed.owner.switchAccount(accounts.find(account => account.id === accountId),
@@ -978,6 +989,7 @@ export default function ComposeModal() {
         // and its draft open, and turn it into an explicit retry for only addresses
         // that were definitely not accepted, retaining their To/CC/BCC roles.
         const retryRecipients = partitionRejectedRecipients(rejectedRecipients, { to: toFinal, cc: ccFinal, bcc: bccFinal });
+        recipientSeed.owner.enterRetryMode();
         setToChips(retryRecipients.to);
         setToInput('');
         setCcChips(retryRecipients.cc);
@@ -1356,6 +1368,7 @@ export default function ComposeModal() {
     </svg>
   );
 
+  /** Share reply-mode transitions between desktop and mobile without overriding retry recipients. */
   const switchReplyMode = (all: boolean) => {
     const next = recipientSeed.owner.switchReply(all, parseChips(composeData?.allRecipients || []),
       { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
@@ -3356,6 +3369,7 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
   );
 }
 
+/** Render editable recipient chips with suggestions and an accessible, independently testable text input. */
 function ChipInput({ inputTestId, chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { inputTestId?: string; chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();

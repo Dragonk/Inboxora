@@ -117,3 +117,38 @@ test('uncommitted raw input displaces an automatic duplicate before keyboard sen
     assert.deepEqual(owner.editPending(field, '', next), next);
   }
 });
+
+test('confirmed partial-delivery targets become manual across repeated account and reply-mode changes', () => {
+  const recipients = { to: ['accepted@example.test'], cc: ['thread@example.test'], bcc: [] };
+  const owner = new DefaultRecipients(a, recipients, false, true);
+  owner.enterRetryMode();
+  let retry = owner.editRecipients('to', [], recipients);
+  retry = owner.editRecipients('cc', ['cc@example.test'], retry);
+  retry = owner.editRecipients('bcc', ['private@example.test'], retry);
+  const expected = { to: [], cc: ['cc@example.test'], bcc: ['private@example.test'] };
+  for (const account of [b, a, b]) {
+    retry = owner.switchAccount(account, retry, pending);
+    assert.deepEqual(retry, expected);
+    for (const all of [true, false]) {
+      retry = owner.switchReply(all, ['accepted@example.test', 'thread@example.test'], retry, pending);
+      assert.deepEqual(retry, expected);
+    }
+  }
+});
+test('retry recipients remain explicitly editable without regaining automatic ownership', () => {
+  const recipients = empty(); const owner = new DefaultRecipients(a, recipients);
+  owner.enterRetryMode();
+  let retry = owner.editRecipients('cc', [], recipients);
+  retry = owner.editRecipients('bcc', ['private@example.test', 'manual@example.test'], retry);
+  retry = owner.editRecipients('to', ['cc@example.test'], retry);
+  const expected = { to: ['cc@example.test'], cc: [], bcc: ['private@example.test', 'manual@example.test'] };
+  owner.enterRetryMode(); // another partial response must not reset the recovery policy
+  assert.deepEqual(owner.switchAccount(b, retry, { ...pending, cc: 'pending@example.test' }), expected);
+  assert.deepEqual(owner.editPending('cc', 'private@example.test', retry), expected);
+});
+test('a partial response with no identifiable rejected recipients cannot seed a new retry destination', () => {
+  const recipients = empty(); const owner = new DefaultRecipients(a, recipients);
+  owner.enterRetryMode();
+  assert.deepEqual(owner.switchAccount(b, empty(), pending), empty());
+  assert.deepEqual(owner.switchReply(true, ['accepted@example.test'], empty(), pending), empty());
+});

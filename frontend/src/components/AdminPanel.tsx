@@ -213,6 +213,7 @@ interface AccountFormProps {
 }
 
 
+/** Edit account settings, including server-persisted recipient defaults, with scoped save responses. */
 function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComplete, showProviderServices = true, section = 'all', hideActions = false, submitRef, onSavingChange, onErrorChange }: AccountFormProps) {
   const { t } = useTranslation();
   const { categorizationEnabled } = useStore();

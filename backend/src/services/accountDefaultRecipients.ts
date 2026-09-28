@@ -6,6 +6,7 @@ const CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 type Defaults = { default_cc?: string[]; default_bcc?: string[] };
 
+/** Validate both optional account lists before any write; normalize only safe bare mailboxes. */
 export function normalizeDefaultRecipients(input: Record<string, unknown>): Defaults | { error: string } {
   const result: Defaults = {};
   const fields: (keyof Defaults)[] = ['default_cc', 'default_bcc'];

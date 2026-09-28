@@ -93,6 +93,7 @@ const lazyFallback = (
 // prop declaration so the two shapes never drift apart.
 type SelectedConversationCopy = NonNullable<NonNullable<Parameters<typeof MessagePane>[0]>['selectedConversationCopy']>;
 
+/** Render the authenticated mail workspace and defer queued composers until accounts are ready. */
 export default function MailApp() {
   const { t } = useTranslation();
   const [mobileHeaderHost, setMobileHeaderHost] = useState<HTMLElement | null>(null);

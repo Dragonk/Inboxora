@@ -207,3 +207,37 @@ for (const entry of ['compose action', 'mailto'] as const) {
     }
   });
 }
+
+test('partial delivery retries preserve rejected recipients across sender account and alias changes', async ({ page, fixtureApi }) => {
+  await fixtureApi; await boot(page, [accountA(), accountB()]); await compose(page);
+  const payloads: Record<string, unknown>[] = [];
+  await page.route('**/api/mail/send', route => {
+    payloads.push(route.request().postDataJSON());
+    return route.fulfill({ json: payloads.length === 1
+      ? { ok: true, partialDelivery: true, rejected: ['cc@example.test', 'private@example.test'] }
+      : { ok: true } });
+  });
+  await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Partial delivery retry');
+  await page.getByTestId('compose-to').fill('accepted@example.test');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(() => payloads.length).toBe(1);
+  await expect(field(page, 'to')).not.toContainText('accepted@example.test');
+  await expect(field(page, 'bcc')).not.toContainText('shared@example.test');
+  await expect(field(page, 'cc')).toContainText('cc@example.test');
+  await expect(field(page, 'bcc')).toContainText('private@example.test');
+  const from = page.getByTestId('compose-from');
+  for (const sender of ['account:account-outlook', 'alias:work:account-gmail', 'account:account-outlook']) {
+    await from.selectOption(sender);
+    await expect(field(page, 'cc')).toContainText('cc@example.test');
+    await expect(field(page, 'bcc')).toContainText('private@example.test');
+    await expect(field(page, 'cc')).not.toContainText('next@example.test');
+    await expect(field(page, 'bcc')).not.toContainText('hidden@example.test');
+    await expect(field(page, 'bcc')).not.toContainText('shared@example.test');
+  }
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(() => payloads.length).toBe(2);
+  expect(payloads[1]).toMatchObject({ accountId: 'account-outlook', to: [],
+    cc: ['cc@example.test'], bcc: ['private@example.test'] });
+  expect(payloads[1]).not.toHaveProperty('aliasId');
+  await expect(page.getByTestId('compose-from')).toHaveCount(0);
+});
