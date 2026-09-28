@@ -25,6 +25,9 @@
       "sourceCode": "Codice sorgente"
     },
     "accounts": {
+      "defaultCc": "Destinatari CC predefiniti",
+      "defaultBcc": "Destinatari CCN predefiniti",
+      "defaultRecipientsHelp": "Inserisci solo indirizzi email separati da virgole o punti e virgola (massimo 50 per campo). Si applica a questo account e a tutti i suoi alias. I destinatari sono visibili e rimovibili in ogni nuovo messaggio.",
       "loadFoldersError": "Impossibile caricare le cartelle",
       "saveFolderMappingsError": "Impossibile salvare le mappature delle cartelle",
       "title": "Account email",

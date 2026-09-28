@@ -9,6 +9,9 @@
       "sourceCode": "源代码"
     },
     "accounts": {
+      "defaultCc": "默认抄送收件人",
+      "defaultBcc": "默认密送收件人",
+      "defaultRecipientsHelp": "请输入纯电子邮件地址，用逗号或分号分隔（每个字段最多 50 个）。适用于此账户及其所有别名。每封新邮件都会显示这些收件人，且可以移除。",
       "loadFoldersError": "无法加载文件夹",
       "saveFolderMappingsError": "无法保存文件夹映射",
       "title": "邮箱账户",

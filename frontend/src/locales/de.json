@@ -25,6 +25,9 @@
       "sourceCode": "Quellcode"
     },
     "accounts": {
+      "defaultCc": "Standardempfänger für CC",
+      "defaultBcc": "Standardempfänger für BCC",
+      "defaultRecipientsHelp": "Nur E-Mail-Adressen eingeben, durch Kommas oder Semikolons getrennt (bis zu 50 pro Feld). Gilt für dieses Konto und alle Aliasse. Empfänger sind in jeder neuen Nachricht sichtbar und können entfernt werden.",
       "loadFoldersError": "Ordner konnten nicht geladen werden",
       "saveFolderMappingsError": "Ordnerzuordnungen konnten nicht gespeichert werden",
       "title": "E-Mail-Konten",

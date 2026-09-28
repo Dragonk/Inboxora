@@ -4,6 +4,21 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 describe('migration integrity', () => {
+  it('adds bounded account compose defaults immediately after 0150', () => {
+    const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
+    expect(files[files.indexOf('0150_account_default_sender.sql') + 1]).toBe('0151_account_default_recipients.sql');
+    const sql = readFileSync(join(process.cwd(), 'migrations/0151_account_default_recipients.sql'), 'utf8');
+    for (const field of ['default_cc', 'default_bcc']) {
+      expect(sql).toContain(`ADD COLUMN ${field} TEXT[] NOT NULL DEFAULT '{}'`);
+      expect(sql).toContain(`CHECK (account_default_recipients_bounded(${field}))`);
+    }
+    expect(sql).toContain('cardinality(addresses) <= 50');
+    expect(sql).toContain('array_ndims(addresses) = 1');
+    expect(sql).toContain('array_lower(addresses, 1) = 1');
+    expect(sql).toContain('address IS NULL OR char_length(address) NOT BETWEEN 3 AND 254');
+    expect(sql).not.toMatch(/UPDATE\s+email_accounts|ALTER TABLE account_aliases/i);
+  });
+
   it('adds an account-scoped optional sender alias without changing historical migrations', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0150_account_default_sender.sql'), 'utf8');
     expect(sql).toContain('UNIQUE (id, account_id)');

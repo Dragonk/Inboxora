@@ -1,3 +1,4 @@
+import { splitDefaultRecipients } from '../utils/defaultRecipients.ts';
 import StorageRetentionSettings from './StorageRetentionSettings.tsx';
 import MailPrefetchSettings from './MailPrefetchSettings.tsx';
 import { CalendarAccountsSettings, ContactAccountsSettings, SectionTabs } from './accountUi/SettingsSections.tsx';
@@ -72,6 +73,8 @@ interface AdminAlias {
   [key: string]: unknown;
 }
 interface AdminAccount {
+  default_cc?: string[];
+  default_bcc?: string[];
   id: string;
   default_alias_id?: string | null;
   email_address?: string | null;
@@ -166,6 +169,8 @@ function isMicrosoftImapHost(host: string): boolean {
 
 /** The account form the admin panel edits. */
 interface AccountFormState {
+  default_cc?: string[];
+  default_bcc?: string[];
   id?: string;
   name?: string;
   email_address?: string | null;
@@ -229,6 +234,8 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
       auth_user: '', auth_pass: '', categorization_enabled: false,
     ...(initial ?? {}),
   });
+  const [defaultCc, setDefaultCc] = useState(() => (initial?.default_cc ?? []).join(', '));
+  const [defaultBcc, setDefaultBcc] = useState(() => (initial?.default_bcc ?? []).join(', '));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -271,7 +278,7 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
     setSaving(true);
     setError('');
     try {
-      await onSave(form);
+      await onSave({ ...form, default_cc: splitDefaultRecipients(defaultCc), default_bcc: splitDefaultRecipients(defaultBcc) });
       if (useStore.getState().authEpoch !== sessionEpoch) return;
       // Provider intent changes share the edit form's explicit Save/Cancel
       // boundary. The account update is already durable if one feature fails,
@@ -296,6 +303,15 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
   return (
     <div>
       {section !== 'servers' && <>
+      <Field label={t('admin.accounts.defaultCc')}>
+        <input style={inputStyle} aria-label={t('admin.accounts.defaultCc')} data-testid="account-default-cc"
+          value={defaultCc} onChange={event => setDefaultCc(event.target.value)} />
+      </Field>
+      <Field label={t('admin.accounts.defaultBcc')}>
+        <input style={inputStyle} aria-label={t('admin.accounts.defaultBcc')} data-testid="account-default-bcc"
+          value={defaultBcc} onChange={event => setDefaultBcc(event.target.value)} />
+      </Field>
+      <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.accounts.defaultRecipientsHelp')}</p>
       {/* Presets (add only) */}
       {!isEdit && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -859,7 +875,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
   const handleEdit = async (form: AccountFormState) => {
     const sessionEpoch = useStore.getState().authEpoch;
     if (!editTarget) return;
-    const updates: Record<string, unknown> = { name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: form.trusted_authserv_id ?? null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
+    const updates: Record<string, unknown> = { default_cc: form.default_cc, default_bcc: form.default_bcc, name: form.name, sender_name: form.sender_name || null, color: form.color, imap_host: form.imap_host, imap_port: form.imap_port, imap_skip_tls_verify: !!form.imap_skip_tls_verify, smtp_host: form.smtp_host, smtp_port: form.smtp_port, smtp_tls: form.smtp_tls, signature: form.signature || null, categorization_enabled: !!form.categorization_enabled, antispam_enabled: !!form.antispam_enabled, trusted_authserv_id: form.trusted_authserv_id ?? null, include_in_unified_inbox: form.include_in_unified_inbox !== false };
     if (form.auth_pass) updates.auth_pass = form.auth_pass;
     if (form.auth_user) updates.auth_user = form.auth_user;
     // Separate SMTP credentials (optional). A username sends both (a blank password on

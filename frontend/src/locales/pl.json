@@ -122,6 +122,9 @@
       "errorAdd": "Nie udało się dodać do listy blokad"
     },
     "accounts": {
+      "defaultCc": "Domyślni odbiorcy DW",
+      "defaultBcc": "Domyślni odbiorcy UDW",
+      "defaultRecipientsHelp": "Wpisz same adresy e-mail, oddzielone przecinkami lub średnikami (do 50 w każdym polu). Dotyczy konta i wszystkich jego aliasów. Odbiorcy są widoczni i można ich usunąć w każdej nowej wiadomości.",
       "loadFoldersError": "Nie udało się wczytać folderów",
       "saveFolderMappingsError": "Nie udało się zapisać mapowania folderów",
       "title": "Konta pocztowe",

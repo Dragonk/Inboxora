@@ -30,6 +30,7 @@ import { reduceProviderSyncResult } from '../services/providerSyncOutcome.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
 import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
+import { normalizeDefaultRecipients } from '../services/accountDefaultRecipients.js';
 import calendarManagementRouter from './accountsCalendarManagement.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
@@ -71,7 +72,7 @@ router.use('/', calendarManagementRouter);
 
 // Fields safe to return to the client — matches the GET list, excludes credentials and tokens
 const SAFE_FIELDS = [
-  'id', 'name', 'sender_name', 'email_address', 'color', 'protocol', 'default_alias_id',
+  'id', 'name', 'sender_name', 'email_address', 'color', 'protocol', 'default_alias_id', 'default_cc', 'default_bcc',
   'imap_host', 'imap_port', 'imap_skip_tls_verify',
   'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
@@ -107,7 +108,7 @@ type EmailAccountDbRow = EmailAccountRow & { protocol?: string | null } & DbRow;
 
 router.get('/', async (req, res) => {
   const result = await query<EmailAccountRow>(
-    `SELECT id, name, sender_name, email_address, default_alias_id, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
+    `SELECT id, name, sender_name, email_address, default_alias_id, default_cc, default_bcc, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
@@ -167,6 +168,9 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
   }
 
+  const defaults = normalizeDefaultRecipients(req.body);
+  if ('error' in defaults) return res.status(400).json({ error: defaults.error });
+
   const policy = await getConnectionPolicy();
   if (imap_tls !== undefined && typeof imap_tls !== 'boolean') return res.status(400).json({ error: 'IMAP TLS must be a boolean' });
 
@@ -187,15 +191,15 @@ router.post('/', async (req, res) => {
         user_id, name, sender_name, email_address, color, protocol,
         imap_host, imap_port, imap_tls, imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
         auth_user, auth_pass, smtp_auth_user, smtp_auth_pass, oauth_provider, oauth_access_token, oauth_refresh_token,
-        signature
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        signature, default_cc, default_bcc
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
       RETURNING *
     `, [
       req.session.userId, name, sender_name || null, email_address, color, protocol,
       imap_host, imap_port, imap_tls === undefined ? Number(imap_port) % 1000 === 993 : imap_tls, !!imap_skip_tls_verify, smtp_host, smtp_port, smtp_tls,
       auth_user, encrypt(auth_pass), smtp_auth_user || null, encrypt(smtp_auth_pass) || null,
       oauth_provider, encrypt(oauth_access_token), encrypt(oauth_refresh_token),
-      sanitizeSignature(signature) || null
+      sanitizeSignature(signature) || null, defaults.default_cc ?? [], defaults.default_bcc ?? []
     ]);
 
     const account = result.rows[0];
@@ -226,6 +230,9 @@ router.put('/:id', async (req, res) => {
   if ('sender_name' in updates && updates.sender_name && hasHeaderInjectionChars(updates.sender_name)) {
     return res.status(400).json({ error: 'Sender name cannot contain control characters' });
   }
+  const defaults = normalizeDefaultRecipients(updates);
+  if ('error' in defaults) return res.status(400).json({ error: defaults.error });
+
   const policy = await getConnectionPolicy();
   if ('imap_tls' in updates && typeof updates.imap_tls !== 'boolean') return res.status(400).json({ error: 'IMAP TLS must be a boolean' });
 
@@ -274,7 +281,7 @@ router.put('/:id', async (req, res) => {
     if (r.requiresReconnect) pluginRequiresReconnect = true;
   }
 
-  const allowed = ['name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id'];
+  const allowed = ['default_cc', 'default_bcc', 'name', 'sender_name', 'color', 'enabled', 'include_in_unified_inbox', 'auth_user', 'auth_pass', 'sort_order', 'imap_host', 'imap_port', 'imap_tls', 'imap_skip_tls_verify', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_auth_user', 'smtp_auth_pass', 'folder_mappings', 'signature', 'categorization_enabled', 'antispam_enabled', 'trusted_authserv_id'];
   const sets = [];
   const values = [];
   let i = 1;
@@ -291,6 +298,7 @@ router.put('/:id', async (req, res) => {
         : (key === 'smtp_auth_user' || key === 'smtp_auth_pass') ? (updates[key] || null)
         : (key === 'signature') ? sanitizeSignature(updates[key]) || null
         : (key === 'include_in_unified_inbox') ? !!updates[key]
+        : (key === 'default_cc' || key === 'default_bcc') ? defaults[key]
         : updates[key];
       values.push(value);
     }

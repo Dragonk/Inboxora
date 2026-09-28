@@ -26,6 +26,7 @@ import { toAppError } from '../utils/errors.ts';
 import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
+import { DefaultRecipients, type RecipientField } from '../utils/defaultRecipients.ts';
 import { initialComposeSender } from '../utils/composeSender.ts';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
@@ -224,18 +225,46 @@ export default function ComposeModal() {
     recipientRevisionRef.current[field] += 1;
     recordDraftEdit();
   };
-  const [toChips, setToChipsState] = useState(() => parseChips(composeData?.to));
+  const [recipientSeed] = useState(() => {
+    const sender = initialComposeSender({ accounts, draft: composeData,
+      selectedAccountId: useStore.getState().selectedAccountId,
+      lastUsedAccountId: localStorage.getItem('mailflow_last_from_account') });
+    const accountId = sender.startsWith('alias:') ? sender.split(':')[2] : sender.replace('account:', '');
+    const recipients = { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) };
+    const owner = new DefaultRecipients(accounts.find(account => account.id === accountId), recipients,
+      composeData?.draftUid != null || !!composeData?.draftRowId, !!composeData?.isReplyAll);
+    return { recipients, owner };
+  });
+  const [toChips, setToChipsState] = useState(() => recipientSeed.recipients.to);
   const [toInput, setToInputState] = useState('');
-  const [ccChips, setCcChipsState] = useState(() => parseChips(composeData?.cc));
+  const [ccChips, setCcChipsState] = useState(() => recipientSeed.recipients.cc);
   const [ccInput, setCcInputState] = useState('');
-  const [bccChips, setBccChipsState] = useState(() => parseChips(composeData?.bcc));
+  const [bccChips, setBccChipsState] = useState(() => recipientSeed.recipients.bcc);
   const [bccInput, setBccInputState] = useState('');
-  const setToChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('to'); setToChipsState(value); };
-  const setToInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('to'); setToInputState(value); };
-  const setCcChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('cc'); setCcChipsState(value); };
-  const setCcInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('cc'); setCcInputState(value); };
-  const setBccChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('bcc'); setBccChipsState(value); };
-  const setBccInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('bcc'); setBccInputState(value); };
+  const setRecipientChips = (field: RecipientField, value: string[]) => {
+    const current = { to: toChips, cc: ccChips, bcc: bccChips };
+    const next = recipientSeed.owner.editRecipients(field, value, current);
+    if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
+    if (next.cc !== current.cc) { recordRecipientEdit('cc'); setCcChipsState(next.cc); }
+    if (next.bcc !== current.bcc) { recordRecipientEdit('bcc'); setBccChipsState(next.bcc); }
+  };
+  const setRecipientInput = (field: RecipientField, value: string) => {
+    const current = { to: toChips, cc: ccChips, bcc: bccChips };
+    const next = recipientSeed.owner.editPending(field, value, current);
+    if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
+    if (next.cc !== current.cc) { recordRecipientEdit('cc'); setCcChipsState(next.cc); }
+    if (next.bcc !== current.bcc) { recordRecipientEdit('bcc'); setBccChipsState(next.bcc); }
+    recordRecipientEdit(field);
+    if (field === 'to') setToInputState(value);
+    else if (field === 'cc') setCcInputState(value);
+    else setBccInputState(value);
+  };
+  const setToChips = (value: string[]) => setRecipientChips('to', value);
+  const setToInput = (value: string) => setRecipientInput('to', value);
+  const setCcChips = (value: string[]) => setRecipientChips('cc', value);
+  const setCcInput = (value: string) => setRecipientInput('cc', value);
+  const setBccChips = (value: string[]) => setRecipientChips('bcc', value);
+  const setBccInput = (value: string) => setRecipientInput('bcc', value);
   const [subject, setSubjectState] = useState(() => composeData?.subject || '');
   const setSubject = (value: React.SetStateAction<string>) => { recordDraftEdit(); setSubjectState(value); };
   const [body, setBodyState] = useState(() => composeData?.body || '');
@@ -279,9 +308,9 @@ export default function ComposeModal() {
   // so isDirty() reflects changes since the last save, not since the modal opened.
   const initialBodyRef = useRef(composeData?.body || '');
   const initialSubjectRef = useRef(composeData?.subject || '');
-  const initialToRef = useRef(normalizeTo(composeData?.to || []));
-  const initialCcRef = useRef(normalizeTo(composeData?.cc || []));
-  const initialBccRef = useRef(normalizeTo(composeData?.bcc || []));
+  const initialToRef = useRef(recipientSeed.recipients.to.join(', '));
+  const initialCcRef = useRef(recipientSeed.recipients.cc.join(', '));
+  const initialBccRef = useRef(recipientSeed.recipients.bcc.join(', '));
   const initialFromRef = useRef<string | null>(null);
   const initialQuotedBodyRef = useRef(composeData?.quotedBody || '');
   const initialQuotedBodyHtmlRef = useRef<string | null>(composeData?.quotedBodyHtml || null);
@@ -291,16 +320,13 @@ export default function ComposeModal() {
   // True when the compose was opened by clicking an existing draft from the list.
   // Used by handleClose to decide whether to prompt about an unmodified draft.
   const draftWasPreExisting = useRef(composeData?.draftUid != null);
-  const [showCc, setShowCc] = useState(() => !!(composeData?.cc?.length));
-  const [showBcc, setShowBcc] = useState(() => !!(composeData?.bcc?.length));
+  const [showCc, setShowCc] = useState(() => recipientSeed.recipients.cc.length > 0);
+  const [showBcc, setShowBcc] = useState(() => recipientSeed.recipients.bcc.length > 0);
 
   // Re-apply the compose data captured at mount. Later store changes belong to other
   // compose sessions and must not overwrite edits in this one.
   useEffect(() => {
     const initialComposeData = initialComposeDataRef.current;
-    if (initialComposeData?.to?.length) setToChipsState(parseChips(initialComposeData.to));
-    if (initialComposeData?.cc?.length) { setCcChipsState(parseChips(initialComposeData.cc)); setShowCc(true); }
-    if (initialComposeData?.bcc?.length) { setBccChipsState(parseChips(initialComposeData.bcc)); setShowBcc(true); }
     if (initialComposeData?.subject) setSubjectState(initialComposeData.subject);
     if (initialComposeData?.body !== undefined) setBodyState(initialComposeData.body);
     if (initialComposeData?.quotedBody !== undefined) setQuotedBodyState(initialComposeData.quotedBody);
@@ -313,7 +339,16 @@ export default function ComposeModal() {
     lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
   });
   const [fromValue, setFromValueState] = useState(initialFromValue);
-  const setFromValue = (value: React.SetStateAction<string>) => { recordDraftEdit(); setFromValueState(value); };
+  const setFromValue = (value: string) => {
+    const accountId = resolveFrom(value).accountId;
+    const next = recipientSeed.owner.switchAccount(accounts.find(account => account.id === accountId),
+      { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
+    setToChipsState(next.to); setCcChipsState(next.cc); setBccChipsState(next.bcc);
+    for (const field of ['to', 'cc', 'bcc'] as const) recipientRevisionRef.current[field] += 1;
+    if (next.cc.length) setShowCc(true);
+    if (next.bcc.length) setShowBcc(true);
+    recordDraftEdit(); setFromValueState(value);
+  };
   if (initialFromRef.current === null) initialFromRef.current = fromValue;
 
   const resolveFrom = (val: string | null | undefined) => {
@@ -1321,23 +1356,20 @@ export default function ComposeModal() {
     </svg>
   );
 
+  const switchReplyMode = (all: boolean) => {
+    const next = recipientSeed.owner.switchReply(all, parseChips(composeData?.allRecipients || []),
+      { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
+    recordRecipientEdit('cc'); setCcChipsState(next.cc);
+    recordRecipientEdit('bcc'); setBccChipsState(next.bcc);
+    if (next.bcc.length) setShowBcc(true);
+    if (next.cc.length || ccInput) setShowCc(true);
+    setReplyAll(all); setShowReplyType(false);
+  };
+
   // ── Mobile full-screen compose ──────────────────────────────────────────────
   if (isMobile) {
-    const switchToReply = () => {
-      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-      setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
-      setBccChips([]); setBccInput(''); setShowBcc(false);
-      setReplyAll(false);
-      setShowReplyType(false);
-    };
-    const switchToReplyAll = () => {
-      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-      setToInput('');
-      const allRecipients = parseChips(composeData?.allRecipients || []);
-      if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
-      setReplyAll(true);
-      setShowReplyType(false);
-    };
+    const switchToReply = () => switchReplyMode(false);
+    const switchToReplyAll = () => switchReplyMode(true);
 
     const fieldStyle = {
       display: 'flex', alignItems: 'center',
@@ -1505,7 +1537,7 @@ export default function ComposeModal() {
           <div style={fieldStyle}>
             <span style={labelStyle}>{t('compose.to')}</span>
             <ChipInput
-              chips={toChips} onChipsChange={setToChips}
+              inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
               value={toInput} onChange={setToInput}
               placeholder={t('compose.toPh')}
               autoFocus={!isReply && !isForward}
@@ -1540,7 +1572,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.cc')}</span>
               <ChipInput
-                chips={ccChips} onChipsChange={setCcChips}
+                inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
                 placeholder={t('compose.ccPh')}
                 inputStyle={mobileInputStyle}
@@ -1555,7 +1587,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.bcc')}</span>
               <ChipInput
-                chips={bccChips} onChipsChange={setBccChips}
+                inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
                 value={bccInput} onChange={setBccInput}
                 placeholder={t('compose.bccPh')}
                 inputStyle={mobileInputStyle}
@@ -2060,11 +2092,7 @@ export default function ComposeModal() {
                   label={t('compose.reply')}
                   active={!replyAll}
                   onClick={() => {
-                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-                    setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
-                    setBccChips([]); setBccInput(''); setShowBcc(false);
-                    setReplyAll(false);
-                    setShowReplyType(false);
+                    switchReplyMode(false);
                   }}
                 />
                 <DropItem
@@ -2072,12 +2100,7 @@ export default function ComposeModal() {
                   label={t('compose.replyAll')}
                   active={replyAll}
                   onClick={() => {
-                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-                    setToInput('');
-                    const allRecipients = parseChips(composeData?.allRecipients || []);
-                    if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
-                    setReplyAll(true);
-                    setShowReplyType(false);
+                    switchReplyMode(true);
                   }}
                 />
               </div>
@@ -2158,7 +2181,7 @@ export default function ComposeModal() {
         <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
           <ChipInput
-            chips={toChips} onChipsChange={setToChips}
+            inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
             placeholder={t('compose.toPh')}
             autoFocus={!isReply && !isForward}
@@ -2186,7 +2209,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
             <ChipInput
-              chips={ccChips} onChipsChange={setCcChips}
+              inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
               placeholder={t('compose.ccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
@@ -2200,7 +2223,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
             <ChipInput
-              chips={bccChips} onChipsChange={setBccChips}
+              inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
               placeholder={t('compose.bccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
@@ -3329,7 +3352,7 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
+function ChipInput({ inputTestId, chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { inputTestId?: string; chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
@@ -3485,6 +3508,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
       ))}
       <input
         ref={inputRef}
+        data-testid={inputTestId}
         type="text"
         value={value}
         onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value)}

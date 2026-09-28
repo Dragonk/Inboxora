@@ -25,6 +25,9 @@
       "sourceCode": "Código fuente"
     },
     "accounts": {
+      "defaultCc": "Destinatarios CC predeterminados",
+      "defaultBcc": "Destinatarios CCO predeterminados",
+      "defaultRecipientsHelp": "Introduce solo direcciones de correo separadas por comas o punto y coma (hasta 50 por campo). Se aplica a esta cuenta y a todos sus alias. Los destinatarios son visibles y se pueden eliminar en cada mensaje nuevo.",
       "loadFoldersError": "No se pudieron cargar las carpetas",
       "saveFolderMappingsError": "No se pudieron guardar las asignaciones de carpetas",
       "title": "Cuentas de correo",
