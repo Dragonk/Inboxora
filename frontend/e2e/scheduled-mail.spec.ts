@@ -709,7 +709,9 @@ test('mail merge confirms separate private delivery and retries one frozen batch
   await expect(confirmation).toContainText('3');
   await expect(confirmation).toContainText('Each message will show only its recipient');
   await page.keyboard.press('Control+Enter');
+  await expect(confirmation).toBeVisible();
   expect(requests).toHaveLength(0);
+  expect(ordinarySends).toBe(0);
   await page.getByTestId('mail-merge-confirm').click();
   expect(nativeDialogs).toBe(0);
   await expect.poll(() => requests.length).toBe(1);
