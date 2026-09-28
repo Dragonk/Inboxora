@@ -18,7 +18,7 @@ The same account preference and composer apply to IMAP/SMTP, Gmail API and Micro
 
 ## Default CC and BCC recipients (#6)
 
-Account general settings now include **Default CC recipients** and **Default BCC recipients**. Enter bare email addresses separated by commas or semicolons. The lists are saved on the server, separately for every account, and are shared by that account's primary address and all its aliases. This makes the same preferences available in web, desktop and Android clients. Empty lists disable the feature; no provider permission or environment setting is added.
+Account general settings now include **Default CC recipients** and **Default BCC recipients**, directly below the signature editor in the same General tab. This placement applies to IMAP/SMTP, Gmail API and Microsoft Graph accounts; saved values and recipient behavior are unchanged. Enter bare email addresses separated by commas or semicolons. The lists are saved on the server, separately for every account, and are shared by that account's primary address and all its aliases. This makes the same preferences available in web, desktop and Android clients. Empty lists disable the feature; no provider permission or environment setting is added.
 
 New messages, replies, Reply All and forwards include these recipients as visible, removable chips. Existing message recipients take precedence over automatic additions. Matching ignores address case and display labels; an address configured in both default lists is added only as BCC to avoid exposing a blind recipient. The backend validates each submitted list before saving: at most 50 bare addresses per field, at most 254 characters per address, and no header/control characters, display names or groups.
 

@@ -304,15 +304,6 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
   return (
     <div>
       {section !== 'servers' && <>
-      <Field label={t('admin.accounts.defaultCc')}>
-        <input style={inputStyle} aria-label={t('admin.accounts.defaultCc')} data-testid="account-default-cc"
-          value={defaultCc} onChange={event => setDefaultCc(event.target.value)} />
-      </Field>
-      <Field label={t('admin.accounts.defaultBcc')}>
-        <input style={inputStyle} aria-label={t('admin.accounts.defaultBcc')} data-testid="account-default-bcc"
-          value={defaultBcc} onChange={event => setDefaultBcc(event.target.value)} />
-      </Field>
-      <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.accounts.defaultRecipientsHelp')}</p>
       {/* Presets (add only) */}
       {!isEdit && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -540,6 +531,18 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
         value={String(form.signature || '')}
         onChange={val => set('signature', val)}
       />
+
+      <div style={{ marginTop: 16 }}>
+        <Field label={t('admin.accounts.defaultCc')}>
+          <input style={inputStyle} aria-label={t('admin.accounts.defaultCc')} data-testid="account-default-cc"
+            value={defaultCc} onChange={event => setDefaultCc(event.target.value)} />
+        </Field>
+        <Field label={t('admin.accounts.defaultBcc')}>
+          <input style={inputStyle} aria-label={t('admin.accounts.defaultBcc')} data-testid="account-default-bcc"
+            value={defaultBcc} onChange={event => setDefaultBcc(event.target.value)} />
+        </Field>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('admin.accounts.defaultRecipientsHelp')}</p>
+      </div>
 
       {isEdit && (
         <>

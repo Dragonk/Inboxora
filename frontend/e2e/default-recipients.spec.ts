@@ -75,6 +75,31 @@ test('account defaults persist, clear independently and reject an unconfirmed fa
   await expect(page.getByTestId('account-default-bcc')).toHaveValue('');
 });
 
+for (const transport of ['imap_smtp', 'gmail_api', 'microsoft_graph']) {
+  test(`${transport}: default CC and BCC settings follow the signature editor`, async ({ page, fixtureApi }) => {
+    await fixtureApi;
+    const account = { ...accountA(), mail_transport: transport, signature: '<p>Original signature</p>' };
+    await boot(page, [account]);
+    await settings(page);
+    const editor = page.locator('.au-mail-editor');
+    await expect(editor.locator('[contenteditable="true"]')).toHaveText('Original signature');
+    const order = await editor.evaluate(root => {
+      const signature = root.querySelector('[contenteditable="true"]')?.parentElement;
+      const cc = root.querySelector('[data-testid="account-default-cc"]');
+      const bcc = root.querySelector('[data-testid="account-default-bcc"]');
+      if (!signature || !cc || !bcc) throw new Error('Signature or default-recipient field is missing');
+      return {
+        signatureBeforeCc: Boolean(signature.compareDocumentPosition(cc) & Node.DOCUMENT_POSITION_FOLLOWING),
+        ccBelowSignature: cc.getBoundingClientRect().top >= signature.getBoundingClientRect().bottom,
+        bccBelowCc: bcc.getBoundingClientRect().top >= cc.getBoundingClientRect().bottom,
+      };
+    });
+    expect(order).toEqual({ signatureBeforeCc: true, ccBelowSignature: true, bccBelowCc: true });
+    await expect(page.getByTestId('account-default-cc')).toHaveValue(account.default_cc.join(', '));
+    await expect(page.getByTestId('account-default-bcc')).toHaveValue(account.default_bcc.join(', '));
+  });
+}
+
 test('visible defaults follow the account, retain manual recipients and do not reset on alias changes', async ({ page, fixtureApi }) => {
   await fixtureApi; await boot(page, [accountA(), accountB()]); await compose(page);
   const from = page.getByTestId('compose-from');
