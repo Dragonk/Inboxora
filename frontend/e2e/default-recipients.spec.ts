@@ -12,8 +12,11 @@ const accountB = () => ({ ...accountA(), id: 'account-outlook', name: 'Other mai
   default_alias_id: null, aliases: [], default_cc: ['next@example.test'], default_bcc: ['hidden@example.test'] });
 const mobile = (page: Page) => (page.viewportSize()?.width ?? 1280) < 768;
 const field = (page: Page, role: 'to' | 'cc' | 'bcc') => page.getByTestId(`compose-${role}`).locator('..');
-async function boot(page: Page, accounts: object[]) {
-  await page.route('**/api/accounts', route => route.fulfill({ json: accounts }));
+async function boot(page: Page, accounts: object[], options: { accountsGate?: Promise<void>; url?: string; waitForList?: boolean } = {}) {
+  await page.route('**/api/accounts', async route => {
+    await options.accountsGate;
+    return route.fulfill({ json: accounts });
+  });
   await page.route('**/api/auth/preferences**', route => route.fulfill({ json: {
     language: 'en', threadedView: false, conversation_list_view_enabled: false,
     conversation_reader_view_enabled: false, block_remote_images: true,
@@ -23,8 +26,8 @@ async function boot(page: Page, accounts: object[]) {
   // Tests must never dispatch actual mail, even if a case unexpectedly clicks Send.
   await page.route('**/api/mail/send', route => route.fulfill({ status: 503, json: { error: 'Test send not configured' } }));
   await page.route('**/api/mail/draft', route => route.fulfill({ json: { uid: 44, folder: 'Drafts', uidValidity: 1 } }));
-  await page.goto('/');
-  await expect(page.getByTestId('message-list-scroll')).toBeVisible();
+  await page.goto(options.url ?? '/');
+  if (options.waitForList !== false) await expect(page.getByTestId('message-list-scroll')).toBeVisible();
 }
 async function settings(page: Page) {
   if (mobile(page)) await page.getByTestId('mobile-topbar-menu').click();
@@ -173,3 +176,34 @@ test('long default lists leave the editor and send control reachable', async ({ 
   await expect(page.locator('.tiptap-compose [contenteditable="true"]')).toHaveText('Body remains editable');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
 });
+
+for (const entry of ['compose action', 'mailto'] as const) {
+  test(`${entry} opened before account loading waits for the configured sender and recipients`, async ({ page, fixtureApi }) => {
+    await fixtureApi;
+    let releaseAccounts: () => void = () => { throw new Error('Account gate was not initialized'); };
+    const accountsGate = new Promise<void>(resolve => { releaseAccounts = resolve; });
+    const url = entry === 'mailto'
+      ? '/?mailto=' + encodeURIComponent('mailto:receiver@example.test?subject=Startup&cc=manual@example.test&bcc=blind@example.test')
+      : '/';
+    try {
+      await boot(page, [accountA()], { accountsGate, url, waitForList: false });
+      if (entry === 'compose action') await page.getByRole('button', { name: 'Compose', exact: true }).first().click();
+      // Observe the explicit waiting branch rather than racing a negative DOM assertion.
+      await expect(page.getByTestId('compose-accounts-loading')).toHaveCount(1);
+      await expect(page.getByTestId('compose-from')).toHaveCount(0);
+    } finally {
+      releaseAccounts();
+    }
+    await expect(page.getByTestId('compose-accounts-loading')).toHaveCount(0);
+    await expect(page.getByTestId('compose-from')).toHaveValue('alias:work:account-gmail');
+    await expect(field(page, 'cc')).toContainText('cc@example.test');
+    await expect(field(page, 'bcc')).toContainText('shared@example.test');
+    await expect(field(page, 'bcc')).toContainText('private@example.test');
+    if (entry === 'mailto') {
+      await expect(field(page, 'to')).toContainText('receiver@example.test');
+      await expect(field(page, 'cc')).toContainText('manual@example.test');
+      await expect(field(page, 'bcc')).toContainText('blind@example.test');
+      await expect(page.getByPlaceholder(/^(Add a subject|Subject)$/)).toHaveValue('Startup');
+    }
+  });
+}
