@@ -104,6 +104,7 @@ test('the send payload contains exactly the visible manual and default recipient
   await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('Recipient defaults test');
   await page.getByTestId('compose-to').fill('cc@example.test');
   await expect(field(page, 'cc')).not.toContainText('cc@example.test');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(() => payload).toMatchObject({ accountId: 'account-gmail', aliasId: 'work',
     to: ['cc@example.test'], cc: [], bcc: ['private@example.test'] });
@@ -157,4 +158,18 @@ test('reply mode changes keep account defaults and respect removal', async ({ pa
   await page.getByText('Reply All', { exact: true }).last().click();
   await expect(field(page, 'bcc')).toContainText('shared@example.test');
   await expect(field(page, 'bcc')).not.toContainText('private@example.test');
+});
+
+test('long default lists leave the editor and send control reachable', async ({ page, fixtureApi }) => {
+  await fixtureApi;
+  const account = accountA();
+  account.default_cc = Array.from({ length: 50 }, (_, i) => `cc${i}@example.test`);
+  account.default_bcc = Array.from({ length: 50 }, (_, i) => `bcc${i}@example.test`);
+  await boot(page, [account]); await compose(page);
+  await expect(field(page, 'cc').locator(':scope > span')).toHaveCount(50);
+  await expect(field(page, 'bcc').locator(':scope > span')).toHaveCount(50);
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
+  await page.locator('.tiptap-compose [contenteditable="true"]').fill('Body remains editable');
+  await expect(page.locator('.tiptap-compose [contenteditable="true"]')).toHaveText('Body remains editable');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport();
 });

@@ -24,6 +24,8 @@ New messages, replies, Reply All and forwards include these recipients as visibl
 
 Changing From to another account removes only untouched automatically added recipients from the previous account, preserves manual recipients, and adds the new account's defaults without duplication. Changing aliases within the same account or refreshing account data does not reset recipient edits or restore removed defaults. Reopening an existing saved draft preserves its saved recipients rather than adding the current defaults again. A subsequent deliberate switch to another account applies that new account's defaults; saved recipients are treated as explicit recipients.
 
+Long recipient lists have a bounded scroll area on desktop/landscape layouts, keeping the editor and sending controls reachable even with both default lists filled.
+
 Defaults are a composer preference, not a sending rule. SMTP, Gmail API and Microsoft Graph receive the visible recipient fields through the existing sending pipeline. No server-side send, retry or draft operation silently inserts CC/BCC, and API callers without the updated composer retain their existing behavior. This feature does not implement conditional mail rules or independent recipient defaults for individual aliases.
 
 ## Administrator upgrade requirements
