@@ -462,6 +462,8 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await openList(page, fixtureApi, testInfo, [
         'conversation-gmail-copy-1', 'conversation-gmail-copy-3', 'conversation-gmail-copy-5',
       ]);
+      // Keep the final 249 ms of Undo deterministic while the deferred request is inspected.
+      await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 1000)));
       const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       const account = page.getByText('Gmail fixture', { exact: true }).locator('../../..');
       page.__threadLoadStarts = [];
@@ -486,7 +488,9 @@ for (const viewport of [DESKTOP, 'mobile']) {
       test.setTimeout(60_000);
       await page.clock.install();
       for (const operation of ['archive', 'move', 'delete']) {
+        await page.clock.resume();
         await openList(page, fixtureApi, testInfo, ['conversation-gmail-copy-1']);
+        await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 1000)));
         page.__threadLoadStarts = [];
         page.__conversationActions = [];
         const releases = holdThreadResolutions(page, 2);
