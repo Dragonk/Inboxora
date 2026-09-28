@@ -181,6 +181,34 @@ describe('executeSend preparation boundary', () => {
     expect(rendered?.envelope.to).toContain('private@example.test');
   });
 
+  it('renders three private recipient copies with no other address in MIME headers or transport envelopes', async () => {
+    const recipients = ['alpha@example.test', 'beta@example.test', 'gamma@example.test'];
+    const result = await executeSend(userId, { ...body, to: [recipients[0]], cc: [recipients[1]], bcc: [recipients[2]],
+      attachments: [{ filename: 'frozen.txt', content: Buffer.from('frozen bytes').toString('base64'), contentType: 'text/plain' }],
+    }, null, { prepareOnly: true });
+    if (!result.prepared) throw new Error('Expected a frozen merge snapshot');
+    signature = '<p>Changed after preparation</p>';
+    for (const recipient of recipients) {
+      const dispatched = await executeSend(userId, { ...result.prepared.payload, to: [recipient], cc: [], bcc: [] }, null,
+        { expectedSenderEmail: result.prepared.senderEmail });
+      expect(dispatched.status).toBe(422); expect(dispatched.body.code).toBe('TEST_REFUSAL');
+    }
+    expect(mocks.send).toHaveBeenCalledTimes(3);
+    for (const [index, [request]] of mocks.send.mock.calls.entries()) {
+      const { composed, rendered } = request; const recipient = recipients[index];
+      if (!rendered) throw new Error('Expected the real MIME renderer with a controlled transport');
+      expect(composed.to.map(address => address.email)).toEqual([recipient]);
+      expect(composed.cc).toEqual([]); expect(composed.bcc).toEqual([]);
+      expect(rendered.envelope.to).toEqual([recipient]);
+      expect(rendered.envelope.from).toBe(account.email_address);
+      const headers = rendered.raw.toString().split(/\r?\n\r?\n/, 1)[0];
+      expect(headers).toContain(recipient); expect(headers).not.toMatch(/^(?:Cc|Bcc|Resent-To|Resent-Cc|Resent-Bcc):/im);
+      for (const other of recipients.filter(value => value !== recipient)) expect(headers).not.toContain(other);
+      expect(composed.plainBody).toContain('Original signature'); expect(composed.plainBody).not.toContain('Changed after preparation');
+      expect(composed.attachments?.map(attachment => attachment.content)).toEqual([Buffer.from('frozen bytes')]);
+    }
+  });
+
   it.each([undefined, '', 'Edited signature'])('freezes the signature override %s across account changes', async (override) => {
     const result = await executeSend(userId, { ...body, ...(override === undefined ? {} : { editedSignature: override, editedSignatureIsHtml: false }) }, null, { prepareOnly: true });
     if (!result.prepared) throw new Error('Expected a prepared snapshot');

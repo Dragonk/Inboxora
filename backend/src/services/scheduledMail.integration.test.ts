@@ -4,6 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pool, query } from './db.js';
 import * as queue from './scheduledMail.js';
+import { previewScheduledMail } from './scheduledMailPreview.js';
 import type { SendRequestBody } from './sendMail.js';
 
 const required = process.env.REQUIRE_SCHEDULED_MAIL_POSTGRES === '1';
@@ -37,7 +38,7 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
     if (!ready.rows[0]?.queue) throw new Error('Apply migration 0152 before scheduled-mail integration tests');
     await admin.query(`CREATE SCHEMA "${schema}"`); created = true;
     // Clone deployed columns/checks/indexes, preserving foreign-key definitions explicitly.
-    for (const table of ['users', 'email_accounts', 'send_idempotency', 'scheduled_mail']) {
+    for (const table of ['users', 'email_accounts', 'send_idempotency', 'scheduled_mail', 'folders', 'messages']) {
       await admin.query(`CREATE TABLE "${schema}".${table} (LIKE public.${table} INCLUDING ALL)`);
       const constraints = await admin.query<{ definition: string }>(`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
         WHERE conrelid=$1::regclass AND contype='f'`, [`public.${table}`]);
@@ -59,7 +60,7 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
     pool.options.options = `-c statement_timeout=30000 -c search_path=${schema}`;
   });
   beforeEach(async () => {
-    await query('TRUNCATE mail_merge_batches, scheduled_mail, send_idempotency, email_accounts, users CASCADE');
+    await query('TRUNCATE messages, folders, mail_merge_batches, scheduled_mail, send_idempotency, email_accounts, users CASCADE');
     user = randomUUID(); outsider = randomUUID(); account = randomUUID(); otherAccount = randomUUID();
     await query('INSERT INTO users(id,username) VALUES ($1,$2),($3,$4)', [user, user, outsider, outsider]);
     await query("INSERT INTO email_accounts(id,user_id,name,email_address) VALUES ($1,$3,'Test','sender@example.test'),($2,$4,'Other','other@example.test')", [account, otherAccount, user, outsider]);
@@ -583,6 +584,137 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
     await queue.releaseScheduledClaim(claim);
     expect(await stored(row.id)).toEqual(before);
     expect(await queue.claimScheduledMail()).toBeNull();
+  });
+
+  it('acknowledges only owner-visible sent results without changing delivery state, revision or receipts', async () => {
+    const row = await enqueue();
+    const claimedRow = await claimed(row.id);
+    await queue.completeScheduledMail(claimedRow, ok);
+    const before = await stored(row.id);
+    expect(before.payload).toEqual({});
+    expect(before.sent_metadata).toEqual({ senderEmail: 'sender@example.test', to: message.to, cc: message.cc, recipientCount: 4 });
+    expect(JSON.stringify(before.sent_metadata)).not.toContain('private@example.test');
+    expect(await queue.listScheduledMail(user)).toHaveLength(1);
+    expect((await stored(row.id)).sent_seen_at).toBeNull();
+    await expect(queue.acknowledgeSentMail(outsider, row.id)).rejects.toMatchObject({ status: 404 });
+    await expect(queue.acknowledgeSentMail(user, randomUUID())).rejects.toMatchObject({ status: 404 });
+    await queue.acknowledgeSentMail(user, row.id);
+    const seen = await stored(row.id);
+    expect(seen.sent_seen_at).toBeInstanceOf(Date);
+    for (const key of ['state', 'revision', 'payload', 'result', 'updated_at', 'request_fingerprint', 'idempotency_key']) {
+      expect(seen[key]).toEqual(before[key]);
+    }
+    expect(await queue.listScheduledMail(user)).toEqual([]);
+    await queue.acknowledgeSentMail(user, row.id);
+    expect((await stored(row.id)).sent_seen_at).toEqual(seen.sent_seen_at);
+    // An acknowledgement must not make the immutable enqueue receipt reusable.
+    const replay = await queue.enqueueScheduledMail(user,
+      { mode: 'schedule', timeZone: row.timeZone, scheduledAt: row.scheduledAt.toISOString(), message },
+      String(before.idempotency_key), prepare);
+    expect(replay.id).toBe(row.id); expect(prepare).toHaveBeenCalledTimes(1);
+    expect((await query('SELECT id FROM scheduled_mail WHERE user_id=$1', [user])).rows).toHaveLength(1);
+  });
+
+  it('rejects viewed-status receipts for every non-sent state and leaves those entries unchanged', async () => {
+    for (const state of ['pending', 'editing', 'preparing', 'sending', 'failed', 'partial', 'uncertain', 'cancelled', 'dismissed']) {
+      const row = await enqueue();
+      await query(`UPDATE scheduled_mail SET state=$2,
+        lease_token=CASE WHEN $2 IN ('preparing','sending') THEN gen_random_uuid() ELSE NULL END,
+        lease_until=CASE WHEN $2 IN ('preparing','sending') THEN clock_timestamp()+interval '1 minute' ELSE NULL END WHERE id=$1`, [row.id, state]);
+      const before = await stored(row.id);
+      await expect(queue.acknowledgeSentMail(user, row.id)).rejects.toMatchObject({ status: 404 });
+      expect(await stored(row.id)).toEqual(before);
+      expect((await queue.listScheduledMail(user)).some(item => item.id === row.id)).toBe(true);
+    }
+  });
+
+  it('pages every old unseen sent result with exact microsecond cursors rather than a seven-day or 200-row cutoff', async () => {
+    await query(`INSERT INTO scheduled_mail(id,user_id,account_id,idempotency_key,request_fingerprint,subject,mode,state,scheduled_at,time_zone,payload,updated_at)
+      SELECT gen_random_uuid(),$1,$2,'old-'||n,repeat('a',64),'Old result '||n,'schedule','sent',
+        '2020-01-01T00:00:00Z'::timestamptz + n * interval '1 microsecond','UTC','{}'::jsonb,
+        clock_timestamp()-interval '30 days' FROM generate_series(1,425) n`, [user, account]);
+    const expected = (await query<{ id: string }>('SELECT id FROM scheduled_mail WHERE user_id=$1 ORDER BY scheduled_at DESC,id DESC', [user])).rows.map(row => row.id);
+    const ids: string[] = []; const cursors = new Set<string>(); let cursor: string | undefined;
+    do {
+      const page = await queue.pageScheduledMail(user, cursor);
+      expect(page.items.length).toBeLessThanOrEqual(200);
+      ids.push(...page.items.map(row => row.id));
+      cursor = page.nextCursor ?? undefined;
+      if (cursor) { expect(cursors.has(cursor)).toBe(false); cursors.add(cursor); }
+    } while (cursor);
+    expect(ids).toEqual(expected); expect(new Set(ids).size).toBe(425); expect(cursors.size).toBe(2);
+    expect((await query('SELECT id FROM scheduled_mail WHERE sent_seen_at IS NOT NULL')).rows).toEqual([]);
+    await queue.acknowledgeSentMail(user, ids[0]);
+    const nextVisit = await queue.pageScheduledMail(user);
+    expect(nextVisit.items.some(row => row.id === ids[0])).toBe(false);
+    expect(nextVisit.items[0].id).toBe(ids[1]);
+    expect((await queue.pageScheduledMail(outsider)).items).toEqual([]);
+    for (const invalid of ['!', '', 'e30', Buffer.from(JSON.stringify({ active: 1, at: '2020-02-31T00:00:00.000000Z', id: randomUUID() })).toString('base64url')]) {
+      await expect(queue.pageScheduledMail(user, invalid)).rejects.toMatchObject({ status: 400 });
+    }
+  });
+
+  it('previews frozen content and real reply ancestry without pausing, claiming or marking the queue result seen', async () => {
+    const root = randomUUID(); const parent = randomUUID(); const unrelated = randomUUID();
+    await query(`INSERT INTO messages(id,account_id,uid,folder,message_id,subject,from_email,date,in_reply_to,thread_references,body_text)
+      VALUES ($1,$4,1,'INBOX','<root@example.test>','Same subject','sender@example.test','2025-01-01',NULL,NULL,'Root body'),
+        ($2,$4,2,'INBOX','<parent@example.test>','Same subject','sender@example.test','2025-01-02','<root@example.test>','<root@example.test>','Parent body'),
+        ($3,$4,3,'INBOX','<unrelated@example.test>','Same subject','sender@example.test','2025-01-03',NULL,NULL,'Not the thread')`,
+    [root, parent, unrelated, account]);
+    await query(`INSERT INTO messages(account_id,uid,folder,message_id,subject,date) VALUES ($1,1,'INBOX','<parent@example.test>','Foreign copy','2025-01-01')`, [otherAccount]);
+    message = { ...message, sendKind: 'reply', replyToMessageId: parent, replyParentMessageId: '<parent@example.test>',
+      replyParentAccountId: account, inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
+      quotedBody: 'Frozen quotation', quotedBodyHtml: '<blockquote>Frozen quotation</blockquote>' };
+    const row = await enqueue(); const before = await stored(row.id);
+    const preview = await previewScheduledMail(user, row.id);
+    expect(preview.context.map(source => source.id)).toEqual([root, parent]);
+    expect(preview.contextMissing).toBe(false);
+    expect(preview.message).toMatchObject({ body: message.body, inReplyTo: message.inReplyTo, references: message.references,
+      quotedBody: message.quotedBody, editedSignature: message.editedSignature,
+      attachments: [{ filename: 'bytes.bin', size: 3, contentType: 'application/octet-stream' }] });
+    expect(JSON.stringify(preview)).not.toContain('AAH/');
+    expect(await stored(row.id)).toEqual(before); expect(prepare).toHaveBeenCalledTimes(1);
+    await expect(previewScheduledMail(outsider, row.id)).rejects.toMatchObject({ status: 404 });
+    await due(row.id);
+    // A preview leaves the message claimable at its due time.
+    expect((await queue.claimScheduledMail())?.id).toBe(row.id);
+  });
+
+  it('keeps a reply preview usable when its source is gone and preserves reply identity through editing', async () => {
+    message = { ...message, sendKind: 'reply', aliasId: randomUUID(), replyToMessageId: randomUUID(),
+      replyParentAccountId: account, replyParentMessageId: '<missing@example.test>',
+      inReplyTo: '<missing@example.test>', references: '<root@example.test> <missing@example.test>',
+      quotedBody: 'Saved quotation', quotedBodyHtml: '<blockquote>Saved quotation</blockquote>' };
+    const row = await enqueue();
+    const preview = await previewScheduledMail(user, row.id);
+    expect(preview.context).toEqual([]); expect(preview.contextMissing).toBe(true);
+    expect(preview.message?.body).toBe(message.body);
+    const edit = await queue.editScheduledMail(user, row.id, row.revision);
+    expect(edit.payload.payload).toEqual(message);
+    const saved = await queue.updateScheduledMail(user, row.id, { revision: edit.revision, message: edit.payload.payload,
+      scheduledAt: instant(), timeZone: 'America/New_York' }, prepare);
+    const reopened = await queue.editScheduledMail(user, row.id, saved.revision);
+    expect(reopened.payload.payload).toEqual(message);
+  });
+
+  it('resolves a sent receipt only to a unique owned Sent copy without retaining another body or attachment payload', async () => {
+    const copy = randomUUID(); const row = await enqueue();
+    await query(`INSERT INTO folders(account_id,path,name,special_use) VALUES ($1,'Sent','Sent','\\Sent')`, [account]);
+    await query(`INSERT INTO messages(id,account_id,uid,folder,message_id,subject,date,body_text,provider_message_id)
+      VALUES ($1,$2,1,'Sent','<sent@example.test>','Sent copy','2025-01-01','Actual sent body','provider-sent')`, [copy, account]);
+    const claimedRow = await claimed(row.id);
+    await queue.completeScheduledMail(claimedRow, { status: 200, body: { ok: true, sentFolder: 'Sent',
+      sentReference: { rfcMessageId: '<sent@example.test>', providerMessageId: 'provider-sent' } } });
+    const preview = await previewScheduledMail(user, row.id);
+    expect(preview.message).toBeNull(); expect(preview.sentCopy?.id).toBe(copy);
+    expect((await stored(row.id)).payload).toEqual({});
+    expect(JSON.stringify((await stored(row.id)).sent_metadata)).not.toContain('original body');
+    await query(`INSERT INTO messages(account_id,uid,folder,message_id,subject,date) VALUES ($1,2,'Sent','<sent@example.test>','Ambiguous copy','2025-01-01')`, [account]);
+    const ambiguous = await previewScheduledMail(user, row.id);
+    expect(ambiguous.sentCopy).toBeNull(); expect(ambiguous.state).toBe('sent');
+    await query('DELETE FROM messages WHERE account_id=$1', [account]);
+    await query(`INSERT INTO messages(account_id,uid,folder,message_id,provider_message_id,date) VALUES ($1,3,'Sent','<sent@example.test>','provider-sent','2025-01-01')`, [otherAccount]);
+    expect((await previewScheduledMail(user, row.id)).sentCopy).toBeNull();
   });
 
 });

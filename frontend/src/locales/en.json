@@ -2567,7 +2567,7 @@
   "queue": {
     "title": "Scheduled / outbox",
     "scheduleSend": "Schedule send",
-    "startMailMerge": "Start mail merge",
+    "startMailMerge": "Send mail merge",
     "sendOptions": "Send options",
     "mergeConfirm": "Send a separate message to each of {{count}} unique recipients? Each message will show only its recipient. Your Undo Send delay applies after preparation.",
     "mergeQueued": "{{count}} individual messages queued",
@@ -2577,8 +2577,6 @@
     "retryEnqueue": "Retry same request",
     "pendingAcknowledgement": "Delivery acknowledgement is missing. Retry this same request to avoid duplicates.",
     "saveSchedule": "Schedule message",
-    "dateTime": "Date and time",
-    "timeZone": "Time zone (IANA)",
     "invalidTime": "Enter a valid date, time and time zone. This local time may not exist.",
     "ambiguousTime": "This time occurs twice. Choose an unambiguous time.",
     "pastTime": "Choose a future time.",
@@ -2614,6 +2612,20 @@
       "dismissed": "Dismissed",
       "cancelled": "Cancelled"
     },
-    "pausedAvailable": "Sending paused. Your current compose is unchanged. Open Scheduled / outbox later to edit the paused message."
+    "pausedAvailable": "Sending paused. Your current compose is unchanged. Open Scheduled / outbox later to edit the paused message.",
+    "hour": "Hour",
+    "minute": "Minute",
+    "recipientCount": "Recipients: {{count}}",
+    "attachments": "Attachments",
+    "threadContext": "Earlier messages in this thread",
+    "sourceUnavailable": "The original message is unavailable. Your queued reply is still available below.",
+    "previewUnavailable": "The message copy is unavailable. Its delivery status is still shown above.",
+    "previewError": "Could not load this preview. Refresh to try again.",
+    "selectMessage": "Select a message to preview",
+    "seenError": "Could not save the viewed status. This result may appear again on your next visit.",
+    "loadMore": "Load more",
+    "deliveryError": "Delivery error: {{code}}",
+    "previewTitle": "Message preview",
+    "recipientsUnavailable": "Recipient details unavailable"
   }
 }

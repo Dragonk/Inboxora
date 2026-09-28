@@ -2567,7 +2567,7 @@
   "queue": {
     "title": "Zaplanowane / do wysłania",
     "scheduleSend": "Zaplanuj wysłanie",
-    "startMailMerge": "Rozpocznij korespondencję seryjną",
+    "startMailMerge": "Wyślij korespondencję seryjną",
     "sendOptions": "Opcje wysyłania",
     "mergeConfirm": "Wysłać osobną wiadomość do każdego z {{count}} unikalnych odbiorców? Każda wiadomość pokaże tylko swojego odbiorcę. Opóźnienie cofania wysyłania zacznie się po przygotowaniu.",
     "mergeQueued": "Dodano do kolejki {{count}} osobnych wiadomości",
@@ -2577,8 +2577,6 @@
     "retryEnqueue": "Ponów to samo żądanie",
     "pendingAcknowledgement": "Brak potwierdzenia wysyłki. Ponów to samo żądanie, aby uniknąć duplikatów.",
     "saveSchedule": "Zaplanuj wiadomość",
-    "dateTime": "Data i godzina",
-    "timeZone": "Strefa czasowa (IANA)",
     "invalidTime": "Podaj poprawną datę, godzinę i strefę. Ta godzina lokalna może nie istnieć.",
     "ambiguousTime": "Ta godzina występuje dwukrotnie. Wybierz jednoznaczną godzinę.",
     "pastTime": "Wybierz czas w przyszłości.",
@@ -2614,6 +2612,20 @@
       "dismissed": "Usunięta z kolejki",
       "cancelled": "Anulowano"
     },
-    "pausedAvailable": "Wysyłka wstrzymana. Bieżąca wiadomość pozostaje bez zmian. Później otwórz Zaplanowane / do wysłania, aby edytować wstrzymaną wiadomość."
+    "pausedAvailable": "Wysyłka wstrzymana. Bieżąca wiadomość pozostaje bez zmian. Później otwórz Zaplanowane / do wysłania, aby edytować wstrzymaną wiadomość.",
+    "hour": "Godzina",
+    "minute": "Minuta",
+    "recipientCount": "Odbiorcy: {{count}}",
+    "attachments": "Załączniki",
+    "threadContext": "Wcześniejsze wiadomości w tym wątku",
+    "sourceUnavailable": "Wiadomość źródłowa jest niedostępna. Zaplanowaną odpowiedź nadal możesz zobaczyć poniżej.",
+    "previewUnavailable": "Kopia wiadomości jest niedostępna. Jej status wysyłki jest widoczny powyżej.",
+    "previewError": "Nie udało się wczytać podglądu. Odśwież, aby spróbować ponownie.",
+    "selectMessage": "Wybierz wiadomość, aby zobaczyć podgląd",
+    "seenError": "Nie udało się zapisać obejrzenia statusu. Wpis może pojawić się ponownie podczas następnej wizyty.",
+    "loadMore": "Wczytaj więcej",
+    "deliveryError": "Błąd wysyłki: {{code}}",
+    "previewTitle": "Podgląd wiadomości",
+    "recipientsUnavailable": "Dane odbiorców są niedostępne"
   }
 }

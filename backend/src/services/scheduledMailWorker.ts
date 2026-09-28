@@ -25,6 +25,7 @@ export function createScheduledMailWorker(execute: SendExecutor = executeSend) {
     try {
       const response = await execute(row.user_id, row.payload.payload, `scheduled:${row.id}:${row.revision}`, {
         expectedSenderEmail: row.payload.senderEmail,
+        includeSentReference: true,
         beforeDispatch: async () => {
           if (stopped || !ownsLease) return false;
           dispatched = await beginScheduledDispatch(row);

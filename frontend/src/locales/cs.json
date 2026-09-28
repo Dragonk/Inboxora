@@ -2567,7 +2567,7 @@
   "queue": {
     "title": "Naplánované / k odeslání",
     "scheduleSend": "Naplánovat odeslání",
-    "startMailMerge": "Spustit hromadnou korespondenci",
+    "startMailMerge": "Odeslat hromadnou korespondenci",
     "sendOptions": "Možnosti odeslání",
     "mergeConfirm": "Odeslat samostatnou zprávu každému z {{count}} jedinečných příjemců? Každá zpráva zobrazí pouze svého příjemce. Lhůta pro vrácení odeslání začne až po přípravě.",
     "mergeQueued": "Do fronty zařazeno {{count}} jednotlivých zpráv",
@@ -2577,8 +2577,6 @@
     "retryEnqueue": "Zopakovat stejný požadavek",
     "pendingAcknowledgement": "Chybí potvrzení odeslání. Zopakujte stejný požadavek, aby nevznikly duplikáty.",
     "saveSchedule": "Naplánovat zprávu",
-    "dateTime": "Datum a čas",
-    "timeZone": "Časové pásmo (IANA)",
     "invalidTime": "Zadejte platné datum, čas a pásmo. Tento místní čas nemusí existovat.",
     "ambiguousTime": "Tento čas nastává dvakrát. Vyberte jednoznačný čas.",
     "pastTime": "Vyberte budoucí čas.",
@@ -2614,6 +2612,20 @@
       "dismissed": "Odstraněno",
       "cancelled": "Zrušeno"
     },
-    "pausedAvailable": "Odesílání pozastaveno. Rozepsaná zpráva zůstává beze změny. Pozastavenou zprávu můžete později upravit v Naplánované / k odeslání."
+    "pausedAvailable": "Odesílání pozastaveno. Rozepsaná zpráva zůstává beze změny. Pozastavenou zprávu můžete později upravit v Naplánované / k odeslání.",
+    "hour": "Hodina",
+    "minute": "Minuta",
+    "recipientCount": "Příjemci: {{count}}",
+    "attachments": "Přílohy",
+    "threadContext": "Předchozí zprávy v tomto vlákně",
+    "sourceUnavailable": "Původní zpráva není dostupná. Odpověď ve frontě je stále zobrazena níže.",
+    "previewUnavailable": "Kopie zprávy není dostupná. Stav doručení je stále zobrazen výše.",
+    "previewError": "Náhled se nepodařilo načíst. Obnovte jej a zkuste to znovu.",
+    "selectMessage": "Vyberte zprávu pro náhled",
+    "seenError": "Zobrazení stavu se nepodařilo uložit. Položka se může při další návštěvě znovu objevit.",
+    "loadMore": "Načíst další",
+    "deliveryError": "Chyba doručení: {{code}}",
+    "previewTitle": "Náhled zprávy",
+    "recipientsUnavailable": "Údaje o příjemcích nejsou dostupné"
   }
 }

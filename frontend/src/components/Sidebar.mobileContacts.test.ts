@@ -48,7 +48,7 @@ describe('mobile Calendar navigation contract', () => {
     assert.match(mobileLayout, /data-testid="mobile-calendar-page"/);
     assert.match(mobileLayout, /showCalendar && <div data-testid="mobile-calendar-page"/);
     assert.match(mobileLayout, /<Suspense fallback=\{lazyFallback\}><CalendarPage isActive=\{showCalendar\} \/><\/Suspense>/);
-    assert.match(mobileLayout, /!showContacts && !showCalendar && !selectedMessageId/);
+    assert.match(mobileLayout, /!showContacts && !showCalendar && !showScheduled && !selectedMessageId/);
   });
 
   it('uses the shared module header without a redundant Back control', async () => {

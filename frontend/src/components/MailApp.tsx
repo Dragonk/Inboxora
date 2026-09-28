@@ -1,4 +1,5 @@
-import ScheduledMail from './ScheduledMail.tsx';
+import ScheduledMail, { ScheduledDialogs, ScheduledUndo } from './ScheduledMail.tsx';
+import { useScheduledMail } from '../hooks/useScheduledMail.ts';
 import { requestMailRefresh, mailListNeedsRefresh } from '../utils/mailRefresh.ts';
 import { syncMailIndicators, clearMailIndicators } from '../utils/mailIndicators.ts';
 import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
@@ -106,12 +107,13 @@ export default function MailApp() {
     mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, mobileSidebarSwipeEnabled, addNotification,
     fontSize, showAppBadge,
     sidebarWidth, setSidebarWidth, setIsSidebarResizing,
-    showContacts, showCalendar, setShowContacts, setShowCalendar, setTodoistConnected,
+    showContacts, showCalendar, showScheduled, setShowScheduled, setShowContacts, setShowCalendar, setTodoistConnected,
     accounts, rightSidebarWidth, setRightSidebarWidth, isRightSidebarResizing, setIsRightSidebarResizing,
     rightSidebarHidden, toggleRightSidebarHidden,
     conversationReaderViewEnabled, authEpoch,
   } = useStore();
 
+  const scheduled = useScheduledMail();
   const syncInterval = useStore((s: StoreState) => s.syncInterval);
   const autoLockMinutes = useStore((s: StoreState) => s.autoLockMinutes);
   const lockScreen = useStore((s: StoreState) => s.lockScreen);
@@ -378,7 +380,7 @@ export default function MailApp() {
     onOpen: () => setMobileSidebarOpen(true),
     onClose: () => setMobileSidebarOpen(false),
     // Changing account or module invalidates an in-flight sequence.
-    resetKey: `${selectedAccountId ?? ''}:${showContacts}:${showCalendar}`,
+    resetKey: `${selectedAccountId ?? ''}:${showContacts}:${showCalendar}:${showScheduled}`,
   });
 
   // Keep the right sidebar's width CSS var in sync with the persisted preference.
@@ -504,8 +506,9 @@ export default function MailApp() {
     setNativeFolder(null);
   }, [setSelectedMessage]);
   useBackNavigation(isMobile);
-  useBackLayer(readerOpen && !showContacts && !showCalendar, closeReader, 10);
+  useBackLayer(readerOpen && !showContacts && !showCalendar && !showScheduled, closeReader, 10);
   useBackLayer(showContacts, () => setShowContacts(false), 20);
+  useBackLayer(showScheduled, () => setShowScheduled(false), 20);
   useBackLayer(showCalendar, () => setShowCalendar(false), 20);
   useBackLayer(mobileSidebarOpen, () => setMobileSidebarOpen(false), 1300);
   useBackLayer(showAdmin, () => setShowAdmin(false), 2000);
@@ -953,18 +956,19 @@ export default function MailApp() {
           >
             <Sidebar onEditProfile={() => setMobileProfileOpen(true)} />
           </div>
+          {showScheduled && <ScheduledMail controller={scheduled} />}
           {showContacts && <div data-testid="mobile-contacts-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
             <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
           </div>}
           {showCalendar && <div data-testid="mobile-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
             <Suspense fallback={lazyFallback}><CalendarPage isActive={showCalendar} /></Suspense>
           </div>}
-          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
+          <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{ flex: 1, display: !showContacts && !showCalendar && !showScheduled && !selectedMessageId && !(conversationReaderViewEnabled && conversationId) ? 'flex' : 'none', overflow: 'hidden', height: '100%' }}>
             <MessageList />
           </div>
           {/* The reader keeps native text selection: the drawer does not claim a
               gesture that starts here (the menu button and Back still work). */}
-          <div data-ce-reader-pane="true" data-mobile-gesture-ignore="true" style={{ flex: 1, display: !showContacts && !showCalendar && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
+          <div data-ce-reader-pane="true" data-mobile-gesture-ignore="true" style={{ flex: 1, display: !showContacts && !showCalendar && !showScheduled && (selectedMessageId || (conversationReaderViewEnabled && conversationId)) ? 'flex' : 'none', overflow: 'hidden', height: '100%', minWidth: 0 }}>
             <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
           </div>
           {mobileProfileOpen && <ProfileModal onClose={() => setMobileProfileOpen(false)} />}
@@ -992,13 +996,14 @@ export default function MailApp() {
             minWidth: 0, flexDirection: currentLayoutDirection,
             height: '100%',
           }}>
+            {showScheduled && <ScheduledMail controller={scheduled} />}
             {showContacts && <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
             </div>}
             {showCalendar && <div data-testid="desktop-calendar-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><CalendarPage /></Suspense>
             </div>}
-            <div style={{ position: 'relative', display: showContacts || showCalendar ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayoutDirection }}>
+            <div style={{ position: 'relative', display: showContacts || showCalendar || showScheduled ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayoutDirection }}>
               <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
                 display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayoutDirection === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
                 width: compactMail ? '100%' : currentLayoutDirection === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
@@ -1088,7 +1093,8 @@ export default function MailApp() {
       {/* Records every Inboxora view change so the desktop title bar's Back and
           Forward walk app views instead of browser documents. */}
       {desktopShell && <AppViewHistoryRecorder />}
-      <ScheduledMail />
+      <ScheduledUndo controller={scheduled} />
+      <ScheduledDialogs controller={scheduled} />
       <NotificationToasts />
       <PluginRuntime />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

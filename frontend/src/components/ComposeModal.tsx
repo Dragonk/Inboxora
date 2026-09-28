@@ -11,6 +11,7 @@ import { useStore } from '../store/index.ts';
 import { createComposeTransactionGuard } from '../utils/composeTransactionGuard.ts';
 import { isDefiniteQueueRejection } from '../utils/queuedSubmission.ts';
 import SchedulePicker from './SchedulePicker.tsx';
+import { Button, Dialog } from './ui.tsx';
 import SendSplitButton from './SendSplitButton.tsx';
 import { api } from '../utils/api.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -431,6 +432,10 @@ export default function ComposeModal() {
   const initialPriorityRef = useRef(priority);
   const initialAttachmentsRef = useRef(JSON.stringify({ attachments, fwdAttachments }));
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showMergeConfirm, setShowMergeConfirm] = useState(false);
+  const mergeConfirmedRef = useRef(false);
+  const mergeRecipientCount = new Set([...toChips, toInput, ...ccChips, ccInput, ...bccChips, bccInput]
+    .map(value => value.trim()).filter(Boolean).map(normalizeMailbox)).size;
   const mergePendingRef = useRef(false);
   const queuedRevisionRef = useRef(composeData?.queuedMail?.revision);
   const scheduleSelectionRef = useRef<{ scheduledAt: string; timeZone: string } | null>(null);
@@ -871,7 +876,7 @@ export default function ComposeModal() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      if (showEmptySubjectWarn || showForgottenAttachWarn || showSchedule || showCloseDialog || showDiscardSheet || showAttachWarnForDraft) return;
+      if (showEmptySubjectWarn || showForgottenAttachWarn || showSchedule || showMergeConfirm || showCloseDialog || showDiscardSheet || showAttachWarnForDraft) return;
       mergePendingRef.current = false;
       scheduleSelectionRef.current = null;
       handleSend();
@@ -1196,16 +1201,32 @@ export default function ComposeModal() {
     }
     const count = new Set(recipients.map(normalizeMailbox)).size;
     if (!count) { setError(t('queue.mergeInvalidRecipient')); return; }
-    if (!window.confirm(t('queue.mergeConfirm', { count }))) return;
-    mergePendingRef.current = true;
-    scheduleSelectionRef.current = null;
-    void handleSend({ merge: true });
+    mergeConfirmedRef.current = false;
+    setShowMergeConfirm(true);
   };
 
   const scheduleControls = <>
     {autosavePending && !savingDraft && <button type="button" data-testid="compose-autosave-retry" onClick={() => void doSaveDraft({ silent: true })}>{t('queue.retryEnqueue')}</button>}
     {(undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) && <span role="status" data-testid="compose-preferences-loading">{t(undoSendPreferencesStatus === 'error' ? 'queue.preferencesError' : 'queue.preferencesLoading')}{undoSendPreferencesStatus === 'error' && <button type="button" onClick={() => void useStore.getState().loadPreferences()}>{t('queue.refresh')}</button>}</span>}
-    {showSchedule && <SchedulePicker busy={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'} initialTimeZone={composeData?.queuedMail?.timeZone}
+    {showMergeConfirm && <Dialog title={t('queue.startMailMerge')} closeLabel={t('common.close')}
+      className="scheduled-dialog" testId="mail-merge-dialog"
+      busy={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'}
+      onClose={() => setShowMergeConfirm(false)} footer={<>
+        <Button disabled={sending || savingDraft} onClick={() => setShowMergeConfirm(false)}>{t('common.cancel')}</Button>
+        <Button variant="primary" data-testid="mail-merge-confirm"
+          disabled={!mergeRecipientCount || sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'}
+          aria-busy={sending} onClick={() => {
+            if (mergeConfirmedRef.current || sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current
+              || queuedConflictRef.current || frozenQueueRef.current || !currentCompose()
+              || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) return;
+            mergeConfirmedRef.current = true;
+            mergePendingRef.current = true;
+            scheduleSelectionRef.current = null;
+            setShowMergeConfirm(false);
+            void handleSend({ merge: true });
+          }}>{t('queue.startMailMerge')}</Button>
+      </>}><p className="scheduled-merge-summary">{t('queue.mergeConfirm', { count: mergeRecipientCount })}</p></Dialog>}
+    {showSchedule && <SchedulePicker busy={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'}
       initialScheduledAt={composeData?.queuedMail?.scheduledAt} onCancel={() => setShowSchedule(false)}
       onConfirm={selection => {
         if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || frozenQueueRef.current || !currentCompose()
@@ -2227,7 +2248,7 @@ export default function ComposeModal() {
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
         width: customSize?.width || 600,
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: 'var(--compose-max-height, 75vh)' }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
@@ -2237,7 +2258,7 @@ export default function ComposeModal() {
         // edge (no bottom border/radius) on the elevated surface.
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 600, maxWidth: 'calc(100vw - 48px)',
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: 'var(--compose-max-height, 75vh)' }),
         background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
         borderBottom: 'none', borderRadius: '10px 10px 0 0',
         boxShadow: 'var(--shadow-modal)',
@@ -2506,7 +2527,7 @@ export default function ComposeModal() {
       )}
 
       {/* Scrollable body area */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div data-testid="compose-body-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {/* Body */}
         {plaintextCompose ? (
           <textarea

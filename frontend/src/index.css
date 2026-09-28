@@ -459,6 +459,11 @@ body, #root {
   .tiptap-compose .ProseMirror { font-size: 16px !important; }
 }
 
+/* Landscape phones use the desktop composer: keep room for editable text as well as its controls. */
+@media (min-width: 768px) and (max-height: 500px) {
+  .compose-window { --compose-max-height: calc(100dvh - 16px); }
+}
+
 /* Inline images in compose */
 .tiptap-compose .ProseMirror img {
   max-width: 100%;

@@ -2,10 +2,13 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { executeSend } from '../services/sendMail.js';
+import { previewScheduledMail } from '../services/scheduledMailPreview.js';
 import { ScheduledMailError, cancelScheduledMail, dismissScheduledMail, editScheduledMail, enqueueScheduledMail,
-  enqueueMailMerge, listScheduledMail, rescheduleMail, updateScheduledMail } from '../services/scheduledMail.js';
+  acknowledgeSentMail, enqueueMailMerge, listScheduledMail, pageScheduledMail, rescheduleMail, updateScheduledMail } from '../services/scheduledMail.js';
 
 const router = Router();
+// Frozen previews and viewed-status receipts belong to this authenticated session only.
+router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
 router.use(requireAuth);
 /** Keep every operation scoped to the authenticated owner. */
 function handle(action: (req: Request) => Promise<unknown>) {
@@ -17,7 +20,10 @@ function handle(action: (req: Request) => Promise<unknown>) {
     }
   };
 }
-router.get('/scheduled', handle(req => listScheduledMail(req.session.userId!)));
+router.get('/scheduled', handle(req => req.query.page === '1'
+  ? pageScheduledMail(req.session.userId!, req.query.cursor) : listScheduledMail(req.session.userId!)));
+router.get('/scheduled/:id', handle(req => previewScheduledMail(req.session.userId!, String(req.params.id))));
+router.post('/scheduled/:id/seen', handle(req => acknowledgeSentMail(req.session.userId!, String(req.params.id))));
 router.post('/scheduled', handle(req => enqueueScheduledMail(req.session.userId!, req.body,
   typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'] : '', executeSend)));
 router.post('/merge', handle(req => enqueueMailMerge(req.session.userId!, req.body,

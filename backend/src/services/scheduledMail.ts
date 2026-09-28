@@ -11,12 +11,21 @@ export type ScheduledState = 'pending' | 'editing' | 'preparing' | 'sending' | '
 export interface ScheduledSummary {
   id: string; accountId: string; subject: string; mode: 'undo' | 'schedule'; state: ScheduledState;
   scheduledAt: Date; timeZone: string; revision: number; errorCode: string | null;
+  senderEmail?: string | null; to?: string[]; cc?: string[]; recipientCount?: number;
 }
 export interface ScheduledRow extends ScheduledSummary {
   user_id: string; payload: PreparedSend; lease_token: string | null; request_fingerprint: string; edit_fingerprint: string | null;
 }
 const SUMMARY = `id, account_id AS "accountId", subject, mode, state, scheduled_at AS "scheduledAt",
-  time_zone AS "timeZone", revision, last_error_code AS "errorCode"`;
+  time_zone AS "timeZone", revision, last_error_code AS "errorCode",
+  COALESCE(payload->>'senderEmail', sent_metadata->>'senderEmail') AS "senderEmail",
+  COALESCE(payload#>'{payload,to}', sent_metadata->'to', '[]'::jsonb) AS "to",
+  COALESCE(payload#>'{payload,cc}', sent_metadata->'cc', '[]'::jsonb) AS "cc",
+  CASE WHEN payload ? 'payload' THEN
+    jsonb_array_length(COALESCE(payload#>'{payload,to}', '[]'::jsonb)) +
+    jsonb_array_length(COALESCE(payload#>'{payload,cc}', '[]'::jsonb)) +
+    jsonb_array_length(COALESCE(payload#>'{payload,bcc}', '[]'::jsonb))
+  ELSE COALESCE((sent_metadata->>'recipientCount')::int, 0) END AS "recipientCount"`;
 const DETAIL = `${SUMMARY}, user_id, payload, lease_token, request_fingerprint, edit_fingerprint`;
 const MAX_ACTIVE = 100;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -107,8 +116,10 @@ function requireRevision(value: unknown): number {
 }
 /** Project private queue storage to owner-visible metadata only. */
 function summary(row: ScheduledSummary): ScheduledSummary {
-  const { id, accountId, subject, mode, state, scheduledAt, timeZone, revision, errorCode } = row;
-  return { id, accountId, subject, mode, state, scheduledAt, timeZone, revision, errorCode };
+  const { id, accountId, subject, mode, state, scheduledAt, timeZone, revision, errorCode,
+    senderEmail, to, cc, recipientCount } = row;
+  return { id, accountId, subject, mode, state, scheduledAt, timeZone, revision, errorCode,
+    senderEmail, to, cc, recipientCount };
 }
 /** Validate and freeze a message without acquiring a delivery intent. */
 async function prepare(userId: string, message: SendRequestBody, execute: SendExecutor): Promise<PreparedSend> {
@@ -253,11 +264,53 @@ export async function enqueueMailMerge(userId: string, inputValue: unknown, key:
   });
 }
 
-/** List metadata only; attachment bytes and BCC are never broadcast/listed. */
+const VISIBLE = `(state NOT IN ('sent','cancelled','dismissed')
+  OR (state='sent' AND sent_seen_at IS NULL)
+  OR (state IN ('cancelled','dismissed') AND updated_at > clock_timestamp() - interval '7 days'))`;
+const ACTIVE_ORDER = "CASE WHEN state IN ('sent','cancelled','dismissed') THEN 0 ELSE 1 END";
+const PAGE_SIZE = 200;
+interface QueueCursor { active: number; at: string; id: string }
+/** Validate an opaque keyset cursor before passing its exact microseconds to PostgreSQL. */
+function decodeCursor(value: unknown): QueueCursor | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || !value || value.length > 512 || !/^[A-Za-z0-9_-]+$/.test(value)) invalid('Invalid queue cursor');
+  try {
+    const cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as QueueCursor;
+    if (!cursor || (cursor.active !== 0 && cursor.active !== 1) || typeof cursor.id !== 'string' || !UUID.test(cursor.id)
+      || typeof cursor.at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(cursor.at)) invalid('Invalid queue cursor');
+    const millis = cursor.at.slice(0, 23) + 'Z';
+    if (new Date(millis).toISOString() !== millis) invalid('Invalid queue cursor');
+    return cursor;
+  } catch { return invalid('Invalid queue cursor'); }
+}
+/** Page all unseen results, including old history. Reads never acknowledge visibility. */
+export async function pageScheduledMail(userId: string, cursorValue?: unknown): Promise<{ items: ScheduledSummary[]; nextCursor: string | null }> {
+  const cursor = decodeCursor(cursorValue);
+  const rows = (await query<ScheduledSummary & { cursorTime: string; cursorActive: number }>(`SELECT ${SUMMARY},
+    to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTime",
+    ${ACTIVE_ORDER} AS "cursorActive" FROM scheduled_mail WHERE user_id=$1 AND ${VISIBLE}
+    AND ($2::int IS NULL OR (${ACTIVE_ORDER},scheduled_at,id) < ($2::int,$3::timestamptz,$4::uuid))
+    ORDER BY ${ACTIVE_ORDER} DESC, scheduled_at DESC, id DESC LIMIT ${PAGE_SIZE + 1}`,
+  [userId, cursor?.active ?? null, cursor?.at ?? null, cursor?.id ?? null])).rows;
+  const page = rows.slice(0, PAGE_SIZE);
+  const last = page.at(-1);
+  const nextCursor = rows.length > PAGE_SIZE && last ? Buffer.from(JSON.stringify({
+    active: last.cursorActive, at: last.cursorTime, id: last.id,
+  })).toString('base64url') : null;
+  return { items: page.map(summary), nextCursor };
+}
+/** The global Undo/polling feed always includes every active item (the active cap is 100). */
 export async function listScheduledMail(userId: string): Promise<ScheduledSummary[]> {
-  return (await query<ScheduledSummary>(`SELECT ${SUMMARY} FROM scheduled_mail WHERE user_id=$1
-    AND (state NOT IN ('sent','cancelled','dismissed') OR updated_at > clock_timestamp() - interval '7 days')
-    ORDER BY (state NOT IN ('sent','cancelled','dismissed')) DESC, scheduled_at DESC, id LIMIT 200`, [userId])).rows;
+  return (await pageScheduledMail(userId)).items;
+}
+/** A separate idempotent receipt: never bump delivery revisions or touch the send ledger. */
+export async function acknowledgeSentMail(userId: string, id: string): Promise<{ id: string }> {
+  requireScheduledId(id);
+  const result = await query<{ id: string }>(`UPDATE scheduled_mail
+    SET sent_seen_at=COALESCE(sent_seen_at,clock_timestamp())
+    WHERE id=$1 AND user_id=$2 AND state='sent' RETURNING id`, [id, userId]);
+  if (!result.rows[0]) throw new ScheduledMailError(404, 'SCHEDULE_SENT_MISSING', 'Sent result is not available');
+  return result.rows[0];
 }
 /** Pausing wins atomically against worker claiming, and is idempotent at this revision. */
 export async function editScheduledMail(userId: string, id: string, revision: unknown): Promise<ScheduledRow> {
@@ -421,13 +474,21 @@ function completion(prepared: PreparedSend, response: SendExecutionResult) {
     : typeof response.body.code === 'string' ? response.body.code : state === 'failed' ? 'SCHEDULE_SEND_FAILED' : null;
   return { state, payload, code };
 }
+/** Retain only the visible delivery headers, never another full message or BCC list. */
+function sentMetadata(prepared: PreparedSend, state: ScheduledState): Record<string, unknown> {
+  if (state !== 'sent') return {};
+  const message = prepared.payload;
+  return { senderEmail: prepared.senderEmail, to: message.to ?? [], cc: message.cc ?? [],
+    recipientCount: (message.to?.length ?? 0) + (message.cc?.length ?? 0) + (message.bcc?.length ?? 0) };
+}
 /** Preserve rejected-only recipients after partial delivery, never accepted ones. */
 export async function completeScheduledMail(row: ScheduledRow, response: SendExecutionResult): Promise<void> {
   const { state, payload, code } = completion(row.payload, response);
   await query(`UPDATE scheduled_mail SET state=$3, payload=$4::jsonb, result=$5::jsonb, last_error_code=$6,
-    lease_token=NULL, lease_until=NULL, updated_at=clock_timestamp()
+    sent_metadata=$7::jsonb, lease_token=NULL, lease_until=NULL, updated_at=clock_timestamp()
     WHERE id=$1 AND lease_token=$2 AND state IN ('preparing','sending')`,
-  [row.id, row.lease_token, state, JSON.stringify(payload), JSON.stringify(response.body), code]);
+  [row.id, row.lease_token, state, JSON.stringify(payload), JSON.stringify(response.body), code,
+    JSON.stringify(sentMetadata(row.payload, state))]);
 }
 /** Recover expired preparation, but park any potentially submitted message. */
 export async function recoverScheduledMail(db: DbClient = { query }): Promise<void> {
@@ -448,7 +509,8 @@ export async function recoverScheduledMail(db: DbClient = { query }): Promise<vo
     const { state, payload, code } = completion(row.payload, { status: 200, body: row.result });
     if (state === 'uncertain') continue;
     await db.query(`UPDATE scheduled_mail SET state=$3, payload=$4::jsonb, result=$5::jsonb,
-      last_error_code=$6, updated_at=clock_timestamp() WHERE id=$1 AND revision=$2 AND state='uncertain'`,
-    [row.id, row.revision, state, JSON.stringify(payload), JSON.stringify(row.result), code]);
+      last_error_code=$6, sent_metadata=$7::jsonb, updated_at=clock_timestamp() WHERE id=$1 AND revision=$2 AND state='uncertain'`,
+    [row.id, row.revision, state, JSON.stringify(payload), JSON.stringify(row.result), code,
+      JSON.stringify(sentMetadata(row.payload, state))]);
   }
 }

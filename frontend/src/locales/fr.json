@@ -2567,7 +2567,7 @@
   "queue": {
     "title": "Planifiés / boîte d’envoi",
     "scheduleSend": "Planifier l’envoi",
-    "startMailMerge": "Démarrer un publipostage",
+    "startMailMerge": "Envoyer le publipostage",
     "sendOptions": "Options d’envoi",
     "mergeConfirm": "Envoyer un message distinct à chacun des {{count}} destinataires uniques ? Chaque message n’affichera que son destinataire. Le délai d’annulation commence après la préparation.",
     "mergeQueued": "{{count}} messages individuels mis en attente",
@@ -2577,8 +2577,6 @@
     "retryEnqueue": "Réessayer la même demande",
     "pendingAcknowledgement": "La confirmation d’envoi manque. Réessayez la même demande pour éviter les doublons.",
     "saveSchedule": "Planifier le message",
-    "dateTime": "Date et heure",
-    "timeZone": "Fuseau horaire (IANA)",
     "invalidTime": "Saisissez une date, une heure et un fuseau valides. Cette heure locale peut ne pas exister.",
     "ambiguousTime": "Cette heure se produit deux fois. Choisissez une heure sans ambiguïté.",
     "pastTime": "Choisissez une date future.",
@@ -2614,6 +2612,20 @@
       "dismissed": "Retiré",
       "cancelled": "Annulé"
     },
-    "pausedAvailable": "Envoi mis en pause. Votre rédaction actuelle est conservée. Ouvrez ensuite Planifiés / boîte d’envoi pour modifier le message en pause."
+    "pausedAvailable": "Envoi mis en pause. Votre rédaction actuelle est conservée. Ouvrez ensuite Planifiés / boîte d’envoi pour modifier le message en pause.",
+    "hour": "Heure",
+    "minute": "Minute",
+    "recipientCount": "Destinataires : {{count}}",
+    "attachments": "Pièces jointes",
+    "threadContext": "Messages précédents de cette conversation",
+    "sourceUnavailable": "Le message d’origine est indisponible. Votre réponse en attente reste visible ci-dessous.",
+    "previewUnavailable": "La copie du message est indisponible. Son état de livraison reste affiché ci-dessus.",
+    "previewError": "Impossible de charger l’aperçu. Actualisez pour réessayer.",
+    "selectMessage": "Sélectionnez un message pour afficher l’aperçu",
+    "seenError": "Impossible d’enregistrer la consultation de l’état. Ce résultat peut réapparaître lors de votre prochaine visite.",
+    "loadMore": "Charger plus",
+    "deliveryError": "Erreur de livraison : {{code}}",
+    "previewTitle": "Aperçu du message",
+    "recipientsUnavailable": "Informations sur les destinataires indisponibles"
   }
 }

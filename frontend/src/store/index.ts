@@ -214,6 +214,8 @@ export interface StoreState {
   adminTab: string;
   setShowAdmin: (v: boolean) => void;
   setAdminTab: (t: string) => void;
+  showScheduled: boolean;
+  setShowScheduled: (show: boolean) => void;
   showContacts: boolean;
   setShowContacts: (showContacts: boolean) => void;
   showCalendar: boolean;
@@ -438,6 +440,7 @@ type StoreStateRead = Pick<StoreState,
   | 'senderFaviconsEpoch'
   | 'showCalendar'
   | 'showContacts'
+  | 'showScheduled'
   | 'sidebarCollapsed'
   | 'swipeActions'
   | 'threadMessages'
@@ -583,7 +586,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(identityChanged ? { authEpoch: state.authEpoch + 1, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
+      ...(identityChanged ? { authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
       ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
@@ -634,7 +637,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
       localStorage.setItem('mailflow_locked', '1');
       set({
-        isLocked: true,
+        isLocked: true, showScheduled: false,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
         folders: {}, selectedMessageId: null,
@@ -704,8 +707,8 @@ export const useStore = create<StoreState>()((set, get) => ({
       // Returning from Calendar/Contacts is a presentation change, not a reload.
       // The mounted mail list still receives background updates. Preserve its
       // loaded pages, scroll position and native thread membership immediately.
-      if (!navChanged && (state.showCalendar || state.showContacts)) {
-        return { showContacts: false, showCalendar: false, selectedMessageId: null, mobileSidebarOpen: false };
+      if (!navChanged && (state.showCalendar || state.showContacts || state.showScheduled)) {
+        return { showContacts: false, showCalendar: false, showScheduled: false, selectedMessageId: null, mobileSidebarOpen: false };
       }
       return {
         selectedAccountId: accountId,
@@ -718,7 +721,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         messagesRefreshToken: state.messagesRefreshToken + 1,
         expandedThreadId: null,
         threadMessages: {},
-        showContacts: false, showCalendar: false,
+        showContacts: false, showCalendar: false, showScheduled: false,
         ...(navChanged && wasScopedSearch ? { searchQuery: '' } : {}),
       };
     });
@@ -1049,11 +1052,15 @@ export const useStore = create<StoreState>()((set, get) => ({
   setShowAdmin: (v: boolean) =>set({ showAdmin: v }),
   setAdminTab: (t: string) =>set({ adminTab: t }),
 
+  // Queue navigation is separate from the global Undo and worker lifecycle.
+  showScheduled: false,
+  setShowScheduled: (showScheduled: boolean) => set({ showScheduled,
+    ...(showScheduled ? { showContacts: false, showCalendar: false, mobileSidebarOpen: false } : {}) }),
   // Contacts view
   showContacts: false,
-  setShowContacts: (showContacts: boolean) =>set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
+  setShowContacts: (showContacts: boolean) =>set({ showContacts, ...(showContacts ? { showCalendar: false, showScheduled: false } : {}) }),
   showCalendar: false,
-  setShowCalendar: (showCalendar: boolean) =>set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
+  setShowCalendar: (showCalendar: boolean) =>set({ showCalendar, ...(showCalendar ? { showContacts: false, showScheduled: false } : {}) }),
   // Calendar presentation preferences are persisted per user. A missing visibility list means
   // all known calendars are visible, so upgrades never hide an existing source unexpectedly.
   calendarWeekStartsOn: 1,

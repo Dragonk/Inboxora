@@ -27,6 +27,19 @@ export function scheduleWallTime(instant: string, timeZone: string): string {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(instant)).map(part => [part.type, part.value]));
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
+/** The browser owns presentation time; the backend's zone is never a user preference. */
+export function userScheduleTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+/** Preserve an unchanged saved instant, including seconds and the selected side of a DST fold. */
+export function resolveScheduleSelection(wall: string, timeZone: string, initialScheduledAt?: string, now = Date.now()): ScheduleTimeResult {
+  if (initialScheduledAt && Number.isFinite(Date.parse(initialScheduledAt))
+    && wall === scheduleWallTime(initialScheduledAt, timeZone)) {
+    return Date.parse(initialScheduledAt) > now ? { instant: new Date(initialScheduledAt).toISOString() } : { error: 'pastTime' };
+  }
+  return resolveScheduleTime(wall, timeZone, now);
+}
 export function schedulePreview(instant: string, timeZone: string, locale?: string): string {
-  return `${new Intl.DateTimeFormat(locale, { timeZone, dateStyle: 'full', timeStyle: 'long' }).format(new Date(instant))} (${timeZone}, ${new Intl.DateTimeFormat('en', { timeZone, timeZoneName: 'longOffset' }).formatToParts(new Date(instant)).find(part => part.type === 'timeZoneName')?.value})`;
+  return new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(new Date(instant));
 }

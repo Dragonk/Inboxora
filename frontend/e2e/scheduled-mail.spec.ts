@@ -3,7 +3,7 @@ import { test, expect } from './fixtures.ts';
 
 // Queue behavior is tested against mocked HTTP; native PWA services have their
 // own full-Chromium real-app coverage and must not intercept these fixtures.
-test.use({ serviceWorkers: 'block' });
+test.use({ serviceWorkers: 'block', timezoneId: 'Europe/Warsaw' });
 
 type Summary = { id: string; accountId: string; subject: string; mode: 'undo' | 'schedule'; state: string;
   scheduledAt: string; timeZone: string; revision: number; errorCode: string | null };
@@ -38,10 +38,19 @@ async function boot(page: Page, rows: Summary[] = [], options: { undo?: number; 
     return route.fulfill({ json: { language: 'en', threadedView: false, undoSendSeconds: options.undo ?? 0,
       conversation_list_view_enabled: false, conversation_reader_view_enabled: false } });
   });
-  await page.route('**/api/mail/scheduled', async route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, async route => {
     if (route.request().method() !== 'GET') return route.fulfill({ status: 503, json: { error: 'Unexpected enqueue in browser test' } });
     await options.scheduledRead?.();
     return route.fulfill({ json: rows });
+  });
+  await page.route(/\/api\/mail\/scheduled\/[^/?]+$/, route => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const id = new URL(route.request().url()).pathname.split('/').at(-1);
+    const row = rows.find(item => item.id === id);
+    if (!row) return route.fulfill({ status: 404, json: { error: 'Missing queue fixture' } });
+    return route.fulfill({ json: { id, state: row.state, senderEmail: 'work@example.test', context: [], contextMissing: false,
+      sentCopy: null, message: ['sent', 'cancelled', 'dismissed'].includes(row.state) ? null : { ...message,
+        attachments: message.attachments.map(attachment => ({ filename: attachment.filename, contentType: attachment.contentType, size: 13 })) } } });
   });
   await page.route('**/api/mail/send', route => route.fulfill({ status: 503, json: { error: 'Immediate sending blocked in browser test' } }));
   await page.route('**/api/mail/send-limits**', route => route.fulfill({ json: { transport: 'imap_smtp', limits: {} } }));
@@ -63,11 +72,18 @@ async function outbox(page: Page) {
   if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByTestId('mobile-topbar-menu').click();
   await page.getByTestId('sidebar-scheduled').click();
   await expect(page.getByTestId('scheduled-view')).toBeVisible();
+  await expect(page.getByTestId('scheduled-view')).toHaveAttribute('aria-busy', 'false');
+  const first = page.locator('[data-testid^="scheduled-item-"]').first();
+  if (await first.count()) await first.getByRole('button').click();
 }
-/** Set deterministic local schedule fields for timezone validation. */
-async function selectSchedule(page: Page, date = '2030-01-15', time = '13:45', zone = 'Europe/Warsaw') {
-  await page.getByTestId('schedule-date-time').fill(`${date}T${time}`);
-  await page.getByTestId('schedule-zone').fill(zone);
+/** Set the user's local fields; there is no editable server/IANA zone. */
+async function selectSchedule(page: Page, date = '2030-01-15', time = '13:45') {
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe('Europe/Warsaw');
+  await expect(page.getByTestId('schedule-zone')).toHaveCount(0);
+  await page.getByTestId('schedule-date').fill(date);
+  const [hour, minute] = time.split(':');
+  await page.getByTestId('schedule-hour').selectOption(hour);
+  await page.getByTestId('schedule-minute').selectOption(minute);
 }
 
 test('Undo queues instead of sending, survives reload and restores the paused full message', async ({ page, fixtureApi }) => {
@@ -75,7 +91,7 @@ test('Undo queues instead of sending, survives reload and restores the paused fu
   const rows: Summary[] = []; let immediate = 0; let enqueue: Record<string, unknown> | undefined;
   await boot(page, rows, { undo: 60 });
   await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ json: { ok: true } }); });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: rows });
     enqueue = route.request().postDataJSON(); rows.push(pending()); return route.fulfill({ json: rows[0] });
   });
@@ -106,7 +122,7 @@ test('Send waits for server preferences during startup', async ({ page, fixtureA
   try {
     await boot(page, [], { undo: 60, preferencesGate: gate, waitForMailList: false, preferencesStarted: () => { preferencesStarted = true; } });
     await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ json: { ok: true } }); });
-    await page.route('**/api/mail/scheduled', route => {
+    await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
       if (route.request().method() === 'GET') return route.fulfill({ json: [] });
       queued++; return route.fulfill({ json: pending() });
     });
@@ -129,7 +145,7 @@ test('failed preferences keep sending disabled until a successful server retry',
   await boot(page, [], options); await compose(page);
   let immediate = 0; let queued = 0;
   await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ json: { ok: true } }); });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     queued++; return route.fulfill({ json: pending() });
   });
@@ -148,7 +164,7 @@ test('failed preferences keep sending disabled until a successful server retry',
 test('schedule sends the exact selected instant and rejects DST gaps and repeated times', async ({ page, fixtureApi }) => {
   await fixtureApi; await boot(page); await compose(page);
   let payload: Record<string, unknown> | undefined;
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     payload = route.request().postDataJSON(); return route.fulfill({ json: pending({ mode: 'schedule' }) });
   });
@@ -159,7 +175,7 @@ test('schedule sends the exact selected instant and rejects DST gaps and repeate
   await expect(page.getByTestId('schedule-confirm')).toBeDisabled();
   await selectSchedule(page);
   await expect(page.getByTestId('schedule-confirm')).toBeEnabled();
-  await expect(page.getByText(/(?:GMT|UTC)\+01:00/)).toBeVisible();
+  await expect(page.getByText(/(?:GMT|UTC)\+1\b|CET/)).toBeVisible();
   await page.getByTestId('schedule-confirm').click();
   await expect.poll(() => payload).toMatchObject({ mode: 'schedule', scheduledAt: '2030-01-15T12:45:00.000Z', timeZone: 'Europe/Warsaw' });
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
@@ -169,7 +185,7 @@ for (const mode of ['undo', 'schedule'] as const) {
   test(`${mode}: lost acknowledgement retries the same frozen request and idempotency key`, async ({ page, fixtureApi }) => {
     await fixtureApi; await boot(page, [], { undo: 60 }); await compose(page);
     const writes: { body: unknown; key: string | undefined }[] = [];
-    await page.route('**/api/mail/scheduled', route => {
+    await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
       if (route.request().method() === 'GET') return route.fulfill({ json: [] });
       writes.push({ body: route.request().postDataJSON(), key: route.request().headers()['x-idempotency-key'] });
       return writes.length === 1 ? route.abort('connectionfailed') : route.fulfill({ json: pending({ mode }) });
@@ -213,9 +229,10 @@ test('a partial queued edit reschedules its original record and preserves bytes,
   });
   let saved: Record<string, unknown> | undefined; let created = 0; let immediate = 0;
   await page.route('**/api/mail/scheduled/queued-1', route => {
+    if (route.request().method() === 'GET') return route.fallback();
     saved = route.request().postDataJSON(); return route.fulfill({ json: { ...rows[0], state: 'pending', revision: 2 } });
   });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: rows });
     created++; return route.fulfill({ status: 503, json: {} });
   });
@@ -242,8 +259,8 @@ test('a late pause response after session expiration cannot reopen the queued ed
     await page.getByTestId('scheduled-edit-queued-1').click();
     await expect.poll(() => started).toBe(true);
     // Expire through the real API client's 401 handler while the pause acknowledgement is held.
-    await page.route('**/api/mail/scheduled', route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
-    await page.getByTestId('scheduled-view').getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
+    await page.getByTestId('scheduled-refresh').click();
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   } finally { release(); }
   await expect.poll(() => completed).toBe(true);
@@ -256,13 +273,14 @@ test('paused autosave preserves the original record and Send now resumes its upd
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   const writes: Record<string, unknown>[] = []; let drafts = 0; let immediate = 0; let enqueues = 0;
   await page.route('**/api/mail/scheduled/queued-1', route => {
+    if (route.request().method() === 'GET') return route.fallback();
     const body: Record<string, unknown> = route.request().postDataJSON(); writes.push(body);
     rows[0].revision++; rows[0].state = body.keepEditing === true ? 'editing' : 'pending';
     return route.fulfill({ json: rows[0] });
   });
   await page.route('**/api/mail/draft', route => { drafts++; return route.fulfill({ json: { uid: 44, folder: 'Drafts' } }); });
   await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ status: 503, json: {} }); });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: rows });
     enqueues++; return route.fulfill({ status: 503, json: {} });
   });
@@ -276,7 +294,7 @@ test('paused autosave preserves the original record and Send now resumes its upd
   await expect(page.getByTestId('compose-send')).toBeEnabled();
   await page.getByTestId('compose-send').click();
   await expect.poll(() => writes.length).toBe(2);
-  expect(writes[1]).toMatchObject({ revision: 2, sendNow: true, timeZone: 'UTC', message: { ...message, subject: 'Saved while paused' } });
+  expect(writes[1]).toMatchObject({ revision: 2, sendNow: true, timeZone: 'Europe/Warsaw', message: { ...message, subject: 'Saved while paused' } });
   expect(writes[1]).not.toHaveProperty('keepEditing');
   expect(drafts).toBe(0); expect(immediate).toBe(0); expect(enqueues).toBe(0);
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
@@ -288,7 +306,7 @@ test('default zero keeps the existing immediate send path', async ({ page, fixtu
   await page.route('**/api/mail/send', route => {
     sent = route.request().postDataJSON(); return route.fulfill({ json: { ok: true } });
   });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     queued++; return route.fulfill({ status: 503, json: {} });
   });
@@ -306,6 +324,7 @@ test('editing a queued primary sender never reapplies the account default alias'
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], state: 'editing', message: primaryMessage } }));
   let resumed: Record<string, unknown> | undefined;
   await page.route('**/api/mail/scheduled/queued-1', route => {
+    if (route.request().method() === 'GET') return route.fallback();
     resumed = route.request().postDataJSON(); return route.fulfill({ json: { ...rows[0], revision: 2 } });
   });
   await page.getByTestId('scheduled-edit-queued-1').click();
@@ -356,7 +375,12 @@ test('a queue read slower than the poll interval still restores pending Undo aft
     // Only the original response is released. A poll must not supersede it forever.
     releaseFirst();
     await expect(page.getByTestId('scheduled-undo-queued-1')).toBeVisible();
-    await outbox(page);
+    if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByTestId('mobile-topbar-menu').click();
+    await page.getByTestId('sidebar-scheduled').click();
+    await expect(page.getByTestId('scheduled-view')).toHaveAttribute('aria-busy', 'true');
+    await page.clock.fastForward(6_000);
+    releaseLater();
+    await expect(page.getByTestId('scheduled-view')).toHaveAttribute('aria-busy', 'false');
     await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Queued fixture');
   } finally { releaseFirst(); releaseLater(); }
 });
@@ -368,7 +392,7 @@ test('schedule confirmation waits for an in-flight autosave without discarding t
   await page.route('**/api/mail/draft', async route => {
     saving = true; await gate; return route.fulfill({ json: { uid: 44, folder: 'Drafts', uidValidity: 1 } });
   });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     queued = route.request().postDataJSON(); return route.fulfill({ json: pending({ mode: 'schedule' }) });
   });
@@ -377,11 +401,13 @@ test('schedule confirmation waits for an in-flight autosave without discarding t
     await page.clock.fastForward(30_000);
     await expect.poll(() => saving).toBe(true);
     await expect(page.getByTestId('schedule-confirm')).toBeDisabled();
-    await expect(page.getByTestId('schedule-date-time')).toBeVisible();
+    await expect(page.getByTestId('schedule-date')).toBeVisible();
     expect(queued).toBeUndefined();
   } finally { release(); }
   await expect(page.getByTestId('schedule-confirm')).toBeEnabled();
-  await expect(page.getByTestId('schedule-date-time')).toHaveValue('2030-01-15T13:45');
+  await expect(page.getByTestId('schedule-date')).toHaveValue('2030-01-15');
+  await expect(page.getByTestId('schedule-hour')).toHaveValue('13');
+  await expect(page.getByTestId('schedule-minute')).toHaveValue('45');
   await page.getByTestId('schedule-confirm').click();
   await expect.poll(() => queued).toMatchObject({ mode: 'schedule', scheduledAt: '2030-01-15T12:45:00.000Z', timeZone: 'Europe/Warsaw' });
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
@@ -391,7 +417,7 @@ test('an open formatting popup is removed while sending and stays unavailable af
   await fixtureApi; await boot(page, [], { undo: 60 }); await compose(page);
   let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
   let sending = false;
-  await page.route('**/api/mail/scheduled', async route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, async route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     sending = true; await gate; return route.abort('connectionfailed');
   });
@@ -424,6 +450,7 @@ test('held queued autosave allows body and recipient edits, serializes writes an
   const writes: Record<string, unknown>[] = []; let deliveries = 0;
   await page.route('**/api/mail/send', route => { deliveries++; return route.fulfill({ status: 503, json: {} }); });
   await page.route('**/api/mail/scheduled/queued-1', async route => {
+    if (route.request().method() === 'GET') return route.fallback();
     const body: Record<string, unknown> = route.request().postDataJSON(); writes.push(body);
     if (writes.length === 1) await gate;
     rows[0].revision++;
@@ -464,11 +491,12 @@ test('lost queued autosave acknowledgement stays editable and replays exact snap
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   const writes: Record<string, unknown>[] = []; let deliveries = 0; let enqueues = 0;
   await page.route('**/api/mail/send', route => { deliveries++; return route.fulfill({ status: 503, json: {} }); });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: rows });
     enqueues++; return route.fulfill({ status: 503, json: {} });
   });
   await page.route('**/api/mail/scheduled/queued-1', route => {
+    if (route.request().method() === 'GET') return route.fallback();
     writes.push(route.request().postDataJSON());
     if (writes.length === 1) { rows[0].revision = 2; return route.abort('connectionfailed'); }
     if (writes.length > 2) rows[0].revision++;
@@ -508,6 +536,7 @@ test('late queued autosave acknowledgement after logout cannot restore editing o
   let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
   let writes = 0; let completed = false;
   await page.route('**/api/mail/scheduled/queued-1', async route => {
+    if (route.request().method() === 'GET') return route.fallback();
     writes++; await gate; await route.fulfill({ json: { ...rows[0], revision: 2 } }); completed = true;
   });
   await page.getByTestId('scheduled-edit-queued-1').click();
@@ -515,7 +544,7 @@ test('late queued autosave acknowledgement after logout cannot restore editing o
   try {
     await page.clock.fastForward(30_000); await expect.poll(() => writes).toBe(1);
     await page.locator('.tiptap-compose [contenteditable="true"]').fill('Local edit before logout');
-    await page.route('**/api/mail/scheduled', route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
+    await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
     await page.clock.fastForward(6_000);
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   } finally { release(); }
@@ -555,7 +584,14 @@ test('uncertain dismissal confirms without cancellation or resend and retains on
   expect(writes).toEqual([{ url: '/api/mail/scheduled/queued-1/dismiss', body: { revision: 1 } }]);
   await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Queued fixture');
   await expect(page.getByTestId('scheduled-item-queued-1')).not.toContainText('Frozen queued body');
-  await expect(page.getByTestId('scheduled-item-queued-1').getByRole('button')).toHaveCount(0);
+  // Return to the mobile list before selecting again: hidden rows are not interactive.
+  if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByTestId('scheduled-back').click();
+  const item = page.getByTestId('scheduled-item-queued-1').getByRole('button');
+  await expect(item).toHaveCount(1); await item.click();
+  // Selection is read-only; no delivery action may reappear for a dismissed result.
+  for (const action of ['edit', 'reschedule', 'cancel', 'dismiss']) {
+    await expect(page.getByTestId(`scheduled-${action}-queued-1`)).toHaveCount(0);
+  }
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
 });
 
@@ -574,8 +610,8 @@ test('late uncertain dismissal acknowledgement is fenced after session expiratio
     page.once('dialog', dialog => dialog.accept());
     await page.getByTestId('scheduled-dismiss-queued-1').click();
     await expect.poll(() => writes.length).toBe(1);
-    await page.route('**/api/mail/scheduled', route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
-    await page.getByTestId('scheduled-view').getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
+    await page.getByTestId('scheduled-refresh').click();
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   } finally { release(); }
   await expect.poll(() => completed).toBe(true);
@@ -590,6 +626,7 @@ test('queued autosave conflict preserves local text and never rebases or sends a
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   const writes: Record<string, unknown>[] = [];
   await page.route('**/api/mail/scheduled/queued-1', route => {
+    if (route.request().method() === 'GET') return route.fallback();
     writes.push(route.request().postDataJSON()); rows[0].revision = 7;
     return route.fulfill({ status: 409, json: { error: 'Another client changed this message', code: 'SCHEDULE_CHANGED' } });
   });
@@ -642,7 +679,7 @@ test('split Send menu is accessible and stays in the viewport', async ({ page, f
   expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
   if (viewport.width >= 768) expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(sendBox.y);
   await page.getByTestId('compose-schedule').click();
-  await expect(page.getByTestId('schedule-date-time')).toBeVisible();
+  await expect(page.getByTestId('schedule-date')).toBeVisible();
 });
 
 test('mail merge confirms separate private delivery and retries one frozen batch', async ({ page, fixtureApi }) => {
@@ -664,12 +701,17 @@ test('mail merge confirms separate private delivery and retries one frozen batch
   // the malformed chip in the authored recipient list.
   await page.getByTitle('A <a@example.test> B <b@example.test>', { exact: true }).getByRole('button').click();
   await expect(page.getByTitle('A <a@example.test> B <b@example.test>', { exact: true })).toHaveCount(0);
-  page.once('dialog', dialog => {
-    expect(dialog.message()).toContain('Each message will show only its recipient');
-    return dialog.accept();
-  });
+  let nativeDialogs = 0;
+  page.on('dialog', async dialog => { nativeDialogs++; await dialog.dismiss(); });
   await page.getByTestId('compose-send-menu').click();
   await page.getByTestId('compose-mail-merge').click();
+  const confirmation = page.getByTestId('mail-merge-dialog');
+  await expect(confirmation).toContainText('3');
+  await expect(confirmation).toContainText('Each message will show only its recipient');
+  await page.keyboard.press('Control+Enter');
+  expect(requests).toHaveLength(0);
+  await page.getByTestId('mail-merge-confirm').click();
+  expect(nativeDialogs).toBe(0);
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0].body).toMatchObject({ message: {
     to: ['recipient@example.test'], cc: ['automatic@example.test'], bcc: ['private@example.test'],
@@ -689,14 +731,14 @@ test('keyboard activity in merge warnings cannot send an ordinary message or cha
   let immediate = 0; let merges = 0; const schedules: Record<string, unknown>[] = [];
   await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ status: 503 }); });
   await page.route('**/api/mail/merge', route => { merges++; return route.fulfill({ json: { id: 'batch', count: 3, items: [] } }); });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     schedules.push(route.request().postDataJSON());
     return route.fulfill({ json: pending({ mode: 'schedule' }) });
   });
   await page.getByPlaceholder(/^(Add a subject|Subject)$/).fill('');
-  page.once('dialog', dialog => dialog.accept());
   await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-mail-merge').click();
+  await page.getByTestId('mail-merge-confirm').click();
   await expect(page.getByText('Send without a subject?')).toBeVisible();
   await page.keyboard.press('Control+Enter'); await page.keyboard.press('Meta+Enter');
   expect(immediate).toBe(0); expect(merges).toBe(0); expect(schedules).toHaveLength(0);
@@ -719,15 +761,15 @@ test('forgotten attachment warning keeps a confirmed merge through keyboard acti
   await page.locator('.tiptap-compose [contenteditable="true"]').fill('Please see attached');
   let immediate = 0; let scheduled = 0; let merge = 0;
   await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ status: 503 }); });
-  await page.route('**/api/mail/scheduled', route => {
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: [] });
     scheduled++; return route.fulfill({ status: 503 });
   });
   await page.route('**/api/mail/merge', route => {
     merge++; return route.fulfill({ json: { id: 'batch', count: 3, items: [] } });
   });
-  page.once('dialog', dialog => dialog.accept());
   await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-mail-merge').click();
+  await page.getByTestId('mail-merge-confirm').click();
   await expect(page.getByText('Forgot an attachment?')).toBeVisible();
   await page.keyboard.press('Control+Enter'); await page.keyboard.press('Meta+Enter');
   expect(immediate).toBe(0); expect(scheduled).toBe(0); expect(merge).toBe(0);
@@ -775,6 +817,7 @@ test('a queued editor cannot be converted to mail merge, including by keyboard s
   let mergeRequests = 0; let queuedUpdates = 0;
   await page.route('**/api/mail/merge', route => { mergeRequests++; return route.fulfill({ status: 503 }); });
   await page.route('**/api/mail/scheduled/queued-1', route => {
+    if (route.request().method() === 'GET') return route.fallback();
     if (route.request().method() === 'PUT') queuedUpdates++;
     return route.fulfill({ json: pending({ state: 'pending', revision: 2 }) });
   });
@@ -802,11 +845,12 @@ for (const outcome of ['success', 'conflict', 'lost response', 'logout'] as cons
     let release: () => void = () => {};
     const gate = new Promise<void>(resolve => { release = resolve; });
     await page.route('**/api/mail/send', route => { deliveries++; return route.fulfill({ status: 503, json: {} }); });
-    await page.route('**/api/mail/scheduled', route => {
+    await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
       if (route.request().method() === 'GET') return route.fulfill({ json: rows });
       enqueues++; return route.fulfill({ status: 503, json: {} });
     });
     await page.route('**/api/mail/scheduled/queued-1', async route => {
+    if (route.request().method() === 'GET') return route.fallback();
       writes.push(route.request().postDataJSON());
       if (writes.length === 1) { rows[0].revision = 2; return route.abort('connectionfailed'); }
       if (writes.length === 2) {
@@ -835,7 +879,7 @@ for (const outcome of ['success', 'conflict', 'lost response', 'logout'] as cons
       await page.getByTestId('compose-to').fill('newest@example.test');
       await page.getByTestId('compose-to').press('Enter');
       if (outcome === 'logout') {
-        await page.route('**/api/mail/scheduled', route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
+        await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
         await page.clock.fastForward(6_000);
         await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
       }

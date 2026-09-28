@@ -2567,7 +2567,7 @@
   "queue": {
     "title": "Programmati / posta in uscita",
     "scheduleSend": "Programma invio",
-    "startMailMerge": "Avvia stampa unione",
+    "startMailMerge": "Invia stampa unione",
     "sendOptions": "Opzioni di invio",
     "mergeConfirm": "Inviare un messaggio separato a ciascuno dei {{count}} destinatari univoci? Ogni messaggio mostrerà solo il proprio destinatario. Il tempo per annullare inizia dopo la preparazione.",
     "mergeQueued": "{{count}} messaggi individuali in coda",
@@ -2577,8 +2577,6 @@
     "retryEnqueue": "Riprova la stessa richiesta",
     "pendingAcknowledgement": "Manca la conferma di invio. Riprova la stessa richiesta per evitare duplicati.",
     "saveSchedule": "Programma messaggio",
-    "dateTime": "Data e ora",
-    "timeZone": "Fuso orario (IANA)",
     "invalidTime": "Inserisci data, ora e fuso validi. Questa ora locale potrebbe non esistere.",
     "ambiguousTime": "Questa ora si verifica due volte. Scegli un orario non ambiguo.",
     "pastTime": "Scegli un orario futuro.",
@@ -2614,6 +2612,20 @@
       "dismissed": "Rimosso",
       "cancelled": "Annullato"
     },
-    "pausedAvailable": "Invio in pausa. La composizione attuale rimane invariata. Apri in seguito Programmati / posta in uscita per modificare il messaggio in pausa."
+    "pausedAvailable": "Invio in pausa. La composizione attuale rimane invariata. Apri in seguito Programmati / posta in uscita per modificare il messaggio in pausa.",
+    "hour": "Ora",
+    "minute": "Minuto",
+    "recipientCount": "Destinatari: {{count}}",
+    "attachments": "Allegati",
+    "threadContext": "Messaggi precedenti in questa conversazione",
+    "sourceUnavailable": "Il messaggio originale non è disponibile. La risposta in coda resta visibile qui sotto.",
+    "previewUnavailable": "La copia del messaggio non è disponibile. Lo stato di consegna resta visibile sopra.",
+    "previewError": "Impossibile caricare l’anteprima. Aggiorna per riprovare.",
+    "selectMessage": "Seleziona un messaggio per visualizzare l’anteprima",
+    "seenError": "Impossibile salvare la visualizzazione dello stato. Il risultato potrebbe riapparire alla prossima visita.",
+    "loadMore": "Carica altri",
+    "deliveryError": "Errore di consegna: {{code}}",
+    "previewTitle": "Anteprima del messaggio",
+    "recipientsUnavailable": "Dati dei destinatari non disponibili"
   }
 }

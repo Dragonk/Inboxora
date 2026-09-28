@@ -4,6 +4,15 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 describe('migration integrity', () => {
+  it('adds seen receipts after merge batches without rewriting delivery state or retained content', () => {
+    const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
+    expect(files[files.indexOf('0154_mail_merge_batches.sql') + 1]).toBe('0155_scheduled_mail_seen.sql');
+    const sql = readFileSync(join(process.cwd(), 'migrations/0155_scheduled_mail_seen.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN sent_seen_at TIMESTAMPTZ');
+    expect(sql).toContain("ADD COLUMN sent_metadata JSONB NOT NULL DEFAULT '{}'::jsonb");
+    expect(sql).toContain("WHERE state = 'sent' AND sent_seen_at IS NULL");
+    expect(sql).not.toMatch(/UPDATE\s+scheduled_mail|DELETE\s+FROM|DROP\s+/i);
+  });
   it('adds durable, bounded mail merge receipts after scheduled-mail dismissal', () => {
     const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
     expect(files[files.indexOf('0153_scheduled_mail_dismissal.sql') + 1]).toBe('0154_mail_merge_batches.sql');

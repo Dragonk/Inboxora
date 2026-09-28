@@ -2567,7 +2567,7 @@
   "queue": {
     "title": "Geplant / Postausgang",
     "scheduleSend": "Senden planen",
-    "startMailMerge": "Serienmail starten",
+    "startMailMerge": "Serienmail senden",
     "sendOptions": "Sendeoptionen",
     "mergeConfirm": "Eine separate Nachricht an jeden der {{count}} eindeutigen Empfänger senden? Jede Nachricht zeigt nur ihren eigenen Empfänger. Die Rückgängig-Frist beginnt nach der Vorbereitung.",
     "mergeQueued": "{{count}} einzelne Nachrichten eingereiht",
@@ -2577,8 +2577,6 @@
     "retryEnqueue": "Dieselbe Anfrage wiederholen",
     "pendingAcknowledgement": "Die Versandbestätigung fehlt. Wiederholen Sie dieselbe Anfrage, um Duplikate zu vermeiden.",
     "saveSchedule": "Nachricht planen",
-    "dateTime": "Datum und Uhrzeit",
-    "timeZone": "Zeitzone (IANA)",
     "invalidTime": "Geben Sie ein gültiges Datum, eine Uhrzeit und Zeitzone ein. Diese Ortszeit existiert möglicherweise nicht.",
     "ambiguousTime": "Diese Uhrzeit tritt zweimal auf. Wählen Sie eine eindeutige Zeit.",
     "pastTime": "Wählen Sie einen zukünftigen Zeitpunkt.",
@@ -2614,6 +2612,20 @@
       "dismissed": "Entfernt",
       "cancelled": "Abgebrochen"
     },
-    "pausedAvailable": "Versand angehalten. Ihr aktueller Entwurf bleibt erhalten. Öffnen Sie später Geplant / Postausgang, um die angehaltene Nachricht zu bearbeiten."
+    "pausedAvailable": "Versand angehalten. Ihr aktueller Entwurf bleibt erhalten. Öffnen Sie später Geplant / Postausgang, um die angehaltene Nachricht zu bearbeiten.",
+    "hour": "Stunde",
+    "minute": "Minute",
+    "recipientCount": "Empfänger: {{count}}",
+    "attachments": "Anhänge",
+    "threadContext": "Frühere Nachrichten in diesem Verlauf",
+    "sourceUnavailable": "Die ursprüngliche Nachricht ist nicht verfügbar. Ihre geplante Antwort wird weiterhin unten angezeigt.",
+    "previewUnavailable": "Die Nachrichtenkopie ist nicht verfügbar. Der Zustellstatus wird weiterhin oben angezeigt.",
+    "previewError": "Die Vorschau konnte nicht geladen werden. Aktualisieren Sie die Ansicht.",
+    "selectMessage": "Wählen Sie eine Nachricht für die Vorschau",
+    "seenError": "Der angezeigte Status konnte nicht gespeichert werden. Der Eintrag erscheint möglicherweise beim nächsten Besuch erneut.",
+    "loadMore": "Weitere laden",
+    "deliveryError": "Zustellfehler: {{code}}",
+    "previewTitle": "Nachrichtenvorschau",
+    "recipientsUnavailable": "Empfängerdaten nicht verfügbar"
   }
 }

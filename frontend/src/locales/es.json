@@ -2567,7 +2567,7 @@
   "queue": {
     "title": "Programados / bandeja de salida",
     "scheduleSend": "Programar envío",
-    "startMailMerge": "Iniciar combinación de correspondencia",
+    "startMailMerge": "Enviar combinación de correspondencia",
     "sendOptions": "Opciones de envío",
     "mergeConfirm": "¿Enviar un mensaje distinto a cada uno de los {{count}} destinatarios únicos? Cada mensaje mostrará solo a su destinatario. El plazo para deshacer comienza después de la preparación.",
     "mergeQueued": "{{count}} mensajes individuales en cola",
@@ -2577,8 +2577,6 @@
     "retryEnqueue": "Reintentar la misma solicitud",
     "pendingAcknowledgement": "Falta la confirmación de envío. Reintenta la misma solicitud para evitar duplicados.",
     "saveSchedule": "Programar mensaje",
-    "dateTime": "Fecha y hora",
-    "timeZone": "Zona horaria (IANA)",
     "invalidTime": "Introduce una fecha, hora y zona válidas. Es posible que esta hora local no exista.",
     "ambiguousTime": "Esta hora ocurre dos veces. Elige una hora sin ambigüedad.",
     "pastTime": "Elige una hora futura.",
@@ -2614,6 +2612,20 @@
       "dismissed": "Descartado",
       "cancelled": "Cancelado"
     },
-    "pausedAvailable": "Envío pausado. La redacción actual se conserva. Abre más tarde Programados / bandeja de salida para editar el mensaje pausado."
+    "pausedAvailable": "Envío pausado. La redacción actual se conserva. Abre más tarde Programados / bandeja de salida para editar el mensaje pausado.",
+    "hour": "Hora",
+    "minute": "Minuto",
+    "recipientCount": "Destinatarios: {{count}}",
+    "attachments": "Archivos adjuntos",
+    "threadContext": "Mensajes anteriores de esta conversación",
+    "sourceUnavailable": "El mensaje original no está disponible. Tu respuesta en cola sigue disponible a continuación.",
+    "previewUnavailable": "La copia del mensaje no está disponible. Su estado de entrega sigue visible arriba.",
+    "previewError": "No se pudo cargar la vista previa. Actualiza para volver a intentarlo.",
+    "selectMessage": "Selecciona un mensaje para ver la vista previa",
+    "seenError": "No se pudo guardar que has visto el estado. El resultado puede volver a aparecer en tu próxima visita.",
+    "loadMore": "Cargar más",
+    "deliveryError": "Error de entrega: {{code}}",
+    "previewTitle": "Vista previa del mensaje",
+    "recipientsUnavailable": "Datos de destinatarios no disponibles"
   }
 }

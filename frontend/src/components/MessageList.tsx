@@ -292,7 +292,7 @@ export default function MessageList() {
   // Layout picker
   const [showLayoutPicker, setShowLayoutPicker] = useState(false);
   const [layoutPickerPos, setLayoutPickerPos] = useState<{ top: number; right: number } | null>(null);
-  const mailListActive = useStore((state: StoreState) => !state.showContacts && !state.showCalendar && !state.selectedMessageId);
+  const mailListActive = useStore((state: StoreState) => !state.showContacts && !state.showCalendar && !state.showScheduled && !state.selectedMessageId);
   useBackLayer(mailListActive && (selectionModeActive || selectedIds.size > 0), () => { setSelectedIds(new Set()); setSelectionModeActive(false); }, 5);
   useBackLayer(mailListActive && (showFolderPicker || showLayoutPicker), () => { setShowFolderPicker(false); setShowLayoutPicker(false); }, 4000);
   useBackLayer(mailListActive && searchQuery, () => setSearchQuery(''), 4);

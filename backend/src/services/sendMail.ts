@@ -454,6 +454,8 @@ export interface SendExecutionResult {
 }
 export interface SendExecutionOptions {
   prepareOnly?: boolean;
+  /** Keep exact Sent-copy identity in a queued delivery receipt, not a second message snapshot. */
+  includeSentReference?: boolean;
   expectedSenderEmail?: string;
   beforeDispatch?: () => Promise<boolean>;
 }
@@ -751,6 +753,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
     if (reservationRenewal) clearInterval(reservationRenewal);
     reservationRenewal = null;
   };
+  let sentReference: { rfcMessageId?: string; providerMessageId?: string } | undefined;
   let delivered = false; // true once the transport has actually accepted the message for delivery
   let dispatchStarted = false;
   let finalizationStarted = false;
@@ -1163,6 +1166,12 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
       });
     }
     delivered = true;
+    if (options.includeSentReference) {
+      sentReference = {
+        ...(transport.kind !== 'microsoft_graph' ? { rfcMessageId: messageId } : {}),
+        ...(outcome.providerMessageId ? { providerMessageId: outcome.providerMessageId } : {}),
+      };
+    }
     // Capture recipient outcomes immediately. Any later Sent-folder/metadata failure
     // must return the same transport result to both the client and idempotency replay.
     const acceptedRecipients = outcome.accepted;
@@ -1307,7 +1316,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
       }
     }
 
-    const sendResult: { ok: boolean; sentCopySaved?: boolean; sentFolder?: string; accepted?: string[]; rejected?: string[]; partialDelivery?: boolean } = { ok: true };
+    const sendResult: { ok: boolean; sentReference?: typeof sentReference; sentCopySaved?: boolean; sentFolder?: string; accepted?: string[]; rejected?: string[]; partialDelivery?: boolean } = { ok: true, ...(sentReference ? { sentReference } : {}) };
     // A server can accept some RCPT commands and reject others without throwing. Preserve
     // that non-retryable partial outcome so the client never assumes every recipient got it.
     if (rejectedRecipients.length) {
@@ -1341,6 +1350,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
       console.error('Post-send processing failed:', err.message);
       const sendResult = {
         ok: true,
+        ...(sentReference ? { sentReference } : {}),
         sentCopySaved: false,
         ...(transportRecipients?.rejected.length ? {
           partialDelivery: true,
