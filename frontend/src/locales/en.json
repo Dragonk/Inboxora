@@ -216,10 +216,9 @@
       "count": "{{n}} of {{max}} actions"
     },
     "aliases": {
-      "title": "Aliases",
-      "description": "Aliases let you send from a different name or address using this account's SMTP credentials. Select an alias in the From field when composing. Inboxora will automatically reply from an alias if a message was addressed to it.",
+      "title": "Sender addresses",
+      "description": "Choose the default sender for new messages. Replies use the address originally contacted when it matches this account or a configured alias. Your mail provider must allow sending from the selected alias.",
       "addButton": "Add alias",
-      "empty": "No aliases yet",
       "newTitle": "New alias",
       "editTitle": "Edit alias",
       "name": "Display name",
@@ -236,7 +235,12 @@
       "errorRequired": "Name and email are required",
       "deleteConfirmTitle": "Delete alias?",
       "deleteConfirmBody": "This alias will be permanently removed. This cannot be undone.",
-      "deleteConfirmLabel": "Delete"
+      "deleteConfirmLabel": "Delete",
+      "defaultSender": "Default sender for new messages",
+      "primaryAddress": "Primary account address",
+      "cannotRemove": "Cannot be removed",
+      "selectedDefault": "Default sender",
+      "useDefault": "Use {{email}} as the default sender"
     },
     "appearance": {
       "title": "Appearance",

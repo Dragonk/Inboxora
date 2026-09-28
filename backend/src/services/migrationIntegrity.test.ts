@@ -4,6 +4,14 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 describe('migration integrity', () => {
+  it('adds an account-scoped optional sender alias without changing historical migrations', () => {
+    const sql = readFileSync(join(process.cwd(), 'migrations/0150_account_default_sender.sql'), 'utf8');
+    expect(sql).toContain('UNIQUE (id, account_id)');
+    expect(sql).toContain('FOREIGN KEY (default_alias_id, id) REFERENCES account_aliases (id, account_id)');
+    expect(sql).toContain('ON DELETE SET NULL (default_alias_id)');
+    expect(sql).not.toContain('UPDATE email_accounts');
+  });
+
   it('keeps historical 0002 byte-identical to upstream checkout', () => {
     const current = readFileSync(join(process.cwd(), 'migrations/0002_subject_threading.sql'));
     expect(createHash('sha256').update(current).digest('hex')).toBe('b38fc30e6626f4e8a75819263b31531945a164f36e6a86f1ce0d301b3b421116');

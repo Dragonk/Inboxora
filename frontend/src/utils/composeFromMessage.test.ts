@@ -363,3 +363,21 @@ describe('quoted body templates', () => {
   });
 
 });
+
+
+describe('Reply All excludes normalized delivery-address fallbacks (#21)', () => {
+  it('does not copy an unconfigured catch-all identity back to itself when the email field is blank', async () => {
+    const h = harness();
+    await openReplyFromMessage({
+      account_id: 'a', from_email: 'sender@example.com',
+      delivery_addresses: [{ email: ' ', address: 'Catchall <catchall@example.com>' }],
+      to_addresses: [{ email: 'catchall@example.com' }, { email: 'keep@example.com' }],
+    }, {
+      accounts: [{ id: 'a', email_address: 'primary@example.com' }],
+      openCompose: h.openCompose, getMessageBody: h.getMessageBody, replyAll: true,
+    });
+    assert.equal(h.payload().aliasId, null); // Metadata alone never grants send-as permission.
+    assert.deepEqual(h.payload().cc, [{ email: 'keep@example.com' }]);
+    assert.deepEqual(h.payload().allRecipients, [{ email: 'keep@example.com' }]);
+  });
+});

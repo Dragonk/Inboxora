@@ -26,6 +26,7 @@ import { toAppError } from '../utils/errors.ts';
 import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
+import { initialComposeSender } from '../utils/composeSender.ts';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -305,18 +306,12 @@ export default function ComposeModal() {
     if (initialComposeData?.quotedBody !== undefined) setQuotedBodyState(initialComposeData.quotedBody);
   }, []);
 
-  const initialFromValue = () => {
-    if (composeData?.aliasId && composeData?.accountId) {
-      return `alias:${composeData.aliasId}:${composeData.accountId}`;
-    }
-    const lastUsedId = localStorage.getItem('mailflow_last_from_account');
-    const acctId = composeData?.accountId
-      || useStore.getState().selectedAccountId
-      || (lastUsedId && accounts.find(a => a.id === lastUsedId) ? lastUsedId : null)
-      || accounts[0]?.id
-      || '';
-    return acctId ? `account:${acctId}` : '';
-  };
+  const initialFromValue = () => initialComposeSender({
+    accounts,
+    draft: composeData,
+    selectedAccountId: useStore.getState().selectedAccountId,
+    lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
+  });
   const [fromValue, setFromValueState] = useState(initialFromValue);
   const setFromValue = (value: React.SetStateAction<string>) => { recordDraftEdit(); setFromValueState(value); };
   if (initialFromRef.current === null) initialFromRef.current = fromValue;
@@ -1475,6 +1470,8 @@ export default function ComposeModal() {
             <span style={labelStyle}>{t('compose.from')}</span>
             <select
               value={fromValue}
+            aria-label={t('compose.from')}
+            data-testid="compose-from"
               onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
               style={{ ...mobileInputStyle, cursor: 'pointer' }}
             >
@@ -2126,6 +2123,8 @@ export default function ComposeModal() {
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
           <select
             value={fromValue}
+            aria-label={t('compose.from')}
+            data-testid="compose-from"
             onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
             style={{ flex: 1, padding: '8px 4px', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: 13, outline: 'none', cursor: 'pointer' }}
           >

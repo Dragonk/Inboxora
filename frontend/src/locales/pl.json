@@ -285,10 +285,9 @@
       "archive": "Archiwum"
     },
     "aliases": {
-      "title": "Aliasy",
-      "description": "Aliasy pozwalają wysyłać wiadomości z inną nazwą lub adresem, używając danych SMTP konta. Podczas tworzenia wiadomości wybierz alias w polu „Od”. Inboxora automatycznie odpowie z użyciem aliasu, jeśli wiadomość została na niego wysłana.",
+      "title": "Adresy nadawcy",
+      "description": "Wybierz domyślnego nadawcę nowych wiadomości. Odpowiedzi używają adresu, na który przyszedł mail, jeżeli należy do tego konta lub skonfigurowanego aliasu. Dostawca poczty musi zezwalać na wysyłanie z wybranego aliasu.",
       "addButton": "Dodaj alias",
-      "empty": "Brak aliasów",
       "newTitle": "Nowy alias",
       "editTitle": "Edytuj alias",
       "name": "Nazwa wyświetlana",
@@ -305,7 +304,12 @@
       "errorRequired": "Nazwa i adres e-mail są wymagane",
       "deleteConfirmTitle": "Usuń alias?",
       "deleteConfirmBody": "Ten alias zostanie trwale usunięty. Tej operacji nie można cofnąć.",
-      "deleteConfirmLabel": "Usuń"
+      "deleteConfirmLabel": "Usuń",
+      "defaultSender": "Domyślny nadawca nowych wiadomości",
+      "primaryAddress": "Główny adres konta",
+      "cannotRemove": "Nie można usunąć",
+      "selectedDefault": "Domyślny nadawca",
+      "useDefault": "Użyj {{email}} jako domyślnego nadawcy"
     },
     "appearance": {
       "title": "Wygląd",

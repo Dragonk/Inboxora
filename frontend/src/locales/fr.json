@@ -232,10 +232,9 @@
       "count": "{{n}} sur {{max}} actions"
     },
     "aliases": {
-      "title": "Alias",
-      "description": "Les alias vous permettent d'envoyer depuis un nom ou une adresse différente en utilisant les identifiants SMTP de ce compte. Sélectionnez un alias dans le champ De lors de la composition. Inboxora répondra automatiquement depuis un alias si un message lui était adressé.",
+      "title": "Adresses d’expédition",
+      "description": "Choisissez l’expéditeur par défaut des nouveaux messages. Les réponses utilisent l’adresse contactée à l’origine si elle appartient à ce compte ou à un alias configuré. Votre fournisseur de messagerie doit autoriser l’envoi depuis l’alias sélectionné.",
       "addButton": "Ajouter un alias",
-      "empty": "Aucun alias pour l'instant",
       "newTitle": "Nouvel alias",
       "editTitle": "Modifier l'alias",
       "name": "Nom affiché",
@@ -252,7 +251,12 @@
       "errorRequired": "Le nom et l'e-mail sont requis",
       "deleteConfirmTitle": "Supprimer l'alias ?",
       "deleteConfirmBody": "Cet alias sera définitivement supprimé. Cette action est irréversible.",
-      "deleteConfirmLabel": "Supprimer"
+      "deleteConfirmLabel": "Supprimer",
+      "defaultSender": "Expéditeur par défaut des nouveaux messages",
+      "primaryAddress": "Adresse principale du compte",
+      "cannotRemove": "Suppression impossible",
+      "selectedDefault": "Expéditeur par défaut",
+      "useDefault": "Utiliser {{email}} comme expéditeur par défaut"
     },
     "appearance": {
       "title": "Apparence",

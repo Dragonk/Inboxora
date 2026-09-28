@@ -216,10 +216,9 @@
       "count": "{{n}} / {{max}} 个操作"
     },
     "aliases": {
-      "title": "别名",
-      "description": "通过别名，您可以使用此账户的 SMTP 凭据，以不同的名称或地址发送邮件。撰写邮件时可在「发件人」栏选择别名。当邮件原本发往某个别名地址时，Inboxora 会自动以该别名回复。",
+      "title": "发件人地址",
+      "description": "选择新邮件的默认发件人。回复会使用原始收件地址，前提是该地址属于此账户或已配置的别名。邮件服务商必须允许使用所选别名发送邮件。",
       "addButton": "添加别名",
-      "empty": "尚未创建任何别名",
       "newTitle": "新建别名",
       "editTitle": "编辑别名",
       "name": "显示名称",
@@ -236,7 +235,12 @@
       "errorRequired": "名称和邮箱地址为必填项",
       "deleteConfirmTitle": "删除此别名？",
       "deleteConfirmBody": "此别名将被永久移除，操作无法撤销。",
-      "deleteConfirmLabel": "删除"
+      "deleteConfirmLabel": "删除",
+      "defaultSender": "新邮件的默认发件人",
+      "primaryAddress": "账户主地址",
+      "cannotRemove": "无法删除",
+      "selectedDefault": "默认发件人",
+      "useDefault": "将 {{email}} 设为默认发件人"
     },
     "appearance": {
       "title": "外观",

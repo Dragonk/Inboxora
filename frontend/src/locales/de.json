@@ -232,10 +232,9 @@
       "count": "{{n}} von {{max}} Aktionen"
     },
     "aliases": {
-      "title": "Aliasse",
-      "description": "Aliasse ermöglichen das Senden von einem anderen Namen oder einer anderen Adresse über die SMTP-Zugangsdaten dieses Kontos. Im Von-Feld beim Verfassen einen Alias auswählen. Inboxora antwortet automatisch über einen Alias, wenn eine Nachricht an diesen gerichtet war.",
+      "title": "Absenderadressen",
+      "description": "Wählen Sie den Standardabsender für neue Nachrichten. Antworten verwenden die ursprünglich angeschriebene Adresse, sofern sie zu diesem Konto oder einem eingerichteten Alias gehört. Ihr E-Mail-Anbieter muss das Senden über den gewählten Alias erlauben.",
       "addButton": "Alias hinzufügen",
-      "empty": "Noch keine Aliasse",
       "newTitle": "Neuer Alias",
       "editTitle": "Alias bearbeiten",
       "name": "Anzeigename",
@@ -252,7 +251,12 @@
       "errorRequired": "Name und E-Mail sind erforderlich",
       "deleteConfirmTitle": "Alias löschen?",
       "deleteConfirmBody": "Dieser Alias wird dauerhaft entfernt. Dies kann nicht rückgängig gemacht werden.",
-      "deleteConfirmLabel": "Löschen"
+      "deleteConfirmLabel": "Löschen",
+      "defaultSender": "Standardabsender für neue Nachrichten",
+      "primaryAddress": "Hauptadresse des Kontos",
+      "cannotRemove": "Kann nicht entfernt werden",
+      "selectedDefault": "Standardabsender",
+      "useDefault": "{{email}} als Standardabsender verwenden"
     },
     "appearance": {
       "title": "Darstellung",

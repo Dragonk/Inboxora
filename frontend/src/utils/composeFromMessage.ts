@@ -129,6 +129,7 @@ export async function openReplyFromMessage(message: ReplyMessageLike, { accounts
   const myAddresses = collectOwnAddresses({ account: myAccount, message });
 
   const replyAliasId = pickReplyAlias({
+    accountEmail: myAccount?.email_address,
     aliases: myAccount?.aliases || [],
     deliveryAddresses: message.delivery_addresses,
     toAddresses: message.to_addresses,

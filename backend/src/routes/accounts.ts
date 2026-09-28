@@ -71,7 +71,7 @@ router.use('/', calendarManagementRouter);
 
 // Fields safe to return to the client — matches the GET list, excludes credentials and tokens
 const SAFE_FIELDS = [
-  'id', 'name', 'sender_name', 'email_address', 'color', 'protocol',
+  'id', 'name', 'sender_name', 'email_address', 'color', 'protocol', 'default_alias_id',
   'imap_host', 'imap_port', 'imap_skip_tls_verify',
   'smtp_host', 'smtp_port', 'smtp_tls',
   'auth_user', 'smtp_auth_user', 'oauth_provider', 'enabled',
@@ -107,7 +107,7 @@ type EmailAccountDbRow = EmailAccountRow & { protocol?: string | null } & DbRow;
 
 router.get('/', async (req, res) => {
   const result = await query<EmailAccountRow>(
-    `SELECT id, name, sender_name, email_address, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
+    `SELECT id, name, sender_name, email_address, default_alias_id, color, protocol, imap_host, imap_port, imap_tls, imap_skip_tls_verify,
             smtp_host, smtp_port, smtp_tls, auth_user, smtp_auth_user, oauth_provider, enabled,
             include_in_unified_inbox,
             last_sync, sync_error, sort_order, folder_mappings, signature, created_at,
@@ -786,6 +786,39 @@ function respondGoogleCutoverResult(res: Response, accountId: string, result: Aw
       res.status(500).json({ error: 'Unexpected cutover outcome' });
   }
 }
+
+// A single owned account row is the serialization point. The composite FK also
+// fences alias deletion/reassignment racing this update; never accept a foreign alias.
+router.put('/:id/default-sender', async (req, res) => {
+  const aliasId: unknown = req.body?.aliasId;
+  if (aliasId !== null && !isUuid(aliasId)) {
+    return res.status(400).json({ error: 'aliasId must be a UUID or null for the primary address' });
+  }
+  try {
+    const result = await query<{ id: string; default_alias_id: string | null }>(
+      `UPDATE email_accounts SET default_alias_id = $1::uuid
+       WHERE id = $2 AND user_id = $3
+         AND ($1::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM account_aliases WHERE id = $1::uuid AND account_id = $2
+         ))
+       RETURNING id, default_alias_id`,
+      [aliasId, req.params.id, req.session.userId],
+    );
+    if (result.rows.length) return res.json(result.rows[0]);
+    const account = await query<{ id: string }>(
+      'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.session.userId],
+    );
+    return account.rows.length
+      ? res.status(409).json({ error: 'Selected sender alias is unavailable' })
+      : res.status(404).json({ error: 'Account not found' });
+  } catch (error) {
+    if (toAppError(error).code === '23503') {
+      return res.status(409).json({ error: 'Selected sender alias is unavailable' });
+    }
+    throw error;
+  }
+});
 
 // ── Alias CRUD ─────────────────────────────────────────────────────────────
 
