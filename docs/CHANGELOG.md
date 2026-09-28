@@ -45,6 +45,9 @@ finalized below and dated with its publication date.
 - Apply the migration chain through `0154_mail_merge_batches.sql`, in order after `0151_account_default_recipients.sql`, `0152_scheduled_mail.sql` and `0153_scheduled_mail_dismissal.sql`, before starting the updated backend. The new migration adds durable batch receipts for atomic mail merge enqueue and lost-ack replay; earlier migrations are unchanged. Normal startup applies pending migrations. Deploy backend and frontend together; no new provider permissions or environment variables are required.
 - Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
 
+### Fixed
+- The PostgreSQL CardDAV contact-preservation fixture now mocks privilege discovery and rejects unexpected DNS/HTTP access, removing network-dependent CI timeouts without relaxing its data-safety assertions. Application behavior is unchanged.
+
 ## [4.1.2] - 2026-09-28
 
 ### Changed

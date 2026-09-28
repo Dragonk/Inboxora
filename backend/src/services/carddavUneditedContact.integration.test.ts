@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
 import { query } from './db.js';
 import { encrypt } from './encryption.js';
@@ -16,14 +16,41 @@ import { encrypt } from './encryption.js';
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
 const calls = vi.hoisted(() => ({
+  access: vi.fn<typeof import('./carddavClient.js').discoverDavWriteAccess>(),
+  resolveHost: vi.fn<typeof import('./hostValidation.js').validateHost>(),
+  http: vi.fn<typeof import('./davHttpAuth.js').davAuthenticatedFetch>(),
   discover: vi.fn<() => Promise<Array<{ url: string; displayName: string }>>>(),
   cards: vi.fn<() => Promise<Array<{ href: string; etag: string | null; vcard: string }>>>(),
 }));
 vi.mock('./carddavClient.js', async importOriginal => ({
   ...(await importOriginal<typeof import('./carddavClient.js')>()),
   discoverAddressBooks: calls.discover,
+  discoverDavWriteAccess: calls.access,
   fetchAddressBookCards: calls.cards,
 }));
+
+// Fail before DNS/HTTP if a new CardDAV operation bypasses the fixture boundary.
+vi.mock('./hostValidation.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('./hostValidation.js')>()),
+  validateHost: calls.resolveHost,
+}));
+vi.mock('./davHttpAuth.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('./davHttpAuth.js')>()),
+  davAuthenticatedFetch: calls.http,
+}));
+
+beforeEach(() => {
+  calls.access.mockClear();
+  calls.resolveHost.mockClear();
+  calls.http.mockClear();
+});
+
+afterEach(() => {
+  if (!hasPg) return;
+  expect(calls.resolveHost).not.toHaveBeenCalled();
+  expect(calls.http).not.toHaveBeenCalled();
+  expect(calls.access).toHaveBeenCalled();
+});
 
 const userId = crypto.randomUUID();
 const originalKey = process.env.ENCRYPTION_KEY;
@@ -32,6 +59,9 @@ const DAV_VCARD = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:dav-1\r\nFN:Incoming CardDA
 
 beforeAll(async () => {
   if (!hasPg) return;
+  calls.resolveHost.mockRejectedValue(new Error('Unexpected DNS access from the CardDAV database fixture'));
+  calls.http.mockRejectedValue(new Error('Unexpected HTTP access from the CardDAV database fixture'));
+  calls.access.mockResolvedValue('read_only');
   process.env.ENCRYPTION_KEY ||= 'f'.repeat(64);
   await query("INSERT INTO users(id, username, password_hash) VALUES($1, 'dav-foreign-data', 'unused')", [userId]);
   await query(

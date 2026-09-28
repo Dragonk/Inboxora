@@ -72,6 +72,8 @@ The column-specific `ON DELETE SET NULL` requires PostgreSQL 15 or later; the su
 
 ## Validation and acceptance
 
+The PostgreSQL CardDAV contact-preservation fixture also covers privilege discovery at its mocked network boundary. Unexpected DNS/HTTP access fails the fixture immediately; contact-content and DAV-version assertions are unchanged. This fixes a network-dependent CI timeout, not production CardDAV behavior, and requires no migration or configuration change.
+
 Regression coverage includes per-account defaults, primary/manual/saved-draft preservation, delivery/To/Cc precedence, malformed address metadata, account ownership checks and deletion races. A fresh production migration chain and four real PostgreSQL constraint/cascade tests pass on PostgreSQL 16. Browser regressions cover protected primary controls, persistence, new-message defaults and manual selection, default deletion, failed saves and stale settings responses on desktop and mobile.
 
 For acceptance testing, select an alias as default, start a new message, manually switch From, reply to messages addressed to both the primary address and a different alias, reopen a saved draft, and remove the selected default alias. Test sending only with provider-authorized identities. The development image should be published from the exact reviewed SHA after CodeRabbit and required CI checks pass; main remains unmerged until acceptance.
