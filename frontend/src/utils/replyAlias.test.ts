@@ -116,9 +116,8 @@ describe('pickReplyAlias', () => {
     assert.equal(result, 'alias-1');
   });
 
-  it('keeps alias creation order as the tiebreak when To and Cc match different aliases', () => {
-    // alias-1 was created first; the original matcher scanned aliases against
-    // the combined To+Cc set, so it wins even though alias-2 is in To.
+  it('prefers To over Cc regardless of alias creation order', () => {
+    // The contacted To identity is more specific than a Cc alias.
     const result = pickReplyAlias({
       aliases,
       deliveryAddresses: [],
@@ -126,10 +125,10 @@ describe('pickReplyAlias', () => {
       ccAddresses: [{ email: 'sales@example.com' }],
       fromEmail: 'them@example.com',
     });
-    assert.equal(result, 'alias-1');
+    assert.equal(result, 'alias-2');
   });
 
-  it('keeps alias creation order as the tiebreak between a From match and a Cc match', () => {
+  it('prefers a recipient identity over the outgoing From fallback', () => {
     const result = pickReplyAlias({
       aliases,
       deliveryAddresses: [],
@@ -137,7 +136,7 @@ describe('pickReplyAlias', () => {
       ccAddresses: [{ email: 'support@example.com' }],
       fromEmail: 'sales@example.com',
     });
-    assert.equal(result, 'alias-1');
+    assert.equal(result, 'alias-2');
   });
 
   it('lets a delivery match beat alias creation order', () => {
@@ -149,5 +148,30 @@ describe('pickReplyAlias', () => {
       fromEmail: '',
     });
     assert.equal(result, 'alias-2');
+  });
+});
+
+
+describe('reply identity priority and defensive address parsing (#9)', () => {
+  it('stops at a primary delivery or To match instead of choosing a lower-priority alias', () => {
+    assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', deliveryAddresses: ['main@example.com'], toAddresses: [{ email: 'sales@example.com' }] }), null);
+    assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', toAddresses: [{ email: 'main@example.com' }], ccAddresses: [{ email: 'sales@example.com' }] }), null);
+  });
+  it('uses ordered delivery recipients, not alias creation order', () => {
+    assert.equal(pickReplyAlias({ aliases, deliveryAddresses: ['support@example.com', 'sales@example.com'] }), 'alias-2');
+  });
+  it('normalizes strings, parsed address objects, case and whitespace', () => {
+    assert.equal(pickReplyAlias({ aliases, deliveryAddresses: [{ address: ' Support <SUPPORT@example.com> ' }] }), 'alias-2');
+    assert.equal(pickReplyAlias({ aliases, toAddresses: ['SALES@example.com'] }), 'alias-1');
+  });
+  it('does not crash on scalar JSON, null entries or malformed address objects', () => {
+    for (const value of ['null', '123', '{}', '"email@example.com"']) {
+      assert.deepEqual(parseAddressListField(value), []);
+      assert.equal(pickReplyAlias({ aliases, deliveryAddresses: value, toAddresses: value, ccAddresses: value }), null);
+    }
+    assert.equal(pickReplyAlias({ aliases, deliveryAddresses: [null, 5, {}, { email: 7 }] }), null);
+  });
+  it('never promotes an unconfigured delivery address to a sender', () => {
+    assert.equal(pickReplyAlias({ aliases, accountEmail: 'main@example.com', deliveryAddresses: ['unconfigured@example.com'] }), null);
   });
 });

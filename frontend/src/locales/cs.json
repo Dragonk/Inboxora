@@ -292,10 +292,9 @@
       "archive": "Archiv"
     },
     "aliases": {
-      "title": "Aliasy",
-      "description": "Aliasy umožňují odesílat pomocí přihlašovacích údajů SMTP tohoto účtu pod jiným jménem nebo adresou. Při psaní zprávy vyberte alias v poli Od. Pokud byla zpráva adresována aliasu, Inboxora z něj automaticky také odpoví.",
+      "title": "Adresy odesílatele",
+      "description": "Vyberte výchozího odesílatele nových zpráv. Odpovědi používají původně oslovenou adresu, pokud patří tomuto účtu nebo nastavenému aliasu. Poskytovatel pošty musí povolit odesílání ze zvoleného aliasu.",
       "addButton": "Přidat alias",
-      "empty": "Zatím žádné aliasy",
       "newTitle": "Nový alias",
       "editTitle": "Upravit alias",
       "name": "Zobrazované jméno",
@@ -312,7 +311,12 @@
       "errorRequired": "Jméno a e-mail jsou povinné",
       "deleteConfirmTitle": "Smazat alias?",
       "deleteConfirmBody": "Tento alias bude trvale odstraněn. Akci nelze vrátit zpět.",
-      "deleteConfirmLabel": "Smazat"
+      "deleteConfirmLabel": "Smazat",
+      "defaultSender": "Výchozí odesílatel nových zpráv",
+      "primaryAddress": "Hlavní adresa účtu",
+      "cannotRemove": "Nelze odebrat",
+      "selectedDefault": "Výchozí odesílatel",
+      "useDefault": "Použít {{email}} jako výchozího odesílatele"
     },
     "blockList": {
       "description": "E-maily od blokovaných odesílatelů se automaticky přesunou do koše.",

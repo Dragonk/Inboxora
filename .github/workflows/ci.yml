@@ -162,6 +162,7 @@ jobs:
             src/routes/mail.graphLegacyIdentity.integration.test.ts \
             src/routes/calendarPresentation.integration.test.ts \
             src/services/accountNotices.integration.test.ts \
+            src/services/defaultSender.integration.test.ts \
             src/services/carddavSourceOwnership.integration.test.ts \
             src/services/carddavUneditedContact.integration.test.ts \
             src/services/calendarOccurrences.integration.test.ts \

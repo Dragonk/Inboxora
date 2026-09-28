@@ -232,10 +232,9 @@
       "count": "{{n}} de {{max}} acciones"
     },
     "aliases": {
-      "title": "Alias",
-      "description": "Los alias te permiten enviar desde un nombre o dirección diferente usando las credenciales SMTP de esta cuenta. Selecciona un alias en el campo De al redactar. Inboxora responderá automáticamente desde un alias si un mensaje fue dirigido a él.",
+      "title": "Direcciones del remitente",
+      "description": "Elige el remitente predeterminado para los mensajes nuevos. Las respuestas usan la dirección contactada originalmente si pertenece a esta cuenta o a un alias configurado. Tu proveedor de correo debe permitir el envío desde el alias seleccionado.",
       "addButton": "Añadir alias",
-      "empty": "Aún no hay alias",
       "newTitle": "Nuevo alias",
       "editTitle": "Editar alias",
       "name": "Nombre visible",
@@ -252,7 +251,12 @@
       "errorRequired": "El nombre y el correo son obligatorios",
       "deleteConfirmTitle": "¿Eliminar alias?",
       "deleteConfirmBody": "Este alias será eliminado permanentemente. Esta acción no se puede deshacer.",
-      "deleteConfirmLabel": "Eliminar"
+      "deleteConfirmLabel": "Eliminar",
+      "defaultSender": "Remitente predeterminado para mensajes nuevos",
+      "primaryAddress": "Dirección principal de la cuenta",
+      "cannotRemove": "No se puede eliminar",
+      "selectedDefault": "Remitente predeterminado",
+      "useDefault": "Usar {{email}} como remitente predeterminado"
     },
     "appearance": {
       "title": "Apariencia",

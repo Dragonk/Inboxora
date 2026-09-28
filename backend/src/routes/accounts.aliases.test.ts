@@ -220,3 +220,55 @@ describe('account deletion with calendar invitations', () => {
     expect((await response.json()) as JsonBody).toEqual({ error: 'This account is still used to send calendar invitations. Cancel or transfer those invitations before deleting it.' });
   });
 });
+
+
+describe('per-account default sender (#9)', () => {
+  it.each([ALIAS_ID, null])('atomically selects an owned alias or the primary address: %s', async aliasId => {
+    query.mockResolvedValueOnce({ rows: [{ id: URL_ACCOUNT_ID, default_alias_id: aliasId }] });
+    const response = await request('PUT', `${URL_ACCOUNT_ID}/default-sender`, { aliasId });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: URL_ACCOUNT_ID, default_alias_id: aliasId });
+    expect(query).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining('UPDATE email_accounts SET default_alias_id = $1::uuid'),
+      [aliasId, URL_ACCOUNT_ID, 'u1'],
+    );
+    const sql = query.mock.calls[0][0];
+    expect(sql).toContain('user_id = $3');
+    expect(sql).toContain('FROM account_aliases WHERE id = $1::uuid AND account_id = $2');
+    // A preference does not add/remove an identity or reconnect a transport.
+    expectNoIdentityInvalidation();
+  });
+
+  it.each([{}, { aliasId: '' }, { aliasId: false }, { aliasId: 1 }, { aliasId: [] }, { aliasId: 'not-a-uuid' }])('rejects malformed or missing selection: %j', async body => {
+    const response = await request('PUT', `${URL_ACCOUNT_ID}/default-sender`, body);
+    expect(response.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing or foreign alias without changing an owned account', async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: URL_ACCOUNT_ID }] });
+    const response = await request('PUT', `${URL_ACCOUNT_ID}/default-sender`, { aliasId: ALIAS_ID });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Selected sender alias is unavailable' });
+  });
+
+  it("does not disclose another user's account or aliases", async () => {
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    const response = await request('PUT', `${URL_ACCOUNT_ID}/default-sender`, { aliasId: ALIAS_ID });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Account not found' });
+  });
+
+  it('reports an alias-deletion race as a conflict, not a changed sender', async () => {
+    query.mockRejectedValueOnce(Object.assign(new Error('FK conflict'), { code: '23503' }));
+    const response = await request('PUT', `${URL_ACCOUNT_ID}/default-sender`, { aliasId: ALIAS_ID });
+    expect(response.status).toBe(409);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates unexpected database failures without a success acknowledgement', async () => {
+    query.mockRejectedValueOnce(new Error('database unavailable'));
+    const response = await request('PUT', `${URL_ACCOUNT_ID}/default-sender`, { aliasId: null });
+    expect(response.status).toBe(500);
+  });
+});

@@ -1109,6 +1109,7 @@ export type EmailAccountRow = {
   name?: string;
   email?: string;
   sender_name?: string;
+  default_alias_id?: string | null;
   folder_mappings?: FolderMappings | null;
   categorization_enabled?: boolean;
   antispam_enabled?: boolean | null;

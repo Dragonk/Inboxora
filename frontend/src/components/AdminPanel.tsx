@@ -50,6 +50,7 @@ import DesktopNotificationsSection from './desktop/DesktopNotificationsSection.t
 import DesktopDefaultMailSection from './desktop/DesktopDefaultMailSection.tsx';
 import { isElectronShell } from '../utils/desktopShell.ts';
 import SignatureEditor from './SignatureEditor.tsx';
+import SenderAddresses, { type SenderAlias } from './SenderAddresses.tsx';
 import SpamSettings from './SpamSettings.tsx';
 import DiagnosticsReportModal from './DiagnosticsReportModal.tsx';
 import { getEffectiveShortcuts, getGroupedActions, ACTION_DEFS, SPECIAL_KEY_LABELS, parseModKey, modLabel } from '../utils/defaultShortcuts.ts';
@@ -72,6 +73,7 @@ interface AdminAlias {
 }
 interface AdminAccount {
   id: string;
+  default_alias_id?: string | null;
   email_address?: string | null;
   aliases?: AdminAlias[];
   [key: string]: unknown;
@@ -687,7 +689,7 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
 // ─── Accounts Tab ─────────────────────────────────────────────────────────────
 function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) => void } = {}) {
   const { t } = useTranslation();
-  const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress, user } = useStore();
+  const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress, user, authEpoch } = useStore();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'add-imap' | 'edit' | 'folders' | 'aliases'
   // Readiness only. The Accounts screen decides whether a provider sign-in can be offered; it never shows a
   // client id, a secret or a redirect URI, because those are the administrator's, in Integrations.
@@ -804,6 +806,47 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
   const [aliasFormId, setAliasFormId] = useState<string | null>(null);
   const [aliasFormError, setAliasFormError] = useState('');
   const [aliasFormSaving, setAliasFormSaving] = useState(false);
+  const [defaultSenderSaving, setDefaultSenderSaving] = useState(false);
+  const aliasOperation = useRef({ generation: 0, busy: false });
+  // Invalidate responses on navigation, unmount, lock/logout or a new session.
+  useLayoutEffect(() => {
+    const scope = { generation: aliasOperation.current.generation + 1, busy: false };
+    aliasOperation.current = scope;
+    setDefaultSenderSaving(false);
+    setAliasFormSaving(false);
+    return () => { aliasOperation.current = { generation: scope.generation + 1, busy: false }; };
+  }, [editTarget?.id, subview, authEpoch]);
+
+  const beginAliasOperation = () => {
+    const scope = aliasOperation.current;
+    if (scope.busy || !editTarget) return null;
+    scope.busy = true;
+    const epoch = useStore.getState().authEpoch;
+    return {
+      accountId: editTarget.id,
+      current: () => aliasOperation.current === scope && useStore.getState().authEpoch === epoch,
+      finish: () => { scope.busy = false; },
+    };
+  };
+
+  const handleDefaultSender = async (aliasId: string | null) => {
+    const operation = beginAliasOperation();
+    if (!operation) return;
+    setDefaultSenderSaving(true);
+    setAliasFormError('');
+    try {
+      const saved = await api.setDefaultSender(operation.accountId, aliasId);
+      if (!operation.current()) return;
+      updateAccount(operation.accountId, { default_alias_id: saved.default_alias_id });
+      setEditTarget(prev => prev?.id === operation.accountId ? { ...prev, default_alias_id: saved.default_alias_id } : prev);
+    } catch (error) {
+      if (operation.current()) setAliasFormError(toAppError(error).message);
+    } finally {
+      operation.finish();
+      if (operation.current()) setDefaultSenderSaving(false);
+    }
+  };
+
   useBackLayer(subview !== 'list', () => setSubview('list'), 2010);
   useBackLayer(aliasFormMode, () => { if (!aliasFormSaving) setAliasFormMode(null); }, 2020);
 
@@ -922,6 +965,8 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       setAliasFormError(t('admin.aliases.errorRequired'));
       return;
     }
+    const operation = beginAliasOperation();
+    if (!operation) return;
     setAliasFormSaving(true);
     setAliasFormError('');
     try {
@@ -934,13 +979,15 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       let saved: AdminAlias;
       if (aliasFormMode === 'add') {
         saved = await api.addAlias(editTarget.id, payload);
-        const newAliases = [...(editTarget.aliases || []), saved];
+        if (!operation.current()) return;
+        const newAliases = [...(useStore.getState().accounts.find(a => a.id === operation.accountId)?.aliases || []), saved];
         updateAccount(editTarget.id, { aliases: newAliases });
         setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
       } else {
         if (!aliasFormId) return;
         saved = await api.updateAlias(editTarget.id, aliasFormId, payload);
-        const newAliases = (editTarget.aliases || []).map(a => a.id === aliasFormId ? saved : a);
+        if (!operation.current()) return;
+        const newAliases = (useStore.getState().accounts.find(a => a.id === operation.accountId)?.aliases || []).map(a => a.id === aliasFormId ? saved : a);
         updateAccount(editTarget.id, { aliases: newAliases });
         setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
       }
@@ -948,13 +995,14 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
       setAliasFormId(null);
     } catch (err) {
-      setAliasFormError(toAppError(err).message);
+      if (operation.current()) setAliasFormError(toAppError(err).message);
     } finally {
-      setAliasFormSaving(false);
+      operation.finish();
+      if (operation.current()) setAliasFormSaving(false);
     }
   };
 
-  const handleAliasEdit = (alias: AdminAlias) => {
+  const handleAliasEdit = (alias: SenderAlias) => {
     setAliasFormId(alias.id);
     setAliasFormData({
       name: alias.name || '',
@@ -968,15 +1016,29 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
 
   const handleAliasDelete = (aliasId: string) => {
     if (!editTarget) return;
+    const confirmationScope = aliasOperation.current;
+    const confirmationEpoch = useStore.getState().authEpoch;
     setConfirmDialog({
       title: t('admin.aliases.deleteConfirmTitle'),
       message: t('admin.aliases.deleteConfirmBody'),
       confirmLabel: t('admin.aliases.deleteConfirmLabel'),
       onConfirm: async () => {
-        await api.deleteAlias(editTarget.id, aliasId);
-        const newAliases = (editTarget.aliases || []).filter(a => a.id !== aliasId);
-        updateAccount(editTarget.id, { aliases: newAliases });
-        setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
+        if (aliasOperation.current !== confirmationScope || useStore.getState().authEpoch !== confirmationEpoch) return;
+        const operation = beginAliasOperation();
+        if (!operation) return;
+        setDefaultSenderSaving(true);
+        try {
+          await api.deleteAlias(operation.accountId, aliasId);
+          if (!operation.current()) return;
+          const account = useStore.getState().accounts.find(a => a.id === operation.accountId);
+          const newAliases = (account?.aliases || []).filter(a => a.id !== aliasId);
+          const defaultAliasId = account?.default_alias_id === aliasId ? null : account?.default_alias_id ?? null;
+          updateAccount(operation.accountId, { aliases: newAliases, default_alias_id: defaultAliasId });
+          setEditTarget(prev => prev?.id === operation.accountId ? { ...prev, aliases: newAliases, default_alias_id: defaultAliasId } : prev);
+        } finally {
+          operation.finish();
+          if (operation.current()) setDefaultSenderSaving(false);
+        }
       },
     });
   };
@@ -1129,7 +1191,6 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       );
     }
 
-    const aliases = editTarget.aliases || [];
     return (
       <>
       <div>
@@ -1145,6 +1206,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         </div>
 
         <button
+          disabled={defaultSenderSaving || aliasFormSaving}
           onClick={() => { setAliasFormData({ name: '', email: '', reply_to: '', signature: '' }); setAliasFormMode('add'); }}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -1159,59 +1221,10 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
           {t('admin.aliases.addButton')}
         </button>
 
-        {aliases.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
-            {t('admin.aliases.empty')}
-          </div>
-        ) : (
-          aliases.map(alias => (
-            <div key={alias.id} style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 14px', marginBottom: 8,
-              border: '1px solid var(--border-subtle)', borderRadius: 10,
-              background: 'var(--bg-tertiary)',
-            }}>
-              <div style={{
-                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-                background: 'var(--bg-hover)', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                color: 'var(--text-secondary)',
-              }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <circle cx="12" cy="8" r="4"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                </svg>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                  {alias.name}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                  {alias.email}
-                </div>
-                {alias.reply_to && (
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                    {t('admin.aliases.replyToLabel')} {alias.reply_to}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <IconBtn onClick={() => handleAliasEdit(alias)} title={t('common.edit')}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </IconBtn>
-                <IconBtn onClick={() => handleAliasDelete(alias.id)} title={t('common.delete')} danger>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-                  </svg>
-                </IconBtn>
-              </div>
-            </div>
-          ))
-        )}
+        {aliasFormError && <div role="alert" style={{ color: 'var(--red)', marginBottom: 10, fontSize: 12 }}>{aliasFormError}</div>}
+        <SenderAddresses account={editTarget} disabled={defaultSenderSaving || aliasFormSaving}
+          onSelect={handleDefaultSender} onEdit={handleAliasEdit} onDelete={handleAliasDelete} />
+
       </div>
       <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
       </>

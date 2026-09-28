@@ -300,6 +300,7 @@ export const api = {
   reindexAccount: (id: string) => request('POST', `/accounts/${id}/reindex`),
   getFolders: (accountId: string) => request('GET', `/accounts/${accountId}/folders`),
   getAliases: (accountId: string) => request('GET', `/accounts/${accountId}/aliases`),
+  setDefaultSender: (accountId: string, aliasId: string | null): Promise<{ id: string; default_alias_id: string | null }> => request('PUT', `/accounts/${accountId}/default-sender`, { aliasId }),
   addAlias: (accountId: string, data: unknown) => request('POST', `/accounts/${accountId}/aliases`, data),
   updateAlias: (accountId: string, aliasId: string, data: unknown) => request('PUT', `/accounts/${accountId}/aliases/${aliasId}`, data),
   deleteAlias: (accountId: string, aliasId: string) => request('DELETE', `/accounts/${accountId}/aliases/${aliasId}`),

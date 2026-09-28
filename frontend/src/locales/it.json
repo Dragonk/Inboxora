@@ -232,10 +232,9 @@
       "count": "{{n}} di {{max}} azioni"
     },
     "aliases": {
-      "title": "Alias",
-      "description": "Gli alias ti permettono di inviare da un nome o indirizzo diverso usando le credenziali SMTP di questo account. Seleziona un alias nel campo Da durante la composizione. Inboxora risponderà automaticamente da un alias se un messaggio gli era indirizzato.",
+      "title": "Indirizzi del mittente",
+      "description": "Scegli il mittente predefinito per i nuovi messaggi. Le risposte usano l’indirizzo contattato in origine se appartiene a questo account o a un alias configurato. Il provider di posta deve consentire l’invio dall’alias selezionato.",
       "addButton": "Aggiungi alias",
-      "empty": "Nessun alias ancora",
       "newTitle": "Nuovo alias",
       "editTitle": "Modifica alias",
       "name": "Nome visualizzato",
@@ -252,7 +251,12 @@
       "errorRequired": "Nome e email sono obbligatori",
       "deleteConfirmTitle": "Eliminare l'alias?",
       "deleteConfirmBody": "Questo alias verrà rimosso in modo permanente. Questa operazione non può essere annullata.",
-      "deleteConfirmLabel": "Elimina"
+      "deleteConfirmLabel": "Elimina",
+      "defaultSender": "Mittente predefinito per i nuovi messaggi",
+      "primaryAddress": "Indirizzo principale dell’account",
+      "cannotRemove": "Non può essere rimosso",
+      "selectedDefault": "Mittente predefinito",
+      "useDefault": "Usa {{email}} come mittente predefinito"
     },
     "appearance": {
       "title": "Aspetto",

@@ -8,7 +8,8 @@ export interface AddressListEntry {
 export function parseAddressListField<T = AddressListEntry>(value: unknown): T[] {
   if (Array.isArray(value)) return value;
   try {
-    return JSON.parse(String(value || '[]'));
+    const parsed: unknown = JSON.parse(String(value || '[]'));
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
@@ -91,36 +92,45 @@ export function collectOwnAddresses({ account, message }: { account?: OwnAddress
   return own;
 }
 
+/** Only configured identities may become From; delivery metadata cannot grant send-as rights. */
 export function pickReplyAlias({
-  aliases,
-  deliveryAddresses,
-  toAddresses,
-  ccAddresses,
-  fromEmail,
+  aliases = [], accountEmail, deliveryAddresses, toAddresses, ccAddresses, fromEmail,
 }: {
   aliases?: Array<ReplyAlias> | null;
+  accountEmail?: string | null;
   deliveryAddresses?: unknown;
   toAddresses?: unknown;
   ccAddresses?: unknown;
   fromEmail?: string | null;
 }): string | null {
-  if (!aliases || !aliases.length) return null;
-
-  const delivered = parseAddressListField<string>(deliveryAddresses).map(e => (e || '').toLowerCase()).filter(Boolean);
-  const to = parseAddressListField(toAddresses).map(a => a.email?.toLowerCase()).filter(Boolean);
-  const cc = parseAddressListField(ccAddresses).map(a => a.email?.toLowerCase()).filter(Boolean);
-  const from = (fromEmail || '').toLowerCase();
-
-  const deliveredMatch = aliases.find(al => typeof al.email === 'string' && delivered.includes(al.email.toLowerCase()));
-  if (deliveredMatch) return deliveredMatch.id;
-
-  // Same scan as before delivery addresses existed: aliases in creation order
-  // against the combined To/Cc/From set, so multi-alias picks don't change.
-  const headerEmails = [...to, ...cc];
-  const match = aliases.find(al => {
-    if (typeof al.email !== 'string') return false;
-    const aliasEmail = al.email.toLowerCase();
-    return headerEmails.includes(aliasEmail) || (from && from === aliasEmail);
-  });
-  return match ? match.id : null;
+  const identities = new Map<string, string | null>();
+  const primary = normalizeAddress(accountEmail);
+  if (primary) identities.set(primary, null);
+  for (const alias of aliases ?? []) {
+    const email = normalizeAddress(alias.email);
+    if (email && !identities.has(email)) identities.set(email, alias.id);
+  }
+  const addressOf = (value: unknown) => {
+    if (value && typeof value === 'object') {
+      if ('email' in value) return normalizeAddress(value.email);
+      if ('address' in value) return normalizeAddress(value.address);
+      return null;
+    }
+    return typeof value === 'string' ? normalizeAddress(value) : null;
+  };
+  // Delivery order, then To, then Cc. Primary-address matches stop the search
+  // just like alias matches; a Cc alias must not override a primary To address.
+  // From is only a final fallback for continuing an outgoing conversation.
+  for (const candidates of [
+    parseAddressListField<unknown>(deliveryAddresses),
+    parseAddressListField<unknown>(toAddresses),
+    parseAddressListField<unknown>(ccAddresses),
+    [fromEmail],
+  ]) {
+    for (const candidate of candidates) {
+      const email = addressOf(candidate);
+      if (email && identities.has(email)) return identities.get(email) ?? null;
+    }
+  }
+  return null;
 }
