@@ -178,6 +178,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // it but above the transport's own ceiling is refused by the route with the dimension that was hit.
 app.use('/api/mail/send', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/scheduled', express.json({ limit: sendHttpBodyWindowBytes() }));
+app.use('/api/mail/merge', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.

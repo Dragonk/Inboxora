@@ -150,3 +150,31 @@ test('native service-worker badges keep the real app alive across reload', async
   await expect(page.getByText('Golden conversation thread', { exact: true }).first()).toBeVisible();
   expect(crashes).toEqual([]);
 });
+
+
+// Hit the production middleware, not a browser route mock. Empty recipients
+// prove attachment parsing reaches validation without queuing or delivering mail.
+test('mail merge accepts attachment requests beyond the global JSON cap', async ({ request }, testInfo) => {
+  const headers = { 'X-Requested-With': 'MailFlow', 'X-Idempotency-Key': `merge-body-window-${testInfo.project.name}` };
+  const login = await request.post('/api/auth/login', { headers, data: {
+    username: process.env.PLAYWRIGHT_USERNAME || 'playwright@example.test',
+    password: process.env.PLAYWRIGHT_PASSWORD || 'PlaywrightPassword123!',
+  } });
+  expect(login.ok()).toBe(true);
+  const before = await request.get('/api/mail/scheduled');
+  expect(before.ok()).toBe(true);
+  const queued = await before.json();
+  const data = { message: {
+    accountId: '11111111-1111-4111-8111-111111111111', to: [], cc: [], bcc: [],
+    subject: 'Attachment parser regression', body: 'No delivery', bodyIsHtml: false,
+    attachments: [{ filename: 'large.bin', contentType: 'application/octet-stream',
+      content: Buffer.alloc(900 * 1024, 0xa5).toString('base64') }],
+  } };
+  expect(Buffer.byteLength(JSON.stringify(data))).toBeGreaterThan(1024 * 1024);
+  const response = await request.post('/api/mail/merge', { headers, data });
+  expect(response.status()).toBe(400);
+  expect(await response.json()).toMatchObject({ code: 'SCHEDULE_INVALID', error: 'At least one recipient is required' });
+  const after = await request.get('/api/mail/scheduled');
+  expect(after.ok()).toBe(true);
+  expect(await after.json()).toEqual(queued);
+});
