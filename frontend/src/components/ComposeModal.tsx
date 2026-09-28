@@ -26,6 +26,7 @@ import { toAppError } from '../utils/errors.ts';
 import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
 import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
+import { DefaultRecipients, type RecipientField } from '../utils/defaultRecipients.ts';
 import { initialComposeSender } from '../utils/composeSender.ts';
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
@@ -198,6 +199,7 @@ function parseChips(val: unknown): string[] {
   return parts;
 }
 
+/** Edit one session-scoped message, applying visible account defaults only before retry recovery. */
 export default function ComposeModal() {
   const { t } = useTranslation();
   const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail: preferredPlaintext } = useStore();
@@ -224,18 +226,56 @@ export default function ComposeModal() {
     recipientRevisionRef.current[field] += 1;
     recordDraftEdit();
   };
-  const [toChips, setToChipsState] = useState(() => parseChips(composeData?.to));
+  const [recipientSeed] = useState(() => {
+    const sender = initialComposeSender({ accounts, draft: composeData,
+      selectedAccountId: useStore.getState().selectedAccountId,
+      lastUsedAccountId: localStorage.getItem('mailflow_last_from_account') });
+    const accountId = sender.startsWith('alias:') ? sender.split(':')[2] : sender.replace('account:', '');
+    const recipients = { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) };
+    const owner = new DefaultRecipients(accounts.find(account => account.id === accountId), recipients,
+      composeData?.draftUid != null || !!composeData?.draftRowId, !!composeData?.isReplyAll);
+    return { recipients, owner };
+  });
+  const [toChips, setToChipsState] = useState(() => recipientSeed.recipients.to);
   const [toInput, setToInputState] = useState('');
-  const [ccChips, setCcChipsState] = useState(() => parseChips(composeData?.cc));
+  const [ccChips, setCcChipsState] = useState(() => recipientSeed.recipients.cc);
   const [ccInput, setCcInputState] = useState('');
-  const [bccChips, setBccChipsState] = useState(() => parseChips(composeData?.bcc));
+  const [bccChips, setBccChipsState] = useState(() => recipientSeed.recipients.bcc);
   const [bccInput, setBccInputState] = useState('');
-  const setToChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('to'); setToChipsState(value); };
-  const setToInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('to'); setToInputState(value); };
-  const setCcChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('cc'); setCcChipsState(value); };
-  const setCcInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('cc'); setCcInputState(value); };
-  const setBccChips = (value: React.SetStateAction<string[]>) => { recordRecipientEdit('bcc'); setBccChipsState(value); };
-  const setBccInput = (value: React.SetStateAction<string>) => { recordRecipientEdit('bcc'); setBccInputState(value); };
+  /** Apply manual chip edits while preserving draft revisions and relinquishing matching automatic recipients. */
+  const setRecipientChips = (field: RecipientField, value: string[]) => {
+    if (sendingRef.current) return;
+    const current = { to: toChips, cc: ccChips, bcc: bccChips };
+    const next = recipientSeed.owner.editRecipients(field, value, current);
+    if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
+    if (next.cc !== current.cc) { recordRecipientEdit('cc'); setCcChipsState(next.cc); }
+    if (next.bcc !== current.bcc) { recordRecipientEdit('bcc'); setBccChipsState(next.bcc); }
+  };
+  /** Reconcile unfinished input before keyboard submission and record the affected draft fields. */
+  const setRecipientInput = (field: RecipientField, value: string) => {
+    if (sendingRef.current) return;
+    const current = { to: toChips, cc: ccChips, bcc: bccChips };
+    const next = recipientSeed.owner.editPending(field, value, current);
+    if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
+    if (next.cc !== current.cc) { recordRecipientEdit('cc'); setCcChipsState(next.cc); }
+    if (next.bcc !== current.bcc) { recordRecipientEdit('bcc'); setBccChipsState(next.bcc); }
+    recordRecipientEdit(field);
+    if (field === 'to') setToInputState(value);
+    else if (field === 'cc') setCcInputState(value);
+    else setBccInputState(value);
+  };
+  /** Route committed TO edits through recipient ownership and draft tracking. */
+  const setToChips = (value: string[]) => setRecipientChips('to', value);
+  /** Route uncommitted TO edits through recipient ownership and draft tracking. */
+  const setToInput = (value: string) => setRecipientInput('to', value);
+  /** Route committed CC edits through recipient ownership and draft tracking. */
+  const setCcChips = (value: string[]) => setRecipientChips('cc', value);
+  /** Route uncommitted CC edits through recipient ownership and draft tracking. */
+  const setCcInput = (value: string) => setRecipientInput('cc', value);
+  /** Route committed BCC edits through recipient ownership and draft tracking. */
+  const setBccChips = (value: string[]) => setRecipientChips('bcc', value);
+  /** Route uncommitted BCC edits through recipient ownership and draft tracking. */
+  const setBccInput = (value: string) => setRecipientInput('bcc', value);
   const [subject, setSubjectState] = useState(() => composeData?.subject || '');
   const setSubject = (value: React.SetStateAction<string>) => { recordDraftEdit(); setSubjectState(value); };
   const [body, setBodyState] = useState(() => composeData?.body || '');
@@ -279,9 +319,9 @@ export default function ComposeModal() {
   // so isDirty() reflects changes since the last save, not since the modal opened.
   const initialBodyRef = useRef(composeData?.body || '');
   const initialSubjectRef = useRef(composeData?.subject || '');
-  const initialToRef = useRef(normalizeTo(composeData?.to || []));
-  const initialCcRef = useRef(normalizeTo(composeData?.cc || []));
-  const initialBccRef = useRef(normalizeTo(composeData?.bcc || []));
+  const initialToRef = useRef(recipientSeed.recipients.to.join(', '));
+  const initialCcRef = useRef(recipientSeed.recipients.cc.join(', '));
+  const initialBccRef = useRef(recipientSeed.recipients.bcc.join(', '));
   const initialFromRef = useRef<string | null>(null);
   const initialQuotedBodyRef = useRef(composeData?.quotedBody || '');
   const initialQuotedBodyHtmlRef = useRef<string | null>(composeData?.quotedBodyHtml || null);
@@ -291,21 +331,19 @@ export default function ComposeModal() {
   // True when the compose was opened by clicking an existing draft from the list.
   // Used by handleClose to decide whether to prompt about an unmodified draft.
   const draftWasPreExisting = useRef(composeData?.draftUid != null);
-  const [showCc, setShowCc] = useState(() => !!(composeData?.cc?.length));
-  const [showBcc, setShowBcc] = useState(() => !!(composeData?.bcc?.length));
+  const [showCc, setShowCc] = useState(() => recipientSeed.recipients.cc.length > 0);
+  const [showBcc, setShowBcc] = useState(() => recipientSeed.recipients.bcc.length > 0);
 
   // Re-apply the compose data captured at mount. Later store changes belong to other
   // compose sessions and must not overwrite edits in this one.
   useEffect(() => {
     const initialComposeData = initialComposeDataRef.current;
-    if (initialComposeData?.to?.length) setToChipsState(parseChips(initialComposeData.to));
-    if (initialComposeData?.cc?.length) { setCcChipsState(parseChips(initialComposeData.cc)); setShowCc(true); }
-    if (initialComposeData?.bcc?.length) { setBccChipsState(parseChips(initialComposeData.bcc)); setShowBcc(true); }
     if (initialComposeData?.subject) setSubjectState(initialComposeData.subject);
     if (initialComposeData?.body !== undefined) setBodyState(initialComposeData.body);
     if (initialComposeData?.quotedBody !== undefined) setQuotedBodyState(initialComposeData.quotedBody);
   }, []);
 
+  /** Resolve the initial sender once from loaded account preferences and the compose intent. */
   const initialFromValue = () => initialComposeSender({
     accounts,
     draft: composeData,
@@ -313,7 +351,18 @@ export default function ComposeModal() {
     lastUsedAccountId: localStorage.getItem('mailflow_last_from_account'),
   });
   const [fromValue, setFromValueState] = useState(initialFromValue);
-  const setFromValue = (value: React.SetStateAction<string>) => { recordDraftEdit(); setFromValueState(value); };
+  /** Change the sender while retaining explicit recipients and the partial-delivery retry destination set. */
+  const setFromValue = (value: string) => {
+    if (sendingRef.current) return;
+    const accountId = resolveFrom(value).accountId;
+    const next = recipientSeed.owner.switchAccount(accounts.find(account => account.id === accountId),
+      { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
+    setToChipsState(next.to); setCcChipsState(next.cc); setBccChipsState(next.bcc);
+    for (const field of ['to', 'cc', 'bcc'] as const) recipientRevisionRef.current[field] += 1;
+    if (next.cc.length) setShowCc(true);
+    if (next.bcc.length) setShowBcc(true);
+    recordDraftEdit(); setFromValueState(value);
+  };
   if (initialFromRef.current === null) initialFromRef.current = fromValue;
 
   const resolveFrom = (val: string | null | undefined) => {
@@ -361,7 +410,13 @@ export default function ComposeModal() {
   }, []);
 
   const [replyAll, setReplyAll] = useState(() => !!composeData?.isReplyAll);
-  const [sending, setSending] = useState(false);
+  const [sending, setSendingState] = useState(false);
+  const sendingRef = useRef(false);
+  /** Lock recipient mutations synchronously, including callbacks captured before React rerenders. */
+  const setSending = (value: boolean) => {
+    sendingRef.current = value;
+    setSendingState(value);
+  };
   const [error, setError] = useState('');
   const [priority, setPriority] = useState('normal');
   const [minimized, setMinimized] = useState(false);
@@ -841,6 +896,7 @@ export default function ComposeModal() {
   };
 
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
+    if (sendingRef.current) return;
     if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
     // A saved draft is identified by its account, folder and compatibility number. `uidValidity` is the
     // IMAP guard that confirms the identity; a provider account's draft has none (its identity is the
@@ -886,6 +942,8 @@ export default function ComposeModal() {
       sendOutcomeUnknownRef.current = false;
     }
     setSending(true);
+    setShowReplyType(false);
+    setShowCcBccMenu(false);
     setError('');
     const bodyToSend = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
     const signatureToSend = plaintextCompose ? plainSig : signatureContentRef.current;
@@ -943,6 +1001,8 @@ export default function ComposeModal() {
         // and its draft open, and turn it into an explicit retry for only addresses
         // that were definitely not accepted, retaining their To/CC/BCC roles.
         const retryRecipients = partitionRejectedRecipients(rejectedRecipients, { to: toFinal, cc: ccFinal, bcc: bccFinal });
+        recipientSeed.owner.enterRetryMode();
+        setSending(false);
         setToChips(retryRecipients.to);
         setToInput('');
         setCcChips(retryRecipients.cc);
@@ -951,7 +1011,6 @@ export default function ComposeModal() {
         setBccChips(retryRecipients.bcc);
         setBccInput('');
         setShowBcc(retryRecipients.bcc.length > 0);
-        setSending(false);
         addNotification({
           type: 'warning',
           persistent: true,
@@ -1321,23 +1380,22 @@ export default function ComposeModal() {
     </svg>
   );
 
+  /** Share reply-mode transitions between desktop and mobile without overriding retry recipients. */
+  const switchReplyMode = (all: boolean) => {
+    if (sendingRef.current) return;
+    const next = recipientSeed.owner.switchReply(all, parseChips(composeData?.allRecipients || []),
+      { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
+    recordRecipientEdit('cc'); setCcChipsState(next.cc);
+    recordRecipientEdit('bcc'); setBccChipsState(next.bcc);
+    if (next.bcc.length) setShowBcc(true);
+    if (next.cc.length || ccInput) setShowCc(true);
+    setReplyAll(all); setShowReplyType(false);
+  };
+
   // ── Mobile full-screen compose ──────────────────────────────────────────────
   if (isMobile) {
-    const switchToReply = () => {
-      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-      setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
-      setBccChips([]); setBccInput(''); setShowBcc(false);
-      setReplyAll(false);
-      setShowReplyType(false);
-    };
-    const switchToReplyAll = () => {
-      setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-      setToInput('');
-      const allRecipients = parseChips(composeData?.allRecipients || []);
-      if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
-      setReplyAll(true);
-      setShowReplyType(false);
-    };
+    const switchToReply = () => switchReplyMode(false);
+    const switchToReplyAll = () => switchReplyMode(true);
 
     const fieldStyle = {
       display: 'flex', alignItems: 'center',
@@ -1445,6 +1503,7 @@ export default function ComposeModal() {
             ].map(({ label, active, onTap }) => (
               <button
                 key={label}
+                disabled={sending}
                 onClick={onTap}
                 style={{
                   flex: 1, padding: '9px 0',
@@ -1472,6 +1531,7 @@ export default function ComposeModal() {
               value={fromValue}
             aria-label={t('compose.from')}
             data-testid="compose-from"
+            disabled={sending}
               onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
               style={{ ...mobileInputStyle, cursor: 'pointer' }}
             >
@@ -1505,7 +1565,7 @@ export default function ComposeModal() {
           <div style={fieldStyle}>
             <span style={labelStyle}>{t('compose.to')}</span>
             <ChipInput
-              chips={toChips} onChipsChange={setToChips}
+              disabled={sending} inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
               value={toInput} onChange={setToInput}
               placeholder={t('compose.toPh')}
               autoFocus={!isReply && !isForward}
@@ -1540,7 +1600,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.cc')}</span>
               <ChipInput
-                chips={ccChips} onChipsChange={setCcChips}
+                disabled={sending} inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
                 placeholder={t('compose.ccPh')}
                 inputStyle={mobileInputStyle}
@@ -1555,7 +1615,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.bcc')}</span>
               <ChipInput
-                chips={bccChips} onChipsChange={setBccChips}
+                disabled={sending} inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
                 value={bccInput} onChange={setBccInput}
                 placeholder={t('compose.bccPh')}
                 inputStyle={mobileInputStyle}
@@ -2022,6 +2082,7 @@ export default function ComposeModal() {
         {isReply ? (
           <div ref={replyTypeRef} style={{ position: 'relative' }}>
             <button
+              disabled={sending}
               onClick={() => setShowReplyType(!showReplyType)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
@@ -2060,11 +2121,7 @@ export default function ComposeModal() {
                   label={t('compose.reply')}
                   active={!replyAll}
                   onClick={() => {
-                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-                    setToInput(''); setCcChips([]); setCcInput(''); setShowCc(false);
-                    setBccChips([]); setBccInput(''); setShowBcc(false);
-                    setReplyAll(false);
-                    setShowReplyType(false);
+                    switchReplyMode(false);
                   }}
                 />
                 <DropItem
@@ -2072,12 +2129,7 @@ export default function ComposeModal() {
                   label={t('compose.replyAll')}
                   active={replyAll}
                   onClick={() => {
-                    setToChips(parseChips(composeData?.originalFrom || composeData?.to));
-                    setToInput('');
-                    const allRecipients = parseChips(composeData?.allRecipients || []);
-                    if (allRecipients.length) { setCcChips(allRecipients); setCcInput(''); setShowCc(true); }
-                    setReplyAll(true);
-                    setShowReplyType(false);
+                    switchReplyMode(true);
                   }}
                 />
               </div>
@@ -2116,8 +2168,12 @@ export default function ComposeModal() {
         </div>
       </div>
 
-      {/* Fields — fixed height, not scrollable so toolbar dropdowns aren't clipped */}
-      <div style={{ flexShrink: 0 }}>
+      {/* Bound expanded copy fields without pushing the editor or Send outside the viewport.
+          Leave the ordinary From/To/Subject layout unchanged when both copy fields are closed.
+          The rich toolbar remains a sibling so its dropdowns are not clipped. */}
+      <div data-testid="compose-recipient-fields" style={showCc || showBcc
+        ? { flexShrink: 1, minHeight: 0, maxHeight: '35vh', overflowY: 'auto' }
+        : { flexShrink: 0 }}>
         {/* From */}
         <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0 }}>{t('compose.from')}</span>
@@ -2125,6 +2181,7 @@ export default function ComposeModal() {
             value={fromValue}
             aria-label={t('compose.from')}
             data-testid="compose-from"
+            disabled={sending}
             onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
             style={{ flex: 1, padding: '8px 4px', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: 13, outline: 'none', cursor: 'pointer' }}
           >
@@ -2158,7 +2215,7 @@ export default function ComposeModal() {
         <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
           <ChipInput
-            chips={toChips} onChipsChange={setToChips}
+            disabled={sending} inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
             placeholder={t('compose.toPh')}
             autoFocus={!isReply && !isForward}
@@ -2186,7 +2243,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
             <ChipInput
-              chips={ccChips} onChipsChange={setCcChips}
+              disabled={sending} inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
               placeholder={t('compose.ccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
@@ -2200,7 +2257,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
             <ChipInput
-              chips={bccChips} onChipsChange={setBccChips}
+              disabled={sending} inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
               placeholder={t('compose.bccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
@@ -3329,9 +3386,12 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
   );
 }
 
-function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
+/** Render editable recipient chips with suggestions and an accessible, independently testable text input. */
+function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { disabled?: boolean; inputTestId?: string; chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
   const [suggIdx, setSuggIdx] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3344,13 +3404,16 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
 
   // Debounce contact suggestions — only when getSuggestions is wired up
   useEffect(() => {
+    if (disabled) { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); setMenu(null); return; }
     if (!getSuggestions) return;
+    let active = true;
     if (debounceRef.current !== null) clearTimeout(debounceRef.current);
     const q = value.trim();
     if (q.length < 2) { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); return; }
     debounceRef.current = setTimeout(async () => {
       try {
         const results = await getSuggestions(q);
+        if (!active || disabledRef.current) return;
         if (!results.length) { setSuggestions([]); setDropStyle(null); return; }
         // Measure wrapper position for the fixed dropdown — escapes overflow:auto containers
         if (wrapperRef.current) {
@@ -3365,18 +3428,20 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         setSuggIdx(-1);
       } catch { /* intentional */ }
     }, 200);
-    return () => { if (debounceRef.current !== null) clearTimeout(debounceRef.current); };
-  }, [value, getSuggestions]);
+    return () => { active = false; if (debounceRef.current !== null) clearTimeout(debounceRef.current); };
+  }, [value, getSuggestions, disabled]);
 
   const clearSuggestions = () => { setSuggestions([]); setSuggIdx(-1); setDropStyle(null); };
 
   const commitInput = () => {
+    if (disabledRef.current) return;
     const trimmed = value.trim();
     if (trimmed) { onChipsChange([...chips, trimmed]); onChange(''); }
     clearSuggestions();
   };
 
   const commitSuggestion = (contact: ContactSuggestion) => {
+    if (disabledRef.current) return;
     const formatted = contact.name ? `${contact.name} <${contact.email}>` : contact.email;
     onChipsChange([...chips, formatted]);
     onChange('');
@@ -3384,6 +3449,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (disabledRef.current) return;
     if (suggestions.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSuggIdx(i => Math.min(i + 1, suggestions.length - 1)); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSuggIdx(i => Math.max(i - 1, -1)); return; }
@@ -3417,6 +3483,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
 
   // Load a chip back into the input for editing, preserving any half-typed text.
   const startEdit = (i: number) => {
+    if (disabledRef.current) return;
     const chipText = chips[i];
     const rest = chips.filter((_, j) => j !== i);
     const pending = value.trim();
@@ -3429,9 +3496,11 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
 
   // Open the chip menu, clamped so it stays within the viewport.
   const openMenu = (clientX: number, clientY: number, index: number) => {
+    if (disabledRef.current) return;
     setMenu({ x: Math.min(clientX, window.innerWidth - 176), y: Math.min(clientY, window.innerHeight - 168), index });
   };
   const onChipTouchStart = (e: React.TouchEvent, i: number) => {
+    if (disabledRef.current) return;
     const touch = e.touches[0];
     if (longPressRef.current !== null) clearTimeout(longPressRef.current);
     longPressRef.current = setTimeout(() => openMenu(touch.clientX, touch.clientY, i), 500);
@@ -3474,6 +3543,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
           <button
             type="button"
+            disabled={disabled}
             onClick={() => onChipsChange(chips.filter((_, j) => j !== i))}
             style={{ background: 'none', border: 'none', padding: '1px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0, borderRadius: '50%' }}
           >
@@ -3485,6 +3555,8 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
       ))}
       <input
         ref={inputRef}
+        data-testid={inputTestId}
+        disabled={disabled}
         type="text"
         value={value}
         onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(e.target.value)}
@@ -3494,7 +3566,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
         autoFocus={autoFocus}
         style={{ ...inputStyle, flex: '1 1 80px', minWidth: 80 }}
       />
-      {suggestions.length > 0 && dropStyle && (
+      {!disabled && suggestions.length > 0 && dropStyle && (
         <div
           onMouseDown={ (e: React.MouseEvent<HTMLElement>) => e.preventDefault()} /* keep the input focused; don't clear on interaction */
           style={{
@@ -3531,7 +3603,7 @@ function ChipInput({ chips, onChipsChange, value, onChange, placeholder, autoFoc
           ))}
         </div>
       )}
-      {menu && (
+      {!disabled && menu && (
         <div
           onPointerDown={e => e.stopPropagation()}
           style={{

@@ -129,6 +129,9 @@
       "navigationBottomDesc": "Přepínač panelů je dole, na dosah palce."
     },
     "accounts": {
+      "defaultCc": "Výchozí příjemci kopie",
+      "defaultBcc": "Výchozí příjemci skryté kopie",
+      "defaultRecipientsHelp": "Zadejte pouze e-mailové adresy oddělené čárkami nebo středníky (nejvýše 50 v každém poli). Platí pro tento účet a všechny jeho aliasy. Příjemci jsou v každé nové zprávě viditelní a lze je odebrat.",
       "loadFoldersError": "Složky se nepodařilo načíst",
       "saveFolderMappingsError": "Mapování složek se nepodařilo uložit",
       "title": "E-mailové účty",

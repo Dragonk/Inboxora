@@ -9,6 +9,9 @@
       "sourceCode": "Source code"
     },
     "accounts": {
+      "defaultCc": "Default CC recipients",
+      "defaultBcc": "Default BCC recipients",
+      "defaultRecipientsHelp": "Enter bare email addresses separated by commas or semicolons (up to 50 per field). Applies to this account and all its aliases. Recipients are visible and removable in each new message.",
       "loadFoldersError": "Could not load folders",
       "saveFolderMappingsError": "Could not save folder mappings",
       "title": "Email accounts",

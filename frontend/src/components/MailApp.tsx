@@ -93,13 +93,14 @@ const lazyFallback = (
 // prop declaration so the two shapes never drift apart.
 type SelectedConversationCopy = NonNullable<NonNullable<Parameters<typeof MessagePane>[0]>['selectedConversationCopy']>;
 
+/** Render the authenticated mail workspace and defer queued composers until accounts are ready. */
 export default function MailApp() {
   const { t } = useTranslation();
   const [mobileHeaderHost, setMobileHeaderHost] = useState<HTMLElement | null>(null);
   const {
     setAccounts, setUnreadCounts, showAdmin,
     setShowAdmin, setAdminTab, composing, sidebarCollapsed, layout,
-    unreadCounts, selectedAccountId, openCompose, setSelectedAccount,
+    unreadCounts, selectedAccountId, openCompose, setSelectedAccount, accountsReady,
     shortcuts, selectedMessageId, setSelectedMessage,
     mobileSidebarOpen, setMobileSidebarOpen, mobileNavigationPosition, mobileSidebarSwipeEnabled, addNotification,
     fontSize, showAppBadge,
@@ -1074,7 +1075,11 @@ export default function MailApp() {
         </>
       )}
 
-      <Suspense fallback={lazyFallback}>{composing && <ComposeModal />}</Suspense>
+      <Suspense fallback={lazyFallback}>
+        {composing && (accountsReady ? <ComposeModal /> : (
+          <div data-testid="compose-accounts-loading" aria-busy="true">{lazyFallback}</div>
+        ))}
+      </Suspense>
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
       {/* Detached message windows (#219) — desktop only. */}
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}

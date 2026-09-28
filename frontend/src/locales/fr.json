@@ -25,6 +25,9 @@
       "sourceCode": "Code source"
     },
     "accounts": {
+      "defaultCc": "Destinataires CC par défaut",
+      "defaultBcc": "Destinataires CCI par défaut",
+      "defaultRecipientsHelp": "Saisissez uniquement des adresses e-mail séparées par des virgules ou des points-virgules (50 maximum par champ). S’applique à ce compte et à tous ses alias. Les destinataires sont visibles et peuvent être retirés de chaque nouveau message.",
       "loadFoldersError": "Impossible de charger les dossiers",
       "saveFolderMappingsError": "Impossible d’enregistrer les associations de dossiers",
       "title": "Comptes e-mail",
