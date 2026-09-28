@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.1.1-informational" alt="Version 4.1.1">
+  <img src="https://img.shields.io/badge/version-4.1.2-informational" alt="Version 4.1.2">
 </p>
 
 Inboxora brings mail, contacts and calendars into one self-hosted application. It speaks
@@ -23,9 +23,8 @@ what 4.1 adds on top and [What's new in 4.0](#whats-new-in-40) for the rest.
 over **Microsoft Graph** and a Google account can use the **Gmail, Calendar and People APIs**, while
 every account that prefers it keeps working over plain IMAP/SMTP — including Google with an app
 password. Provider data pulled from an API can be written back once you enable it per collection, and
-the send/attachment limits follow the transport you actually send over. **4.1.1 is the current release**;
-see the [4.1.1 release notes](docs/wiki/Release-notes-4.1.1.md) for upgrade requirements, verification,
-and known limitations.
+the send/attachment limits follow the transport you actually send over. **4.1.2 is the current release**; see the [4.1.2 release notes](docs/wiki/Release-notes-4.1.2.md)
+for upgrade requirements, administrator changes, storage maintenance and verification details.
 
 <p align="center">
   <img src="media/screenshots/mail-inbox-desktop.png" width="820" alt="Inboxora: the unified inbox with an expanded conversation and an open message">
@@ -104,6 +103,31 @@ The same mailbox on a phone (390×844):
 | Application passwords | On phone |
 | --- | --- |
 | ![DAV access settings](media/screenshots/settings-dav-access-desktop.png) | <img src="media/screenshots/settings-dav-access-mobile.png" width="260" alt="DAV access settings on a phone"> |
+
+## What's new in 4.1.2
+
+4.1.2 is a reliability, performance and storage-maintenance release. Returning to a recently
+visited unified inbox, Gmail, Microsoft Graph or IMAP view now shows a bounded in-memory snapshot
+immediately and revalidates it in the background. Thread read/unread actions resolve current
+membership before writing, preventing stale expansions such as a 17-message thread acting on only
+14 cached children. Microsoft Graph compatibility aliases also share the same visibility rules as
+their canonical messages, eliminating phantom unread rows and category-count mismatches.
+
+For administrators, **Settings → Administration → Performance** is new in 4.1.2. It controls the
+visible message-body prefetch window (default 25, range 0–100), body-cache lifetime (default 30
+days, `0` disables expiry), DAV history age/count, authentication-log retention, conversation
+rebuild audit retention, resolved ingestion-error retention and completed internal-outbox payload
+retention. Changes apply to new background batches without a restart.
+
+The release also adds resumable automatic repair for legacy byte-expanded IMAP headers and compact,
+bounded CalDAV/CardDAV sync journals. Upgrade all backend instances together and let the normal
+startup migration runner apply **0146 → 0147 → 0148 → 0149**. Back up PostgreSQL and `.env` first;
+no provider reconnect or mailbox resync is required. Older DAV sync tokens can require one full
+client resynchronization after journal compaction, without deleting canonical events or contacts.
+
+See [Release notes 4.1.2](docs/wiki/Release-notes-4.1.2.md),
+[Configuration → Performance](docs/wiki/Configuration.md#performance-administration), and
+[Upgrading](docs/wiki/Upgrading.md#upgrading-to-412) for the complete operator guidance.
 
 ## What's new in 4.1
 
@@ -405,7 +429,8 @@ release.
 | [Migrating from MailFlow](docs/wiki/Migrating-from-MailFlow.md) | Moving a MailFlow 3.3.0 deployment to Inboxora. |
 | [Troubleshooting](docs/wiki/Troubleshooting.md) | Diagnostic paths and common failures. |
 | [Development](docs/wiki/Development.md) | Local verification, browser tests, documentation policy. |
-| [Release notes 4.1.1](docs/wiki/Release-notes-4.1.1.md) | Current release: Graph reliability, live mailbox refresh, unread indicators and legacy DAV/ICS cleanup. |
+| [Release notes 4.1.2](docs/wiki/Release-notes-4.1.2.md) | Current release: mailbox performance, thread/read consistency, storage repair and administrator Performance controls. |
+| [Release notes 4.1.1](docs/wiki/Release-notes-4.1.1.md) | Graph reliability, live mailbox refresh, unread indicators and legacy DAV/ICS cleanup. |
 | [Release notes 4.1.0](docs/wiki/Release-notes-4.1.0.md) | Previous feature release: native Google/Microsoft providers, provider sync and write-back. |
 | [Release notes 4.0.4](docs/wiki/Release-notes-4.0.4.md) | Previous 4.0 release: desktop changes, rollout requirements and known limitations. |
 | [Release notes 4.0.3](docs/wiki/Release-notes-4.0.3.md) | Previous release: sync, IDLE, antispam and migration requirements. |
@@ -414,7 +439,7 @@ release.
 
 ## Development
 
-**4.1.1 is the current release.** Published release images and application artifacts are built by
+**4.1.2 is the current release.** Published release images and application artifacts are built by
 GitHub Actions; [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) records the per-package
 delivery status and verification details. `main` receives releases only through a pull request from `dev`.
 
