@@ -4,11 +4,9 @@
 SMTP, CardDAV and CalDAV, so your data stays on your server and your existing devices keep
 working. This Wiki is the canonical documentation for installing, configuring and using it.
 
-Latest released version: **4.1.1** — see [Release notes 4.1.1](Release-notes-4.1.1.md).
+Latest released version: **4.1.2** — see [Release notes 4.1.2](Release-notes-4.1.2.md).
 
-4.1.1 focuses on mail reliability and live mailbox behaviour: Microsoft Graph reconciliation is safer,
-open mail views refresh without F5, unread indicators and supported PWA badges use authoritative counts,
-and orphaned legacy CardDAV, CalDAV and ICS sources can be removed safely.
+4.1.2 focuses on mailbox responsiveness, thread/read consistency and bounded storage. Recently visited mail views reappear immediately while revalidating, Microsoft Graph compatibility aliases no longer create phantom unread state, automatic maintenance repairs legacy storage growth, and administrators gain a new **Performance** page for prefetch and retention controls.
 
 The previous feature release is **4.1.0** — see
 [Release notes 4.1.0](Release-notes-4.1.0.md) for the native Google/Microsoft provider layer,

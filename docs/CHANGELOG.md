@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Draft release notes 4.1.2](wiki/Release-notes-4.1.2.md), [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
+limitations — read the matching page in the Wiki: [Release notes 4.1.2](wiki/Release-notes-4.1.2.md), [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
 [Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
 [Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
 [Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
@@ -25,7 +25,7 @@ finalized below and dated with its publication date.
 
 ## [Unreleased]
 
-## [4.1.2] - Unreleased
+## [4.1.2] - 2026-09-28
 
 ### Changed
 
@@ -54,7 +54,7 @@ finalized below and dated with its publication date.
 - **Operational history retention.** Background cleanup bounds each deletion batch; expired authentication/rebuild audit and resolved conversation failures are retired. Completed domain-outbox payloads are cleared while durable deduplication identities, pending/uncertain writes, provider receipts and spam-training examples remain protected. Both standard Compose distributions rotate container logs.
 - **Desktop overlay sizing.** The drag strip and scaled mail viewport follow live window-controls-overlay height changes without a window resize.
 - **Repair isolation and scale gates.** Locked/slow accounts and retired journals back off independently; privacy-log retention remains active while data maintenance is paused. DAV full sync returns separate resource rows rather than one oversized aggregate. VACUUM uses a maintenance timeout and hourly failure backoff. Native AMD64/ARM64 builds must both pass before shared `dev` image tags change.
-- **Upgrade order:** apply `0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`, then `0148_graph_reader_body_completeness.sql` and `0149_body_cache_retention.sql` through normal startup. Replace all old backend workers together; pre-upgrade DAV tokens require one full resync. Back up first. This is a proposed 4.1.2 fix, not a published release; local production verification and reporter verification remain release gates.
+- **Upgrade order:** apply `0146_bounded_dav_sync_storage.sql`, `0147_mail_prefetch_backoff.sql`, then `0148_graph_reader_body_completeness.sql` and `0149_body_cache_retention.sql` through normal startup. Replace all old backend workers together; pre-upgrade DAV tokens require one full resync. Back up first. The 4.1.2 release was accepted on the development image before publication.
 
 ## [4.1.1] - 2026-09-25
 

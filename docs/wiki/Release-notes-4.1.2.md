@@ -1,8 +1,49 @@
-# Release notes 4.1.2 — draft
+# Release notes 4.1.2
 
-**Status: unreleased; dev verification only.** No version tag, package version bump or
-production deployment is part of this change. Release only after the maintainer's
-existing database test and the original #16 reporter's confirmation.
+**Status:** Stable  ·  **Release date:** 2026-09-28  ·  **Previous version:** 4.1.1
+
+Inboxora 4.1.2 is a reliability, performance and storage-maintenance release. It fixes
+stale thread/read state, makes returning to recently visited mailboxes feel immediate,
+repairs Microsoft Graph legacy-alias visibility, bounds several sources of database
+growth, and adds administrator controls for mail-body warming and data retention.
+
+## Highlights
+
+- **Faster mailbox navigation.** Recently visited unified, Gmail, Microsoft Graph and IMAP
+  views render from a bounded session cache and revalidate in the background instead of
+  blanking the list while every return waits on HTTP.
+- **Correct thread read state.** Expanded threads no longer keep an obsolete child list
+  (for example 14 cached messages while the server has 17), and whole-thread read/unread
+  actions resolve the current membership before writing.
+- **Microsoft Graph consistency.** Verified legacy compatibility aliases no longer create
+  phantom unread rows or disagree with the canonical Graph message.
+- **Automatic storage repair.** Legacy byte-expanded IMAP headers and unbounded DAV sync
+  journals are repaired by resumable background maintenance, with bounded retention.
+- **New Performance settings.** Administrators can tune visible message-body prefetch,
+  body-cache lifetime, DAV history and operational-log retention without restarting.
+- **Safer background caching.** IMAP, Gmail API and Graph share a bounded visible-body
+  warming policy; stale writes and old-session responses cannot repopulate newer caches.
+
+## Administrator changes
+
+The new **Settings → Administration → Performance** tab applies instance-wide settings:
+
+| Setting | Default | Allowed range | Effect |
+| --- | ---: | ---: | --- |
+| Messages to prefetch | 25 | 0–100 | Warms bodies for the first visible messages; `0` disables speculative prefetch. |
+| Body cache lifetime | 30 days | 0–3650 | Expires local body text/HTML and embedded images; `0` means no expiry. Messages remain at the provider. |
+| DAV change history | 30 days | 1–3650 | Bounds CalDAV/CardDAV change metadata; old sync tokens fall back to a full sync. |
+| DAV entries per calendar/address book | 10,000 | 100–100,000 | Caps retained latest DAV change entries per collection. |
+| Authentication logs | 90 days | 1–3650 | Retains login/authentication audit history. |
+| Conversation rebuild audit | 30 days | 1–3650 | Retains rebuild reports, not conversations. |
+| Resolved ingestion errors | 7 days | 1–3650 | Removes only resolved historical ingestion failures. |
+| Completed outbox payloads | 7 days | 1–3650 | Clears payloads of completed internal events while keeping deduplication identity. |
+
+Changes are validated atomically and apply to new maintenance/prefetch batches without a
+server restart. `MAIL_BODY_PREFETCH=off` remains a server-side override and is shown in the
+UI. `STORAGE_MAINTENANCE_ENABLED=false` pauses cache/DAV maintenance but not the independent
+operational/security log retention. Docker stdout/stderr rotation remains a Compose/host
+setting and is not changed by this page. See [Configuration](Configuration.md#performance-administration).
 
 ## Account and unified-inbox navigation performance
 
@@ -84,9 +125,7 @@ reader revalidation is checked against the resulting state rather than an immuta
 unread fixture. Delayed-response tests wait for the socket's initial catch-up and
 identify the exact held request, without relaxing their membership assertions.
 The focused desktop/390px mobile browser run passed 109 cases (49 existing
-viewport/mode exclusions); the full frontend unit suite passed 3,229 cases. These
-local results do not substitute for the exact-commit GitHub CI and CodeRabbit gates
-before publishing the development images.
+viewport/mode exclusions); the full frontend unit suite passed 3,229 cases. The exact-commit GitHub CI and CodeRabbit gates also passed before the accepted development image was published.
 
 ## Follow-up after the first development acceptance test
 
@@ -121,8 +160,8 @@ warm account reads took about 11–21 ms and unified reads about 29–41 ms. Thi
 reproduce a slow database query and is not a production performance measurement. Public
 version metadata confirmed that the reported live instance was already on the previous
 `a7ee6598` build, so the report was not attributed to an old installation. Production
-mailbox contents and provider acknowledgements were not accessed in these tests; the
-maintainer's acceptance test remains required before release.
+mailbox contents and provider acknowledgements were not accessed by the automated tests. The
+maintainer's final development acceptance test confirmed the corrected behaviour before release.
 
 ## Microsoft Graph compatibility aliases and phantom unread rows
 
@@ -252,8 +291,8 @@ reading retain their existing behavior. The prefetch policy is not an offline ar
 ## Operator procedure and before/after measurements
 
 Back up the database before deploying; background repair starts automatically on the new
-image. The build is validated on synthetic databases, but the maintainer's production test
-must still run before inviting the reporter and publishing 4.1.2. No manual `--apply` is needed.
+image. The release was validated on synthetic databases and accepted on the maintainer's
+development deployment before publication. No manual `--apply` is needed.
 
 For the maintainer's current installation (DB/user `mailflow`):
 
@@ -261,7 +300,7 @@ For the maintainer's current installation (DB/user `mailflow`):
 # Before replacing the backend; keep the backup private.
 (umask 077; docker exec inboxora-postgres pg_dump -U mailflow -d mailflow -Fc > "$HOME/inboxora-before-4.1.2-$(date +%Y%m%d-%H%M%S).dump")
 
-# After the new dev image starts, this is read-only and can be repeated:
+# After the 4.1.2 backend starts, this is read-only and can be repeated:
 docker exec inboxora-backend node dist/scripts/storageMaintenanceStatus.js --summary
 ```
 
@@ -299,9 +338,10 @@ header repair. A populated
 0145 database upgrade test runs the actual startup scheduler, interrupts after one header
 batch, restarts it, and verifies exact canonical IDs/content and measured file reduction.
 
-Backend typecheck/lint/build, full unit tests, service-dependent PostgreSQL tests and GitHub
-CI must pass for the published dev SHA. Then test the maintainer's real database. Only after
-that should the reporter be asked to verify; no stable release is authorized by these notes.
+The accepted release SHA passed backend typecheck/lint/build, full unit tests, service-dependent
+PostgreSQL tests, browser/real-app suites and GitHub CI. The maintainer then verified the
+reported mailbox navigation and thread/read issues on the published development images before
+the stable tag was created.
 
 ## Desktop PWA
 
@@ -309,14 +349,16 @@ This planned release also includes the already-integrated desktop window-control
 changes: the title-bar drag strip and scaled mail viewport follow live overlay sizing.
 This storage follow-up does not introduce another frontend redesign.
 
-## Dev image publication
+## Build and image publication
 
-Manual `dev` publication validates an immutable source SHA against the explicitly selected
+Development publication validates an immutable source SHA against the explicitly selected
 repository branch. AMD64 and ARM64 images are built on native GitHub runners rather than
 QEMU. Platform jobs push immutable digests only; the shared `dev` tags are updated only after
 both architectures and both component manifests pass verification. A single-platform build
 can no longer replace the shared multi-platform tag. Built backend images execute both
-maintenance CLI `--help` checks before promotion. Stable/versioned tags are not changed.
+maintenance CLI `--help` checks before promotion. The stable release workflow rebuilds the
+accepted tagged SHA for `v4.1.2`, `4.1.2` and `latest`, keeping all three tags on the same
+multi-architecture manifests.
 
 ## Global retention settings and idle body caches
 
