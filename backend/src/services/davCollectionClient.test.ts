@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as davTransport from './davHttpAuth.js';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import { deleteDavCollection, discoverDavCollectionDeleteCapability, inspectDavCollection, normalizeDavCollectionUrl, parseDavCollectionSnapshot, resolveDavHref } from './davCollectionClient.js';
@@ -119,6 +120,25 @@ describe('localhost collection deletion', () => {
     expect(calls).toContain('DELETE /home/book');
     expect(calls.some(call => call.endsWith('/home/book/'))).toBe(false);
   });
+  it.each([200, 204, 404, 410])('does not confirm DELETE %s from a different response identity', async status => {
+    const server = await provider();
+    const original = davTransport.davAuthenticatedFetch;
+    let writes = 0;
+    const spy = vi.spyOn(davTransport, 'davAuthenticatedFetch').mockImplementation(async (...args) => {
+      if (args[1]?.method === 'DELETE') {
+        writes++;
+        const response = new Response(null, { status });
+        Object.defineProperty(response, 'url', { value: 'https://different.example.test/other-book/' });
+        return response;
+      }
+      return original(...args);
+    });
+    try {
+      expect(await deleteDavCollection(server.input)).toMatchObject({ status: 'unknown' });
+      expect(writes).toBe(1);
+    } finally { spy.mockRestore(); }
+  });
+
   it.each([200, 204, 404, 410])('confirms DELETE status %s only after explicit capability checks', async deletion => {
     const server = await provider({ deletion });
     expect(await deleteDavCollection(server.input)).toMatchObject({ status: 'confirmed', httpStatus: deletion });

@@ -735,12 +735,27 @@ export async function reconcileGraphMailVisibility(input: GraphApiOptions & { ac
     let remote: GraphMessage | null;
     try {
       remote = await graphGet<GraphMessage>(api, graphUrl(`/me/messages/${encodeURIComponent(candidate.provider_message_id)}`, { $select: GRAPH_MESSAGE_SELECT }));
+      if (!remote || remote.id !== candidate.provider_message_id
+          || typeof remote.parentFolderId !== 'string' || !remote.parentFolderId) {
+        throw new Error('Invalid Graph visibility snapshot');
+      }
     } catch (error) {
-      if (!(error instanceof GraphApiError && error.status === 404)) throw error;
-      remote = null;
-    }
-    if (remote && (remote.id !== candidate.provider_message_id || !remote.parentFolderId)) {
-      throw new Error('Invalid Graph visibility snapshot');
+      // Authorization loss applies to the account, not just this candidate.
+      if (error instanceof ProviderAuthError || (error instanceof GraphApiError
+          && ['PROVIDER_AUTH_REQUIRED', 'INSUFFICIENT_SCOPES'].includes(error.code))) throw error;
+      if (error instanceof GraphApiError && error.status === 404) remote = null;
+      else {
+        // An unavailable or malformed item is not evidence of absence. Back off
+        // this exact snapshot so it cannot starve later recovery or folder sync.
+        await query(`UPDATE messages m SET provider_visibility_checked_at=clock_timestamp()
+          FROM email_accounts a WHERE m.id=$1 AND m.xmin::text=$2 AND a.id=m.account_id
+            AND a.xmin::text=$3 AND a.id=$4 AND a.user_id=$5 AND a.provider_connection_id=$6
+            AND a.mail_transport='microsoft_graph'`,
+          [candidate.id, candidate.row_version, candidate.account_version, input.accountId, input.userId, input.connectionId]);
+        console.warn('Graph visibility recovery deferred', error instanceof GraphApiError ? error.code : 'INVALID_OR_UNAVAILABLE_SNAPSHOT');
+        if (error instanceof GraphApiError && error.status === 429) break;
+        continue;
+      }
     }
     const changed = await withTransaction(async client => {
       await lockGraphMailWrites(client, input.accountId);

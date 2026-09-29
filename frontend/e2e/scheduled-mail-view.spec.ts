@@ -5,8 +5,9 @@ test.use({ serviceWorkers: 'block', timezoneId: 'Europe/Warsaw' });
 
 test('overnight Sent is acknowledged without clicking, retained through refresh and hidden on the next visit', async ({ page }) => {
   const server = queueServer([queueRow()]);
+  await page.clock.install();
   await bootQueue(page, server);
-  await page.clock.install(); await page.clock.fastForward(12_000);
+  await page.clock.fastForward(12_000);
   await expect.poll(() => server.listReads).toBeGreaterThan(1); expect(server.seenCalls).toEqual([]);
   await enterQueue(page);
   if ((page.viewportSize()?.width ?? 1280) < 768) {

@@ -96,6 +96,24 @@ suite('calendar collection lifecycle fences (real PostgreSQL)', { timeout: 30_00
     expect((await pool.query('SELECT operation_id FROM calendar_collection_tombstones WHERE user_id=$1', [f.userId])).rows).toEqual([{ operation_id: id }]);
   });
 
+  it.each(['google', 'microsoft'] as const)('%s upgrades discovery absence to permanent deletion evidence', async provider => {
+    const f = await fixture(provider);
+    await pool.query(`INSERT INTO calendar_collection_tombstones
+      (user_id,connection_id,remote_calendar_id,retirement_reason,discovery_generation)
+      VALUES($1,$2,$3,'complete_discovery',1)`, [f.userId, f.connectionId, f.remoteCalendarId]);
+    const operationId = await operation(f);
+    await fence(f, operationId);
+    await fence(f); // Replays must retain the original confirmed receipt.
+    expect((await pool.query(`SELECT operation_id,retirement_reason,discovery_generation
+      FROM calendar_collection_tombstones WHERE user_id=$1`, [f.userId])).rows)
+      .toEqual([{ operation_id: operationId, retirement_reason: 'confirmed_delete', discovery_generation: null }]);
+    await pool.query('DELETE FROM provider_operations WHERE user_id=$1', [f.userId]);
+    await sync(f, async () => json(discovery(f)));
+    expect((await pool.query('SELECT 1 FROM calendars WHERE user_id=$1', [f.userId])).rows).toEqual([]);
+    expect((await pool.query(`SELECT retirement_reason FROM calendar_collection_tombstones WHERE user_id=$1`, [f.userId])).rows)
+      .toEqual([{ retirement_reason: 'confirmed_delete' }]);
+  });
+
   it('preserves a fence when account deletion removes its journal operation', async () => {
     const f = await fixture('google'); await fence(f);
     await pool.query('DELETE FROM email_accounts WHERE id=$1', [f.accountId]);

@@ -1075,6 +1075,61 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
     expect(remaining.rows).toEqual([]);
   });
 
+  it.each(['unavailable', 'malformed'] as const)('isolates a %s Graph visibility candidate and still syncs new mail', async failure => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await pool.query(`INSERT INTO messages(id,account_id,uid,folder,provider_message_id,is_deleted)
+      VALUES ('10000000-0000-4000-8000-000000000001',$1,1,'INBOX','bad',true),
+             ('20000000-0000-4000-8000-000000000001',$1,2,'INBOX','good',true)`, [ACCOUNT_ID]);
+    const normal = fakeMailProvider({ inbox: [{ value: [graphMessage('fresh')], '@odata.deltaLink': DELTA_INBOX }] });
+    const recoveryCalls: string[] = [];
+    const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
+      const path = new URL(url).pathname;
+      if (path.endsWith('/bad') || path.endsWith('/good')) {
+        recoveryCalls.push(path);
+        if (path.endsWith('/bad')) return failure === 'unavailable'
+          ? json({ error: { message: 'Synthetic unavailable item' } }, 500) : json({ id: 'bad' });
+        return json(graphMessage('good', { parentFolderId: 'graph-inbox' }));
+      }
+      return normal.fetchImpl(url, init);
+    };
+    const input = { userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl };
+    expect(await syncGraphMailMessagesForAccount(input)).toMatchObject({ created: 1, failedFolders: 0 });
+    expect(recoveryCalls).toEqual(['/v1.0/me/messages/bad', '/v1.0/me/messages/good']);
+    expect(await reconcileGraphMailVisibility(input)).toBe(0);
+    expect(recoveryCalls).toHaveLength(2);
+    const rows = (await pool.query(`SELECT provider_message_id,is_deleted,
+      provider_visibility_checked_at IS NOT NULL AS checked FROM messages
+      WHERE account_id=$1 ORDER BY provider_message_id`, [ACCOUNT_ID])).rows;
+    expect(rows).toContainEqual({ provider_message_id: 'bad', is_deleted: true, checked: true });
+    expect(rows).toContainEqual({ provider_message_id: 'good', is_deleted: false, checked: true });
+    expect(rows).toContainEqual({ provider_message_id: 'fresh', is_deleted: false, checked: false });
+  });
+
+  it('stops the Graph recovery slice on throttling without consuming the remaining candidates', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await pool.query(`INSERT INTO messages(account_id,uid,folder,provider_message_id,is_deleted)
+      VALUES($1,1,'INBOX','hidden-one',true),($1,2,'INBOX','hidden-two',true)`, [ACCOUNT_ID]);
+    const fetchImpl = vi.fn(async () => json({ error: { code: 'TooManyRequests' } }, 429));
+    expect(await reconcileGraphMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl })).toBe(0);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect((await pool.query(`SELECT COUNT(*)::int AS checked FROM messages
+      WHERE account_id=$1 AND is_deleted AND provider_visibility_checked_at IS NOT NULL`, [ACCOUNT_ID])).rows).toEqual([{ checked: 1 }]);
+  });
+
+  it('does not hide an account authorization failure as an isolated Graph recovery error', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await pool.query(`INSERT INTO messages(account_id,uid,folder,provider_message_id,is_deleted)
+      VALUES($1,1,'INBOX','hidden',true)`, [ACCOUNT_ID]);
+    const fetchImpl = vi.fn(async () => json({ error: { code: 'ErrorAccessDenied' } }, 403));
+    await expect(reconcileGraphMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl }))
+      .rejects.toMatchObject({ code: 'INSUFFICIENT_SCOPES' });
+    expect((await pool.query(`SELECT is_deleted,provider_visibility_checked_at FROM messages WHERE account_id=$1`, [ACCOUNT_ID])).rows)
+      .toEqual([{ is_deleted: true, provider_visibility_checked_at: null }]);
+  });
+
   it.each(['local-change', 'delete-journal', 'missing'] as const)('does not resurrect hidden Graph mail after %s', async kind => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);

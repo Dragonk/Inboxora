@@ -271,6 +271,7 @@ export async function deleteDavCollection(input: DavTypedCollectionInput): Promi
   if (!capability.allowed) return { status: 'refused', reason: capability.reason };
   try {
     const response = await davCollectionRequest(input, { method: 'DELETE' });
+    assertResponseIdentity(response, input.url);
     const httpStatus = response.status;
     if ([200, 204, 404, 410].includes(httpStatus)) return { status: 'confirmed', httpStatus };
     if ([401, 403, 405].includes(httpStatus)) return { status: 'refused', httpStatus, reason: 'Provider refused collection deletion' };

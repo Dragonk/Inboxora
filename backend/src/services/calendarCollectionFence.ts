@@ -72,6 +72,8 @@ export async function recordCalendarDeletionFence(client: PoolClient, input: Cal
   await lockCalendarCollection(client, input);
   if (!await findCommittedCalendarDeletion(client, input)) throw new Error('Calendar deletion fence requires a matching committed provider operation');
   await client.query(`INSERT INTO calendar_collection_tombstones (user_id, connection_id, remote_calendar_id, operation_id)
-    VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, connection_id, remote_calendar_id) DO NOTHING`,
+    VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, connection_id, remote_calendar_id) DO UPDATE
+    SET operation_id=EXCLUDED.operation_id,retirement_reason='confirmed_delete',discovery_generation=NULL
+    WHERE calendar_collection_tombstones.retirement_reason='complete_discovery'`,
   [input.userId, input.connectionId, input.remoteCalendarId, input.operationId]);
 }
