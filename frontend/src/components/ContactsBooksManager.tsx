@@ -10,9 +10,13 @@ import { openSettings, useSettingsTarget, type SettingsTarget } from './accountU
 import { useProviderAccounts, useAccountOperation } from './accountUi/useAccounts.ts';
 import DavSourceEditor, { type DavSource } from './accountUi/DavSourceEditor.tsx';
 import DeleteResourceDialog from './accountUi/DeleteResourceDialog.tsx';
+import { collectionDeletionAllowed, readCollectionDeleteIntents, sendCollectionDeletion, type CollectionDeletionCapability, type CollectionDeleteIntent } from './collectionDeletionModel.ts';
+import { operationKey } from './calendarCollectionManagementModel.ts';
+import { toAppError } from '../utils/errors.ts';
 import { isLegacyCardDavSource } from './accountUi/sourceRemoval.ts';
 
 export interface ManagerBook {
+  deletion?: CollectionDeletionCapability | null;
   id: string; name: string; source: string; visible: boolean; readOnly: boolean;
   collectionId: string | null; accountLabel: string | null; accountId: string | null; connectionId: string | null;
   canSyncProvider: boolean; contactCount: number | null; syncStatus: { key: string | null; values: Record<string, string> } | null;
@@ -37,7 +41,7 @@ const asBook = (book: ManagerBook): BookIdentity => ({ id: book.id, name: book.n
   account_email: book.accountLabel, account_name: book.accountName, read_only: book.readOnly, visible: book.visible, contact_count: book.contactCount });
 
 export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
-  const { t } = useTranslation(); const epoch = useStore(state => state.authEpoch);
+  const { t } = useTranslation(); const epoch = useStore(state => state.authEpoch); const userId = useStore(state => state.user?.id);
   const provider = useProviderAccounts(); const operation = useAccountOperation();
   const [davSources, setDavSources] = useState<DavSource[]>([]); const [davLoading, setDavLoading] = useState(true); const [davFailed, setDavFailed] = useState(false);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null); const [filter, setFilter] = useState('all');
@@ -47,6 +51,15 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   const [forgetting, setForgetting] = useState<ServiceConnection | null>(null);
   const [target, setTarget] = useState<SettingsTarget | null>(null); const [targetMissing, setTargetMissing] = useState(false);
   const life = useRef(0);
+  const [pendingDeletes, setPendingDeletes] = useState<Record<string, CollectionDeleteIntent>>({});
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteStorageFailed, setDeleteStorageFailed] = useState(false);
+  const deleteStorageKey = `inboxora:addressbook-deletions:${String(userId)}`;
+  useEffect(() => {
+    setPendingDeletes({}); setDeleteError(null); setDeleteStorageFailed(false);
+    try { setPendingDeletes(readCollectionDeleteIntents(sessionStorage.getItem(deleteStorageKey))); }
+    catch { setDeleteStorageFailed(true); }
+  }, [deleteStorageKey, epoch]);
   const loadDav = useCallback(async () => {
     const generation = life.current;
     try {
@@ -103,6 +116,32 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
     }
     setTarget(null);
   }, [target, props, provider.loading, davLoading, connections]);
+  const sendRemoteDelete = async (intent: CollectionDeleteIntent, current: () => boolean) => {
+    const persist = (next: CollectionDeleteIntent) => {
+      const stored = readCollectionDeleteIntents(sessionStorage.getItem(deleteStorageKey));
+      stored[next.id] = next;
+      sessionStorage.setItem(deleteStorageKey, JSON.stringify(stored)); setPendingDeletes(stored);
+    };
+    try {
+      return await sendCollectionDeletion(intent, { current, persist,
+        send: item => api.addressBooks.remove(item.id, { confirmName: item.name, idempotencyKey: item.idempotencyKey }),
+        confirmed: item => {
+          const stored = readCollectionDeleteIntents(sessionStorage.getItem(deleteStorageKey)); delete stored[item.id];
+          sessionStorage.setItem(deleteStorageKey, JSON.stringify(stored)); setPendingDeletes(stored);
+        },
+      });
+    } catch (error) { if (current()) setDeleteError(toAppError(error).message); throw error; }
+  };
+  const confirmDelete = () => void operation.run(async current => {
+    if (!deleting) return;
+    const book = props.books.find(item => item.id === deleting.id);
+    if (!book || (book.source !== 'local' && (!collectionDeletionAllowed(book.deletion) || deleteStorageFailed || pendingDeletes[book.id]))) return;
+    setDeleteError(null);
+    let confirmed = true;
+    if (book.source === 'local') await api.addressBooks.remove(book.id);
+    else confirmed = await sendRemoteDelete({ id: book.id, name: deleting.name, idempotencyKey: operationKey(), response: { state: 'pending' } }, current);
+    if (current() && confirmed) { await refresh(); if (current()) { setDeleting(null); setEditing(null); } }
+  });
   const openResources = (sourceId?: string) => openSettings({ module: 'contacts', section: 'resources', sourceId });
   const runRefresh = (action: () => Promise<unknown>) => void operation.run(async current => { await action(); if (current()) await refresh(); });
   const visibility = (id: string, visible: boolean) => runRefresh(() => api.addressBooks.update(id, { visible }));
@@ -132,6 +171,9 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
   return <div className="au-workspace" data-testid="contacts-books-manager">
     {(operation.failed || davFailed) && <Notice danger>{t('accountUi.operationFailed')}</Notice>}
     {targetMissing && <Notice danger>{t('accountUi.targetUnavailable')}</Notice>}
+    {deleteStorageFailed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}
+    {deleteError && <Notice danger>{deleteError}</Notice>}
+    {Object.values(pendingDeletes).map(intent => <Notice key={intent.id}>{intent.name}: {t('accountUi.operationPending')} <Button disabled={operation.busy || deleteStorageFailed} onClick={() => void operation.run(async current => { setDeleteError(null); const confirmed = await sendRemoteDelete(intent, current); if (current() && confirmed) { await refresh(); if (current()) { setDeleting(null); setEditing(null); } } })}>{t('accountUi.checkOperation')}</Button></Notice>)}
     {view === 'import' ? <>
       <Header title={t('accountUi.importExport')} description={t('accountUi.importDescription')}/>
       <label className="au-field"><span>{t('accountUi.targetBook')}</span><select value={props.selectedBookId} onChange={event => props.onSelectBook(event.target.value)}><option value="">{t('accountUi.chooseResource')}</option>{props.books.map(book => <option value={book.id} key={book.id}>{book.name}{book.accountLabel ? ` · ${book.accountLabel}` : ''}</option>)}</select></label>
@@ -153,10 +195,10 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
       <div className="ui-form au-workspace">{operation.failed && <Notice danger>{t('accountUi.partialSave')}</Notice>}<label>{t('accountUi.resourceName')}<input value={editing.name} maxLength={120} disabled={operation.busy} readOnly={editing.book.source !== 'local'} onChange={event => setEditing({ ...editing, name: event.target.value })}/></label><p className="au-note">{editing.book.accountLabel}</p><div className="au-switch-row"><strong>{t('accountUi.visibleInApplication')}</strong><Switch checked={editing.visible} label={t('accountUi.visibleInApplication')} disabled={operation.busy} onChange={visible => setEditing({ ...editing, visible })}/></div>
       {editing.book.collectionId && <div className="au-switch-row"><div><strong>{t('accountUi.writeBack')}</strong><p>{t('accountUi.sourceRightsHint')}</p></div><Switch checked={editing.writeBack} label={t('accountUi.writeBack')} disabled={operation.busy || editing.book.sourceAccess === 'read_only'} onChange={writeBack => setEditing({ ...editing, writeBack })}/></div>}
       {editing.book.source === 'local' && <label>{t('accountUi.davSharing')}<select disabled={operation.busy} value={editing.davMode} onChange={event => setEditing({ ...editing, davMode: event.target.value === 'off' || event.target.value === 'read_only' ? event.target.value : 'read_write' })}><option value="off">{t('accountUi.statusOff')}</option><option value="read_only">{t('accountUi.readOnly')}</option><option value="read_write">{t('accountUi.readWrite')}</option></select></label>}
-      {editing.book.source === 'local' && <div className="au-section"><Button variant="danger" disabled={props.books.filter(book => book.source === 'local').length < 2} onClick={() => setDeleting(editing.book)}>{t('accountUi.deleteResource')}</Button></div>}
+      <div className="au-section"><Button variant="danger" disabled={operation.busy || (editing.book.source === 'local' ? props.books.filter(book => book.source === 'local').length < 2 : !collectionDeletionAllowed(editing.book.deletion) || deleteStorageFailed || Boolean(pendingDeletes[editing.book.id]))} onClick={() => { setDeleteError(null); setDeleting(editing.book); }}>{t('accountUi.deleteResource')}</Button>{editing.book.source !== 'local' && !collectionDeletionAllowed(editing.book.deletion) && <p className="au-note">{editing.book.deletion?.reason || t('accountUi.providerDeletionUnavailable')}</p>}</div>
       </div>
     </Dialog>}
-    {deleting && <DeleteResourceDialog name={deleting.name} identity={deleting.accountLabel ?? t('accountUi.storedInInboxora')} busy={operation.busy} failed={operation.failed} onClose={() => setDeleting(null)} onConfirm={() => void operation.run(async current => { await api.addressBooks.remove(deleting.id); if (current()) { await refresh(); if (current()) { setDeleting(null); setEditing(null); } } })}/>}
+    {deleting && <DeleteResourceDialog key={deleting.id} name={deleting.name} identity={deleting.source === 'local' ? t('accountUi.storedInInboxora') : deleting.accountLabel ?? deleting.sourceUsername ?? deleting.sourceUrl ?? deleting.sourceLabel ?? undefined} busy={operation.busy} failed={operation.failed} onClose={() => setDeleting(null)} remote={deleting.source !== 'local'} error={deleteError ?? undefined} blocked={Boolean(pendingDeletes[deleting.id]) || deleteStorageFailed} onConfirm={confirmDelete}/>}
     {disconnecting && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setDisconnecting(null)} footer={<><Button onClick={() => setDisconnecting(null)} disabled={operation.busy}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await api.carddav.disconnect(disconnecting.id); if (current()) { await refresh(); if (current()) { setDisconnecting(null); setSelectedSourceId(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
     {forgetting && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setForgetting(null)} footer={<><Button onClick={() => setForgetting(null)} disabled={operation.busy}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await api.carddav.forgetLegacy(forgetting.id); if (current()) { await refresh(); if (current()) { setForgetting(null); setSelectedSourceId(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
   </div>;

@@ -26,9 +26,10 @@ export default defineConfig({
   ],
   outputDir: 'artifacts/playwright-test-results',
   use: {
-    // Real-app PWA tests need Chrome's native service-worker services.
-    // Keep Badging API enabled; use full Chromium in new headless mode.
-    ...(isRealApp ? { channel: 'chromium' } : {}),
+    // Both mocked and real accounts exercise native Badging/worker services.
+    // Keep those APIs enabled and run full Chromium's new headless mode;
+    // headless-shell does not provide the same browser-side service lifetime.
+    channel: 'chromium',
     baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

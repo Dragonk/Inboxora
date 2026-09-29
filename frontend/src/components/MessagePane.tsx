@@ -1,3 +1,4 @@
+import { requestMailRefresh } from '../utils/mailRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
  
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
@@ -11,9 +12,9 @@ import { shortcutBus } from '../utils/shortcutBus.ts';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { clearDeleteGuard, clearPendingDelete, setCompletedDelete, setPendingDelete } from '../utils/pendingDeletes.ts';
-import { pendingMarkReadMap, completedMarkReadMap, setPending } from '../utils/pendingReads.ts';
-import { queueReadStateMutation, isLatestReadStateMutation } from '../utils/readStateMutation.ts';
-import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
+import { currentReadStateMutationVersion } from '../utils/readStateMutation.ts';
+import { createPhysicalMailActions } from '../utils/physicalMailActions.ts';
+import { pendingStarState } from '../utils/starStateMutation.ts';
 import { BUILTIN_SUMMARIZE, summarizePromptForLocale } from '../aiActions.ts';
 import { getResults, saveResult, removeResult } from '../aiResults.ts';
 import { openReplyFromMessage } from '../utils/composeFromMessage.ts';
@@ -23,6 +24,7 @@ import MessageDetailContent from './MessageDetailContent.tsx';
 import { toAppError } from '../utils/errors.ts';
 const USE_DIV_RENDER = import.meta.env.VITE_EMAIL_DIV_RENDER === 'true';
 const MESSAGE_OPENING_EVENT = 'inboxora:message-opening';
+const physicalMailActions = createPhysicalMailActions({ getState: useStore.getState, refresh: requestMailRefresh });
 
 // Module-level regex so the spam-name heuristic isn't recompiled on every
 // render — same heuristic as ContextMenu.jsx, both files read this constant.
@@ -157,7 +159,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     updateMessage, removeMessage, decrementUnread, incrementUnread, openCompose, accounts, addNotification,
     imageWhitelist, addToImageWhitelist, blockRemoteImages, threadMessages,
     replyDefault, shortcuts,
-    categorizationEnabled: _categorizationEnabled, setCategoryCounts, adjustCategoryCount,
+    categorizationEnabled: _categorizationEnabled, setCategoryCounts,
     aiActions, setShowAdmin, setAdminTab,
     showContacts, showCalendar, showScheduled,
   } = useStore();
@@ -202,38 +204,21 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     setSelectedMessage(msg.id);
     if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
     autoMarkReadTimerRef.current = null;
-    if (!msg.is_read) {
-      const { markReadBehavior, markReadDelay } = useStore.getState();
-      if (markReadBehavior === 'manual') return;
-      const doMarkRead = () => {
-        updateMessage(msg.id, { is_read: true });
-        decrementUnread(msg.account_id);
-        adjustCategoryCount(msg.category || 'primary', -1);
-        setPending(msg.id, msg.account_id);
-        const mutation = queueReadStateMutation(msg.id, true, read => api.bulkRead([msg.id], read, [msg.account_id]));
-        mutation.promise
-          .then(() => {
-            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
-            pendingMarkReadMap.delete(msg.id);
-            completedMarkReadMap.set(msg.id, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-          })
-          .catch((e: unknown) => {
-            if (!isLatestReadStateMutation(msg.id, mutation.version)) return;
-            console.error('markRead failed:', toAppError(e).message);
-            updateMessage(msg.id, { is_read: false });
-            incrementUnread(msg.account_id);
-            adjustCategoryCount(msg.category || 'primary', 1);
-            pendingMarkReadMap.delete(msg.id);
-          });
-      };
-      if (markReadBehavior === 'delay') {
-        autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
-      } else {
-        doMarkRead();
-      }
-    }
-  }, [setSelectedMessage, updateMessage, decrementUnread, incrementUnread, adjustCategoryCount]);
+    const state = useStore.getState();
+    const epoch = state.authEpoch;
+    const version = currentReadStateMutationVersion(msg.id);
+    const isRead = typeof msg.physical_is_read === 'boolean' ? msg.physical_is_read : msg.is_read;
+    if (isRead || state.markReadBehavior === 'manual') return;
+    const doMarkRead = () => {
+      const current = useStore.getState();
+      if (current.authEpoch !== epoch || current.isLocked || current.selectedMessageId !== msg.id
+        || current.markReadBehavior === 'manual' || currentReadStateMutationVersion(msg.id) !== version) return;
+      void physicalMailActions.read(msg, true);
+    };
+    if (state.markReadBehavior === 'delay') {
+      autoMarkReadTimerRef.current = setTimeout(doMarkRead, (state.markReadDelay || 1) * 1000);
+    } else doMarkRead();
+  }, [setSelectedMessage]);
 
   const paneRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
@@ -1022,7 +1007,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           el.style.transform = 'translateX(0)';
         }
       } else {
-        const { messages: msgs, searchResults: sr, searchQuery: sq, selectedMessageId: selId, setSelectedMessage: setSel, updateMessage: updMsg, decrementUnread: decUnread, incrementUnread: incUnread, adjustCategoryCount: adjCat } = useStore.getState();
+        const { messages: msgs, searchResults: sr, searchQuery: sq, selectedMessageId: selId } = useStore.getState();
         const list = sq.trim() ? sr : msgs;
         const idx = list.findIndex(m => m.id === selId);
         let target = null;
@@ -1031,45 +1016,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
         } else if (dx > 60 && idx > 0) {
           target = list[idx - 1];
         }
-        if (target) {
-          window.dispatchEvent(new CustomEvent(MESSAGE_OPENING_EVENT));
-          api.getMessageBody(target.id).catch(() => {});
-          setSel(target.id);
-          if (autoMarkReadTimerRef.current) clearTimeout(autoMarkReadTimerRef.current);
-          autoMarkReadTimerRef.current = null;
-          if (!target.is_read) {
-            const { markReadBehavior, markReadDelay } = useStore.getState();
-            if (markReadBehavior !== 'manual') {
-              const doMarkRead = () => {
-                updMsg(target.id, { is_read: true });
-                decUnread(target.account_id);
-                adjCat(target.category || 'primary', -1);
-                setPending(target.id, target.account_id);
-                const mutation = queueReadStateMutation(target.id, true, read => api.bulkRead([target.id], read, [target.account_id]));
-                mutation.promise
-                  .then(() => {
-                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
-                    pendingMarkReadMap.delete(target.id);
-                    completedMarkReadMap.set(target.id, target.account_id);
-                    setTimeout(() => completedMarkReadMap.delete(target.id), 10000);
-                  })
-                  .catch((e: unknown) => {
-                    if (!isLatestReadStateMutation(target.id, mutation.version)) return;
-                    console.error('markRead failed:', toAppError(e).message);
-                    updMsg(target.id, { is_read: false });
-                    incUnread(target.account_id);
-                    adjCat(target.category || 'primary', 1);
-                    pendingMarkReadMap.delete(target.id);
-                  });
-              };
-              if (markReadBehavior === 'delay') {
-                autoMarkReadTimerRef.current = setTimeout(doMarkRead, (markReadDelay || 1) * 1000);
-              } else {
-                doMarkRead();
-              }
-            }
-          }
-        }
+        if (target) selectAndMarkRead(target);
       }
     };
 
@@ -1082,7 +1029,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
     };
-  }, [goBackToMobileList, isMobile, setSelectedMessage, resetPaneSwipeStyles]);
+  }, [goBackToMobileList, isMobile, selectAndMarkRead, resetPaneSwipeStyles]);
 
   const handleReply = (replyAll = false) => {
     if (!message) return;
@@ -1141,17 +1088,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
   const handleStarToggle = async () => {
     if (!message) return;
-    const newVal = !message.is_starred;
-    updateMessage(message.id, { is_starred: newVal });
-    const mutation = queueStarStateMutation(message.id, newVal, target => api.markStarred(message.id, target));
-    try {
-      await mutation.promise;
-    } catch (err) {
-      if (isLatestStarStateMutation(message.id, mutation.version)) {
-        updateMessage(message.id, { is_starred: !newVal });
-      }
-      throw err;
-    }
+    await physicalMailActions.star(message, !(pendingStarState(message.id) ?? message.is_starred));
   };
 
   const handlePrint = () => {
@@ -1344,22 +1281,10 @@ ${bodyContent}
   }, [message]);
 
   const handleMarkUnread = useCallback(() => {
-    if (!message || !message.is_read) return;
-    updateMessage(message.id, { is_read: false });
-    incrementUnread(message.account_id);
-    adjustCategoryCount(message.category || 'primary', 1);
-    completedMarkReadMap.delete(message.id);
-    pendingMarkReadMap.delete(message.id);
-    const mutation = queueReadStateMutation(message.id, false, read => api.bulkRead([message.id], read, [message.account_id]));
-    mutation.promise.catch((e: unknown) => {
-      if (!isLatestReadStateMutation(message.id, mutation.version)) return;
-      console.error('markUnread failed:', toAppError(e).message);
-      updateMessage(message.id, { is_read: true });
-      decrementUnread(message.account_id);
-      adjustCategoryCount(message.category || 'primary', -1);
-    });
+    if (!message) return;
+    void physicalMailActions.read(message, false);
     if (isMobile) setSelectedMessage(null);
-  }, [message, updateMessage, incrementUnread, decrementUnread, adjustCategoryCount, isMobile, setSelectedMessage]);
+  }, [message, isMobile, setSelectedMessage]);
 
   const _handleEmailClick = useCallback((ev: React.MouseEvent) => {
     const target = ev.target;
@@ -1667,21 +1592,7 @@ ${bodyContent}
         handlePrint();
         break;
       case 'markRead':
-        if (!message.is_read) {
-          updateMessage(message.id, { is_read: true });
-          decrementUnread(message.account_id);
-          adjustCategoryCount(message.category || 'primary', -1);
-          setPending(message.id, message.account_id);
-          const mutation = queueReadStateMutation(message.id, true, read => api.bulkRead([message.id], read, [message.account_id]));
-          mutation.promise.catch((e: unknown) => {
-            if (!isLatestReadStateMutation(message.id, mutation.version)) return;
-            console.error('markRead failed:', toAppError(e).message);
-            updateMessage(message.id, { is_read: false });
-            incrementUnread(message.account_id);
-            adjustCategoryCount(message.category || 'primary', 1);
-            pendingMarkReadMap.delete(message.id);
-          });
-        }
+        await physicalMailActions.read(message, true);
         break;
       case 'markUnread':
         handleMarkUnread();

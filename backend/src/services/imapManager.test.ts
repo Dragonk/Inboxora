@@ -3,7 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./mailBodyPrefetch.js', () => ({ prefetchVisibleBodies: vi.fn(), readNativePrefetchBody: vi.fn() }));
 import { prefetchVisibleBodies, readNativePrefetchBody } from './mailBodyPrefetch.js';
-vi.mock('./db.js', () => ({ query: vi.fn() }));
+vi.mock('./db.js', () => {
+  const query = vi.fn();
+  return { query, withTransaction: vi.fn(async (callback: (client: { query: typeof query }) => Promise<unknown>) => callback({ query })) };
+});
+vi.mock('./mailFlagState.js', () => ({ deferMailFlagReadback: vi.fn(async () => {}), enqueueMailFlagIntent: vi.fn(async () => ({})) }));
+import { deferMailFlagReadback, enqueueMailFlagIntent } from './mailFlagState.js';
 vi.mock('./messageParser.js', () => ({ parseMessage: vi.fn(), buildSnippetFromHtml: vi.fn(), snippetFromBody: vi.fn(), decodeMimeWords: vi.fn(), detectBulkFromParsedHeaders: vi.fn(), parseRawHeaders: vi.fn(), enrichParsedMetadata: vi.fn((parsed) => parsed) }));
 vi.mock('../routes/oauth.js', () => ({ refreshMicrosoftToken: vi.fn() }));
 vi.mock('./emailSanitizer.js', () => ({ sanitizeEmail: vi.fn() }));
@@ -2906,5 +2911,167 @@ describe('ensuring a folder on a native account', () => {
     // Discovery is what produces the local row and collection, so it must run.
     expect(vi.mocked(syncGraphMailFoldersForAccount)).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'acct-1' }));
     expect(result).toEqual({ path: 'GTD/Todo', created: true });
+  });
+});
+
+
+describe('durable IMAP flag observation and writes', () => {
+  let sequence = 0;
+  beforeEach(() => {
+    query.mockReset();
+    query.mockResolvedValue({ rows: [], rowCount: 0 });
+    vi.mocked(deferMailFlagReadback).mockReset();
+    vi.mocked(deferMailFlagReadback).mockResolvedValue(undefined);
+    vi.mocked(enqueueMailFlagIntent).mockClear();
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true, allowNonstandardPorts: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+  });
+
+  function transport(options: { epoch?: bigint; failWrite?: boolean; flags?: Set<string>; absent?: boolean; omitFlags?: boolean } = {}) {
+    const release = vi.fn();
+    const client = mockImapClient(Object.assign(new EventEmitter(), {
+      authenticated: true,
+      connect: vi.fn(async () => {}),
+      logout: vi.fn(async () => {}),
+      close: vi.fn(),
+      mailbox: { exists: 6000, uidValidity: options.epoch ?? 7n, path: 'INBOX' },
+      getMailboxLock: vi.fn(async () => ({ release })),
+      fetch: vi.fn(() => (async function* () {
+        if (!options.absent) yield { uid: 1, flags: options.omitFlags ? undefined : options.flags ?? new Set(['\\Seen']) };
+      })()),
+      messageFlagsAdd: vi.fn(async () => {
+        if (options.failWrite) throw new Error('Socket closed after STORE');
+        return true;
+      }),
+      messageFlagsRemove: vi.fn(async () => true),
+    }));
+    ImapFlow.mockImplementation(function () { return client; });
+    const account = { ...baseAccount, id: `flag-transport-${++sequence}` };
+    return { client, account, release };
+  }
+
+  it('does not write a reused UID after UIDVALIDITY changed', async () => {
+    const { client, account, release } = transport({ epoch: 8n });
+    await expect(ImapManager.prototype.setFlag(account, 1, 'INBOX', '\\Seen', true, 7))
+      .rejects.toMatchObject({ code: 'MAIL_IDENTITY_CHANGED' });
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+    expect(client.fetch).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a persisted intent without a known UIDVALIDITY', async () => {
+    const { client, account } = transport();
+    await expect(ImapManager.prototype.setFlag(account, 1, 'INBOX', '\\Seen', true, null))
+      .rejects.toMatchObject({ code: 'MAIL_IDENTITY_CHANGED' });
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+  });
+
+  it('keeps a transient mailbox-lock failure retryable before STORE', async () => {
+    const { client, account } = transport();
+    client.getMailboxLock.mockRejectedValue(new Error('Synthetic connection reset before SELECT completed'));
+    await expect(ImapManager.prototype.setFlag(account, 1, 'INBOX', '\\Seen', true, 7))
+      .rejects.toMatchObject({ code: 'MAIL_FLAG_NOT_DISPATCHED', cause: expect.any(Error) });
+    expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+  });
+
+  it('does not blindly retry a STORE whose response was lost', async () => {
+    const { client, account } = transport({ failWrite: true });
+    await expect(ImapManager.prototype.setFlag(account, 1, 'INBOX', '\\Seen', true, 7))
+      .rejects.toThrow('Socket closed after STORE');
+    expect(client.messageFlagsAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes a timed-out lock and never dispatches when that old lock later resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client, account, release } = transport();
+      let finishLock: () => void = () => {};
+      const gate = new Promise<void>(resolve => { finishLock = resolve; });
+      client.getMailboxLock.mockImplementation(async () => { await gate; return { release }; });
+      const operation = ImapManager.prototype.setFlag(account, 1, 'INBOX', '\\Seen', true, 7);
+      const rejected = expect(operation).rejects.toMatchObject({ code: 'MAIL_FLAG_NOT_DISPATCHED' });
+      await vi.advanceTimersByTimeAsync(45_001);
+      await rejected;
+      expect(client.close).toHaveBeenCalledTimes(1);
+      finishLock();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(client.messageFlagsAdd).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('writes both ordinary read and star flags with UID addressing', async () => {
+    const { client, account } = transport();
+    await ImapManager.prototype.setFlag(account, 1, 'INBOX', '\\Seen', true, 7);
+    await ImapManager.prototype.setFlag(account, 1, 'INBOX', '\\Flagged', false, 7);
+    expect(client.messageFlagsAdd).toHaveBeenCalledWith('1', ['\\Seen'], { uid: true });
+    expect(client.messageFlagsRemove).toHaveBeenCalledWith('1', ['\\Flagged'], { uid: true });
+  });
+
+  it('reads an old exact UID outside the recent 200/5000 windows', async () => {
+    const { client, account } = transport({ flags: new Set(['\\Flagged']) });
+    await expect(ImapManager.prototype.readMessageFlags(account, 1, 'INBOX', '7'))
+      .resolves.toEqual({ isRead: false, isStarred: true });
+    expect(client.fetch).toHaveBeenCalledWith('1', { uid: true, flags: true }, { uid: true });
+  });
+
+  it('distinguishes a missing UID from observed unread/unstarred flags', async () => {
+    const { account } = transport({ absent: true });
+    await expect(ImapManager.prototype.readMessageFlags(account, 1, 'INBOX', 7)).resolves.toBeNull();
+  });
+
+  it('does not interpret an incomplete FETCH response as unread and unstarred', async () => {
+    const { account } = transport({ omitFlags: true });
+    await expect(ImapManager.prototype.readMessageFlags(account, 1, 'INBOX', 7))
+      .rejects.toThrow('IMAP flag readback omitted flags');
+  });
+
+  it('does not read another UID epoch while reconciling an unknown result', async () => {
+    const { client, account } = transport({ epoch: 9n });
+    await expect(ImapManager.prototype.readMessageFlags(account, 1, 'INBOX', 7))
+      .rejects.toMatchObject({ code: 'MAIL_IDENTITY_CHANGED' });
+    expect(client.fetch).not.toHaveBeenCalled();
+  });
+
+  it('persists protected observations before applying the delta', async () => {
+    const operations: string[] = [];
+    query.mockImplementation(async sql => {
+      if (sql.includes('FOR UPDATE')) {
+        operations.push('lock');
+        return { rows: [{ id: 'message-1', protected: true }], rowCount: 1 };
+      }
+      operations.push('update');
+      return { rows: [], rowCount: 0 };
+    });
+    vi.mocked(deferMailFlagReadback).mockImplementation(async id => {
+      expect(id).toBe('message-1');
+      operations.push('defer');
+    });
+    await ImapManager.prototype._applyFlagUpdates(baseAccount, 'INBOX', [{ uid: 1, isRead: false, isStarred: false }]);
+    expect(operations).toEqual(['lock', 'defer', 'update']);
+  });
+
+  it('does not consume a protected observation when durable storage fails', async () => {
+    query.mockResolvedValue({ rows: [{ id: 'message-1', protected: true }], rowCount: 1 });
+    vi.mocked(deferMailFlagReadback).mockRejectedValue(new Error('Synthetic database unavailable'));
+    await expect(ImapManager.prototype._applyFlagUpdates(baseAccount, 'INBOX', [{ uid: 1, isRead: false }]))
+      .rejects.toThrow('Could not persist IMAP flag observation');
+    expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE messages SET'))).toBe(false);
+  });
+
+  it('awaits durable persistence for a legacy flag enqueue', async () => {
+    query.mockResolvedValue({ rows: [{ user_id: 'owner-1' }] });
+    await ImapManager.prototype._enqueueFlagPush('account-1', 'message-1', '\\Seen', true);
+    expect(enqueueMailFlagIntent).toHaveBeenCalledWith({ userId: 'owner-1', accountId: 'account-1', messageId: 'message-1', flag: '\\Seen', value: true });
+    vi.mocked(enqueueMailFlagIntent).mockRejectedValueOnce(new Error('Database unavailable'));
+    await expect(ImapManager.prototype._enqueueFlagPush('account-1', 'message-1', '\\Seen', true))
+      .rejects.toThrow('Database unavailable');
+  });
+
+  it('does not let a legacy acknowledgement erase a later durable generation', () => {
+    ImapManager.prototype._resolveFlagPush('account-1', 'message-1', '\\Seen');
+    expect(query).not.toHaveBeenCalled();
   });
 });

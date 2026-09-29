@@ -1,3 +1,4 @@
+import { visiblePhysicalMessageSql, visiblePhysicalMessageForAlias } from '../services/messageVisibility.js';
 import { Router } from 'express';
 import { query, pool } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -60,6 +61,7 @@ router.get('/conversations', async (req: Request, res: Response) => {
     'm_entry.conversation_id = c.id',
     'm_entry.account_id = c.account_id',
     'm_entry.is_deleted = false',
+    visiblePhysicalMessageForAlias('m_entry'),
   ];
   if (accountId) entryFilters.push('m_entry.account_id = $2');
   if (unifiedInbox === '1' && !accountId) {
@@ -113,7 +115,7 @@ router.get('/conversations', async (req: Request, res: Response) => {
            top_latest.has_attachments AS latest_copy_has_attachments
       FROM conversations c
       JOIN email_accounts a ON a.id = c.account_id AND a.user_id = $1
-      JOIN messages m ON m.conversation_id = c.id AND m.account_id = c.account_id AND m.is_deleted = false
+      JOIN messages m ON m.conversation_id = c.id AND m.account_id = c.account_id AND m.is_deleted = false AND (${visiblePhysicalMessageSql})
       LEFT JOIN LATERAL (
         SELECT m_copy.id, m_copy.folder, m_copy.date, m_copy.subject, m_copy.snippet,
                m_copy.from_name, m_copy.from_email, m_copy.is_read, m_copy.is_starred,
@@ -121,7 +123,7 @@ router.get('/conversations', async (req: Request, res: Response) => {
           FROM logical_messages lm
           JOIN messages m_copy ON m_copy.logical_message_id = lm.id
             AND m_copy.conversation_id = c.id AND m_copy.account_id = c.account_id
-            AND m_copy.is_deleted = false
+            AND m_copy.is_deleted = false AND (${visiblePhysicalMessageForAlias('m_copy')})
          WHERE lm.conversation_id = c.id AND lm.account_id = c.account_id
          ORDER BY lm.message_date DESC NULLS LAST, m_copy.date DESC NULLS LAST, m_copy.id DESC
          LIMIT 1
@@ -143,16 +145,16 @@ router.get('/conversations', async (req: Request, res: Response) => {
                  preferred_copy.id AS copy_id, preferred_copy.folder, preferred_copy.snippet,
                  preferred_copy.from_name, preferred_copy.from_email, preferred_copy.account_id,
                  COALESCE(preferred_copy.has_attachments, false) AS has_attachments,
-                 COALESCE(NOT preferred_copy.is_read, false) AS unread
+                 EXISTS (SELECT 1 FROM messages m_unread WHERE m_unread.logical_message_id = lm.id AND m_unread.conversation_id = c.id AND m_unread.account_id = c.account_id AND NOT m_unread.is_deleted AND NOT m_unread.is_read AND (${visiblePhysicalMessageForAlias('m_unread')})) AS unread
             FROM logical_messages lm
-            LEFT JOIN LATERAL (
+            JOIN LATERAL (
               SELECT m_copy.id, m_copy.folder, m_copy.snippet, m_copy.from_name,
                      m_copy.from_email, m_copy.account_id, m_copy.has_attachments, m_copy.is_read
                 FROM messages m_copy
                WHERE m_copy.logical_message_id = lm.id
                  AND m_copy.conversation_id = c.id
                  AND m_copy.account_id = c.account_id
-                 AND m_copy.is_deleted = false
+                 AND m_copy.is_deleted = false AND (${visiblePhysicalMessageForAlias('m_copy')})
                ORDER BY ${preferredCopyOrder} m_copy.date DESC NULLS LAST, m_copy.id DESC
                LIMIT 1
             ) preferred_copy ON true
@@ -162,6 +164,9 @@ router.get('/conversations', async (req: Request, res: Response) => {
           SELECT lm_latest.id
             FROM logical_messages lm_latest
            WHERE lm_latest.conversation_id = c.id AND lm_latest.account_id = c.account_id
+             AND EXISTS (SELECT 1 FROM messages m_latest WHERE m_latest.logical_message_id = lm_latest.id
+               AND m_latest.conversation_id = c.id AND m_latest.account_id = c.account_id
+               AND m_latest.is_deleted = false AND (${visiblePhysicalMessageForAlias('m_latest')}))
            ORDER BY lm_latest.message_date DESC NULLS LAST, lm_latest.id DESC
            LIMIT 1
         ) top_latest_logical ON true
@@ -207,20 +212,26 @@ router.get('/conversations/:id', async (req: Request, res: Response) => {
              ) ORDER BY m.date ASC NULLS LAST, m.id) FILTER (WHERE m.id IS NOT NULL), '[]'::jsonb) AS copies
         FROM conversations c
         LEFT JOIN logical_messages lm ON lm.conversation_id = c.id AND lm.account_id = c.account_id
-        LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false
+        LEFT JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.account_id = c.account_id AND m.is_deleted = false AND (${visiblePhysicalMessageSql})
        WHERE c.id = $1 AND c.user_id = $2 AND c.account_id = $3
        GROUP BY c.id, lm.id
        ORDER BY lm.message_date ASC NULLS LAST, lm.id
     `, [canonicalId, req.session.userId, accountId]);
     if (!result.rows.length) return res.status(404).json({ error: 'Conversation not found' });
-    const logicalRows = result.rows.filter(row => row.logical_id).map(row => ({
+    const logicalRows = result.rows.filter(row => row.logical_id && Array.isArray(row.copies) && row.copies.length > 0).map(row => ({
       id: row.logical_id, canonicalMessageId: row.canonical_message_id, subject: row.subject,
       direction: row.direction, messageDate: row.message_date, threadingReason: row.threading_reason,
       threadingConfidence: row.threading_confidence, copies: row.copies || [],
     }));
     const first = result.rows[0];
-    const summary = Object.fromEntries(Object.entries(first).filter(([key]) => !['logical_id', 'canonical_message_id', 'subject', 'direction', 'message_date', 'threading_reason', 'threading_confidence'].includes(key)));
-    res.json({ summary: { ...summary, conversation_id: canonicalId, requested_conversation_id: req.params.id }, logicalMessages: logicalRows });
+    const summary = Object.fromEntries(Object.entries(first).filter(([key]) => !['logical_id', 'canonical_message_id', 'subject', 'direction', 'message_date', 'threading_reason', 'threading_confidence', 'copies'].includes(key)));
+    // Cached CE counters are ingest metadata, not current physical-copy flags.
+    // Build the reader summary from the same visible copies it can actually open.
+    const copyCount = logicalRows.reduce((sum, row) => sum + row.copies.length, 0);
+    const unreadCount = logicalRows.filter(row => row.copies.some((copy: { isRead: boolean }) => copy.isRead === false)).length;
+    res.json({ summary: { ...summary,
+      logical_message_count: logicalRows.length, copy_count: copyCount, unread_count: unreadCount,
+      conversation_id: canonicalId, requested_conversation_id: req.params.id }, logicalMessages: logicalRows });
   } finally { client.release(); }
 });
 
@@ -234,7 +245,7 @@ router.get('/conversations/:conversationId/logical-messages/:logicalMessageId/bo
     const result = await client.query(`
       SELECT lm.id, m.body_text, m.body_html, m.attachments, m.id AS physical_copy_id, m.account_id, m.folder, u.preferences, m.from_email
         FROM logical_messages lm
-        JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.is_deleted = false
+        JOIN messages m ON m.logical_message_id = lm.id AND m.conversation_id = $3 AND m.account_id = lm.account_id AND m.is_deleted = false AND (${visiblePhysicalMessageSql})
         JOIN email_accounts a ON a.id = m.account_id AND a.user_id = $2
         JOIN users u ON u.id = a.user_id
        WHERE lm.id = $1 AND lm.user_id = $2 AND lm.account_id = $5 AND lm.conversation_id = $3

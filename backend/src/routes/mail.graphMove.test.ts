@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  pushFlag: vi.fn(),
   query: vi.fn(),
   withTransaction: vi.fn(),
   projectMove: vi.fn<typeof import('../services/providers/microsoft/graphMailContinuity.js').projectGraphMove>(),
@@ -44,6 +45,7 @@ vi.mock('../index.js', () => ({
     pluginFacade: {},
   },
 }));
+vi.mock('../services/providerMailFlagWrite.js', async importOriginal => ({ ...await importOriginal<typeof import('../services/providerMailFlagWrite.js')>(), pushProviderMessageFlag: mocks.pushFlag, pushProviderMessageFlags: async (inputs: Array<{messageId:string}>) => Promise.all(inputs.map(async input => ({id:input.messageId,...await mocks.pushFlag(input)}))) }));
 vi.mock('../services/providerMutationService.js', () => ({ runProviderMutation: mocks.runProviderMutation }));
 // SQL and rollback behavior are exercised with PostgreSQL in
 // graphMailContinuity.integration.test.ts. These route tests keep the real
@@ -369,34 +371,15 @@ describe('bulk-delete keeps a Graph row out of the re-insert statement too', () 
   });
 });
 
-describe('mark-all-read asks the provider, on the transport that has one', () => {
-  it('sets the flag on every unread Graph message through the mutation layer', async () => {
-    mocks.query
-      .mockResolvedValueOnce({ rows: [{ ...graphAccount() }], rowCount: 1 })                                        // account
-      .mockResolvedValueOnce({ rows: [{ id: MESSAGE_ID, provider_message_id: 'AAMkAD-1' }], rowCount: 1 });           // unread
-    mocks.runProviderMutation.mockResolvedValue({ status: 'confirmed', operationId: 'op-1', replayed: false });
-
-    const response = await post('/mark-all-read', { accountId: ACCOUNT_ID, folder: 'INBOX' });
+describe('mark-all-read uses durable per-message outcomes', () => {
+  it.each(['microsoft_graph','gmail_api','imap_smtp'])('addresses %s rows individually', async transport => {
+    mocks.query.mockResolvedValueOnce({rows:[{...graphAccount(),mail_transport:transport}]}).mockResolvedValueOnce({rows:[messageRow()]});
+    mocks.pushFlag.mockResolvedValue({status:'retryable',code:'UPSTREAM_UNAVAILABLE'});
+    const response=await post('/mark-all-read',{accountId:ACCOUNT_ID,folder:'INBOX'});
     expect(response.status).toBe(200);
-    // The list is taken before the local rows are flipped, or it would find nothing.
-    const unreadQuery = mocks.query.mock.calls.findIndex(([sql]) => String(sql).includes('is_read = false AND provider_message_id IS NOT NULL'));
-    const localUpdate = mocks.query.mock.calls.findIndex(([sql]) => String(sql).startsWith('UPDATE messages SET is_read = true'));
-    expect(unreadQuery).toBeGreaterThanOrEqual(0);
-    expect(unreadQuery).toBeLessThan(localUpdate);
-    await new Promise(resolve => setTimeout(resolve, 0));
-    const [request] = mocks.runProviderMutation.mock.calls[0];
-    expect(request.payload).toMatchObject({ providerMessageId: 'AAMkAD-1', flag: '\\Seen', value: true });
+    expect(await response.json()).toMatchObject({updated:[],pending:[MESSAGE_ID],failed:[]});
+    expect(mocks.pushFlag).toHaveBeenCalledWith(expect.objectContaining({messageId:MESSAGE_ID,flag:'\\Seen',value:true}));
     expect(mocks.markAllReadImap).not.toHaveBeenCalled();
-  });
-
-  it('leaves an IMAP account on the IMAP path and does not query for provider ids', async () => {
-    mocks.query.mockResolvedValueOnce({ rows: [{ id: ACCOUNT_ID, mail_transport: 'imap_smtp' }], rowCount: 1 });
-    mocks.markAllReadImap.mockResolvedValue(undefined);
-
-    const response = await post('/mark-all-read', { accountId: ACCOUNT_ID, folder: 'INBOX' });
-    expect(response.status).toBe(200);
-    expect(mocks.markAllReadImap).toHaveBeenCalled();
-    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('provider_message_id IS NOT NULL'))).toBe(false);
-    expect(mocks.runProviderMutation).not.toHaveBeenCalled();
+    expect(mocks.query.mock.calls.some(([sql])=>String(sql).startsWith('UPDATE messages'))).toBe(false);
   });
 });

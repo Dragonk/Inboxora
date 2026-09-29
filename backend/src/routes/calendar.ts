@@ -1,10 +1,12 @@
+import { deleteRemoteDavCalendarCollection, getRemoteDavCollectionDeleteCapability } from '../services/davCollectionLifecycle.js';
+import { davCollectionDeletionResponse, validCollectionDeletionIntent } from '../services/davCollectionManagement.js';
+import { describeCalendarCollectionDeletion } from './accountsCalendarManagement.js';
 import { calendarColorFields, colorPreferenceMap, loadCalendarColorPreferences, withCalendarPresentationColor, parseCalendarPresentationPatch, writeCalendarPresentationPatch } from '../services/calendarPresentationColors.js';
 import { calendarResources, mergeCalendarResource, rruleFromCalendarResource, setSeriesRecurrence, truncateSeriesBefore } from '../utils/calendarRecurrence.js';
 import { parseRecurrenceStructure, recurrenceToRRule, recurrenceViewFromRRule, type ParsedRecurrence } from '../utils/calendarRecurrenceRule.js';
 import { googleConfigFromEnv, isGoogleConfigured, isMicrosoftConfigured, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { syncGoogleCalendar } from '../services/providers/google/googleCalendarSync.js';
 import { describeProviderSyncFailure, providerSyncPreflight } from '../services/providerSyncDiagnostics.js';
-import { releaseCalendarChannelForCollection } from '../services/providerPushGoogle.js';
 import { deleteCaldavEvent, putCaldavEvent } from '../services/providers/caldavWriteBack.js';
 import { davWriteBackHttpStatus, type DavWriteBackRouteResult } from '../services/providers/davWriteBack.js';
 import {
@@ -712,13 +714,22 @@ router.patch('/presentation/calendars/:calendarId', async (req, res) => {
 });
 
 router.get('/calendars', async (req, res) => {
-  const result = await query<{ id: string; color: string | null; [key: string]: unknown }>(
+  const result = await query<{ id: string; color: string | null; source?: string | null; [key: string]: unknown }>(
     // `collection_id` is what the write-back opt-in is addressed by: a pulled calendar is written through
     // its collection, and the interface needs the id to offer the switch.
     `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible,
-            c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id, ic.source_access, ic.user_access
+            c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id, ic.source_access, ic.user_access,
+            ic.connection_id, ic.remote_id, pc.provider_user_id, account.id AS account_id
        FROM calendars c
        LEFT JOIN integration_collections ic ON ic.local_calendar_id = c.id AND ic.kind = 'calendar' AND ic.user_id = c.user_id
+       LEFT JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.user_id = c.user_id
+       LEFT JOIN LATERAL (
+         SELECT ea.id FROM email_accounts ea
+          WHERE ea.user_id=c.user_id AND (ic.account_id IS NULL OR ea.id=ic.account_id)
+            AND (ea.provider_connection_id=pc.id OR lower(ea.email_address)=lower(pc.provider_user_id))
+          ORDER BY CASE WHEN ea.id=ic.account_id THEN 0 WHEN ea.provider_connection_id=pc.id THEN 1 ELSE 2 END, ea.id
+          LIMIT 1
+       ) account ON true
       WHERE c.user_id = $1 AND c.owner_user_id = $1
       ORDER BY c.created_at ASC`,
     [req.session.userId],
@@ -727,11 +738,27 @@ router.get('/calendars', async (req, res) => {
   const [appearance, preferences] = await Promise.all([
     contactCalendarAppearance(userId), loadCalendarColorPreferences(userId),
   ]);
-  const calendars = result.rows.map(row => ({ ...row, ...calendarColorFields(row.id, row.color, preferences) }));
+  const calendars = [];
+  // Keep provider capability reads bounded: large lists must not flood provider APIs.
+  for (const row of result.rows) {
+    let deletion: { supported: boolean; reason?: string } | undefined = row.source === 'local' ? { supported: true } : undefined;
+    if (row.source !== 'local' && req.query.includeDeletionCapabilities === 'true') {
+      try {
+        if (row.source === 'caldav') {
+          const capability = await getRemoteDavCollectionDeleteCapability(userId, 'calendar', row.id);
+          deletion = { supported: capability.allowed, reason: capability.reason };
+        } else deletion = await describeCalendarCollectionDeletion(userId, row);
+      } catch {
+        deletion = { supported: false, reason: 'Provider deletion rights could not be verified. Try again after the connection recovers.' };
+      }
+    }
+    calendars.push({ ...row, ...calendarColorFields(row.id, row.color, preferences), deletion });
+  }
   res.json({ calendars: [...calendars, {
     id: CONTACT_CALENDAR_ID, name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
     ...calendarColorFields(CONTACT_CALENDAR_ID, appearance.color || '#e879f9', preferences),
     source: 'contacts', external_url: null, read_only: true, display_visible: appearance.displayVisible !== false, dav_mode: 'off',
+    deletion: { supported: false, reason: 'Contact dates are generated from contacts and cannot be deleted as a calendar.' },
   }] });
 });
 
@@ -816,40 +843,28 @@ router.patch('/calendars/:calendarId', async (req, res) => {
 });
 
 router.delete('/calendars/:calendarId', async (req, res) => {
-  const confirmName = calendarName(req.body?.confirmName);
+  if (!UUID_PATTERN.test(req.params.calendarId)) return res.status(400).json({ error: 'Invalid calendar id' });
+  const confirmName = typeof req.body?.confirmName === 'string' && req.body.confirmName.trim() && req.body.confirmName.length <= 255 ? req.body.confirmName : null;
   if (!confirmName) return res.status(400).json({ error: 'confirmName is required' });
-  // The capability model decides whether the calendar may be removed at all; the
-  // DELETE that follows is scoped to the same owner and confirmed name, so the
-  // decision cannot be raced into a different row.
-  const current = await query(
-    `SELECT id, source, read_only FROM calendars
-     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3`,
-    [req.params.calendarId, req.session.userId, confirmName],
+  const userId = sessionUserId(req);
+  const current = await query<{ id: string; name: string; source: string; read_only: boolean }>(
+    `SELECT id, name, source, read_only FROM calendars
+     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2`,
+    [req.params.calendarId, userId],
   );
   const candidate = current.rows[0];
-  if (!candidate || !collectionIsWritable(candidate, 'calendars')) return res.status(404).json({ error: 'Calendar not found' });
-  // Remote collection lifecycle needs a provider-native, journalled operation.
-  // Do not delete only the local projection through this generic endpoint.
-  if (candidate.source !== 'local') return res.status(409).json({ error: 'Provider calendars cannot be deleted here' });
-  // Stop the calendar's push channel before the collection row goes: the row's foreign key would remove the
-  // subscription record without telling Google, leaving a channel pushing at an endpoint that no longer
-  // recognises it. Best effort — the removal must not fail because Google is unreachable. A local calendar has
-  // no collection and no channel, so the lookup only happens for a provider-backed one.
-  const collection = candidate.source && candidate.source !== 'local'
-    ? await query<{ id: string }>(
-      'SELECT id FROM integration_collections WHERE local_calendar_id = $1 AND user_id = $2',
-      [req.params.calendarId, req.session.userId],
-    )
-    : { rows: [] as Array<{ id: string }> };
-  if (collection.rows[0]) {
-    await releaseCalendarChannelForCollection({
-      userId: req.session.userId!,
-      collectionId: collection.rows[0].id,
-    }).catch(error => console.warn('Calendar push channel cleanup failed:', error instanceof Error ? error.message : error));
+  if (candidate && candidate.name !== confirmName) return res.status(400).json({ code: 'VALIDATION_ERROR', error: 'Confirm the exact calendar name' });
+  if (candidate?.source === 'caldav' || !candidate) {
+    if (!validCollectionDeletionIntent(req.body)) return res.status(400).json({ code: 'VALIDATION_ERROR', error: 'confirmName and idempotencyKey are required' });
+    // The DAV helper replays only this owner's journal; not_found never authorizes local deletion.
+    const result = davCollectionDeletionResponse(await deleteRemoteDavCalendarCollection(userId, req.params.calendarId));
+    return res.status(result.status).json(result.body);
   }
+  if (!collectionIsWritable(candidate, 'calendars')) return res.status(404).json({ error: 'Calendar not found' });
+  if (candidate.source !== 'local') return res.status(409).json({ error: 'Provider calendars cannot be deleted here' });
   const result = await query(
     `DELETE FROM calendars
-     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3
+     WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3 AND source = 'local'
      RETURNING id`,
     [req.params.calendarId, req.session.userId, confirmName],
   );

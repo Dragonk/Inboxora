@@ -53,16 +53,17 @@ describe('classifying a Gmail mutation failure', () => {
 describe('the Gmail flag mutation adapter', () => {
   const payload: GmailMailFlagPayload = { providerMessageId: 'm1', flag: '\\Seen', value: true, intentAt: '2026-09-01T00:00:00.000Z' };
 
-  it('is declared idempotent, because the write is a state set', () => {
-    expect(gmailFlagMutationAdapter({ api: API }).idempotent).toBe(true);
+  it('requires read-back for recovered claims to preserve later edits', () => {
+    expect(gmailFlagMutationAdapter({ api: API }).idempotent).toBe(false);
   });
 
   it('performs the label change and reports it committed', async () => {
     const modify = vi.fn(async () => undefined);
     const adapter = gmailFlagMutationAdapter({ api: API, modify });
-    await expect(adapter.perform(payload, { operationId: 'op-1', signal: new AbortController().signal }))
+    const signal = new AbortController().signal;
+    await expect(adapter.perform(payload, { operationId: 'op-1', signal }))
       .resolves.toEqual({ status: 'committed' });
-    expect(modify).toHaveBeenCalledWith(API, 'm1', [], ['UNREAD']);
+    expect(modify).toHaveBeenCalledWith({ ...API, signal }, 'm1', [], ['UNREAD']);
   });
 
   it('refuses an unsupported flag permanently', async () => {

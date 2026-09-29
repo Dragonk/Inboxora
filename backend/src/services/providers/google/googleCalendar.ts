@@ -1,4 +1,4 @@
-import { googleApiFetch, googleApiJson, googleApiVoid, googleUrl } from './googleApiClient.js';
+import { GoogleApiError, googleApiFetch, googleApiJson, googleApiVoid, googleUrl } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 import { buildVTimezone, isValidTimeZone } from '../../../utils/icalTimezone.js';
 import {
@@ -91,11 +91,22 @@ export const GOOGLE_CALENDAR_EVENTS_MAX_RESULTS = 2500;
 export async function fetchCalendarList(options: GoogleApiOptions, input: { pageToken?: string | null } = {}): Promise<CalendarListPage> {
   const url = googleUrl(GOOGLE_CALENDAR_API_BASE, '/users/me/calendarList', {
     maxResults: GOOGLE_CALENDAR_LIST_MAX_RESULTS,
+    showHidden: true,
     pageToken: input.pageToken ?? undefined,
   });
-  const body = await googleApiFetch<{ items?: GoogleCalendarListEntry[] | null; nextPageToken?: string | null }>(options, url);
+  const body = await googleApiFetch<{ kind?: string; items?: GoogleCalendarListEntry[]; nextPageToken?: string; nextSyncToken?: string }>(options, url);
+  // Never coerce a malformed response or a malformed entry to an empty snapshot.
+  // Google may omit an empty repeated field; require its canonical response envelope then.
+  const omittedEmpty = body?.items === undefined && body?.kind === 'calendar#calendarList'
+    && typeof body.nextSyncToken === 'string' && body.nextSyncToken.length > 0;
+  if (!body || (!Array.isArray(body.items) && !omittedEmpty)
+    || (body.nextPageToken !== undefined && (typeof body.nextPageToken !== 'string' || !body.nextPageToken.trim()))
+    || (body.items ?? []).some(entry => !entry || typeof entry.id !== 'string' || !entry.id.trim()
+      || (entry.deleted !== undefined && typeof entry.deleted !== 'boolean'))) {
+    throw new GoogleApiError({ code: 'UPSTREAM_UNAVAILABLE', message: 'Malformed Google calendar list', status: 502 });
+  }
   return {
-    calendars: (Array.isArray(body.items) ? body.items : []).filter(entry => entry?.id && entry.deleted !== true),
+    calendars: (body.items ?? []).filter(entry => entry.deleted !== true),
     nextPageToken: body.nextPageToken ?? null,
   };
 }

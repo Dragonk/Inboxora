@@ -203,7 +203,7 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     ]);
 
     const state = await autocommit(client => client.query<{ cursor: string | null }>(
-      'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2 ORDER BY created_at ASC', [USER_ID, 'calendars'],
+      'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2 AND coverage = \'events\' ORDER BY created_at ASC', [USER_ID, 'calendars'],
     ));
     expect(state.rows[0]?.cursor).toBe(DELTA_LINK_1);
 

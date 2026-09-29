@@ -34,21 +34,21 @@ test.describe('native conversation engine matrix', () => {
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(reader).toBeVisible();
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-1')).toBeVisible();
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-1')).toBeVisible();
     await expect(reader.locator('[data-conversation-message-state="collapsed"]')).toHaveCount(4);
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await reader.locator('#logical-message-conversation-gmail-logical-3 [data-conversation-message-toggle="true"][aria-expanded="false"]').click();
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await reader.locator('#logical-message-conversation-gmail-copy-3 [data-conversation-message-toggle="true"][aria-expanded="false"]').click();
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(2);
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe')).toBeVisible();
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3 iframe').contentFrame().locator('body')).toContainText('Fixture body lazy conversation-gmail-copy-3');
-    await reader.locator('#logical-message-conversation-gmail-logical-2 [data-conversation-message-toggle="true"][aria-expanded="true"]').click();
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'collapsed');
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
-    await reader.locator('#logical-message-conversation-gmail-logical-3 [data-conversation-message-toggle="true"][aria-expanded="true"]').click();
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'collapsed');
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-3 iframe')).toBeVisible();
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-3 iframe').contentFrame().locator('body')).toContainText('Fixture body lazy conversation-gmail-copy-3');
+    await reader.locator('#logical-message-conversation-gmail-copy-2 [data-conversation-message-toggle="true"][aria-expanded="true"]').click();
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-2')).toHaveAttribute('data-conversation-message-state', 'collapsed');
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await reader.locator('#logical-message-conversation-gmail-copy-3 [data-conversation-message-toggle="true"][aria-expanded="true"]').click();
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-3')).toHaveAttribute('data-conversation-message-state', 'collapsed');
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(0);
     await page.screenshot({ path: 'artifacts/off-on.png', fullPage: true });
   });
@@ -122,7 +122,7 @@ test.describe('native conversation engine matrix', () => {
     // to a different message. ConversationReader uses the selected physical copy as
     // the fallback target; the generic helper's newest-message fallback is for cases
     // where there is no physical selection at all.
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
   });
 
   test('ON/OFF retains the native threaded list and selects its parent message', async ({ page, fixtureApi }, testInfo) => {
@@ -159,7 +159,7 @@ test.describe('native conversation engine matrix', () => {
     await expect(reader).toHaveAttribute('data-selected-account-id', 'account-gmail');
     await expect(reader.locator('[data-conversation-message-state="collapsed"]')).toHaveCount(4);
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(1);
-    const collapsed = reader.locator('#logical-message-conversation-gmail-logical-1');
+    const collapsed = reader.locator('#logical-message-conversation-gmail-copy-1');
     await expect(collapsed.locator('[data-conversation-message-snippet="true"]')).toBeVisible();
     await expect(collapsed.locator('[data-conversation-message-actions="true"]')).toHaveCount(0);
     await expect(collapsed.locator('[data-conversation-message-expanded-content="true"]')).toHaveCount(0);
@@ -172,25 +172,25 @@ test.describe('native conversation engine matrix', () => {
     // Resolver selected copy 5 on Gmail. The newest physical message is incoming,
     // while stale logical direction disagrees; physical account identity wins.
     await expect(latest.locator('[data-message-direction="incoming"]')).toBeVisible();
-    await reader.locator('#logical-message-conversation-gmail-logical-2 [data-conversation-message-toggle="true"][aria-expanded="false"]').evaluate(button => button.click());
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await reader.locator('#logical-message-conversation-gmail-copy-2 [data-conversation-message-toggle="true"][aria-expanded="false"]').evaluate(button => button.click());
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-2')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(latest).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(reader.locator('[data-conversation-message-state="expanded"]')).toHaveCount(2);
     await expect(reader.locator('[data-conversation-message-actions="true"]')).toHaveCount(2);
     await expect(reader.locator('[data-conversation-message-toggle="true"] [data-conversation-message-actions="true"]')).toHaveCount(0);
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2 [data-conversation-message-actions="true"][data-action-target-id="conversation-gmail-logical-2"]')).toBeVisible();
-    await expect(latest.locator('[data-conversation-message-actions="true"][data-action-target-id="conversation-gmail-logical-5"]')).toBeVisible();
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-2 [data-conversation-message-actions="true"][data-action-target-id="conversation-gmail-copy-2"]')).toBeVisible();
+    await expect(latest.locator('[data-conversation-message-actions="true"][data-action-target-id="conversation-gmail-copy-5"]')).toBeVisible();
     await page.screenshot({ path: 'artifacts/on-on-after-switch-expanded.png', fullPage: true });
-    const second = reader.locator('#logical-message-conversation-gmail-logical-2');
-    // Conversation mutations use the CE endpoint and are scoped to the selected
-    // physical copy. Read state intentionally uses the shared per-copy bulk-read
-    // lane instead, so assert that contract separately below.
+    const second = reader.locator('#logical-message-conversation-gmail-copy-2');
+    // Destructive conversation actions retain their logical+physical scope.
+    // Read and star share the durable physical-copy flag endpoints, independent
+    // of which reader displays the message.
     const starAction = second.locator('[data-message-action="star"]');
     await starAction.click();
-    await expect.poll(() => page.__conversationActions.at(-1)?.url).toContain('/star');
-    await expect.poll(() => page.__conversationActions.at(-1)?.body).toMatchObject({
-      scope: 'THIS_COPY', copyId: 'conversation-gmail-copy-2', logicalMessageId: 'conversation-gmail-logical-2',
+    await expect.poll(() => page.__starActions.at(-1)).toEqual({
+      id: 'conversation-gmail-copy-2', body: { starred: true },
     });
+    await expect(second).toHaveAttribute('data-logical-message-id', 'conversation-gmail-logical-2');
     await expect(second).toHaveAttribute('data-conversation-message-state', 'expanded');
     const unreadAction = second.locator('[data-message-action="unread"]');
     if (await unreadAction.count() === 0) {
@@ -245,7 +245,7 @@ test.describe('native conversation engine matrix', () => {
     await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(reader).toHaveAttribute('data-selected-account-id', 'account-unknown');
-    const expanded = reader.locator('#logical-message-conversation-gmail-logical-5');
+    const expanded = reader.locator('#logical-message-conversation-gmail-copy-5');
     await expect(expanded).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect(expanded.getByRole('status')).toContainText(/brak|no message body/i);
     await expect(expanded.locator('[data-conversation-message-actions="true"]')).toHaveCount(0);
@@ -277,7 +277,7 @@ test.describe('native conversation engine matrix', () => {
     await expect(reader).toHaveAttribute('data-reader-source', 'native-thread');
     await expect(reader.locator('article')).toHaveCount(5);
     await expect(reader.locator('article[data-physical-copy-id]')).toHaveCount(5);
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-stale')).toHaveCount(0);
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-stale')).toHaveCount(0);
     await expect(reader).not.toContainText('PLAC Broniewskiego');
   });
 
@@ -301,7 +301,7 @@ test.describe('native conversation engine matrix', () => {
     const ambiguous = reader.locator('article[data-physical-copy-id="conversation-gmail-copy-2"]');
     await expect(ambiguous).toHaveCount(1);
     await expect(ambiguous).not.toHaveAttribute('data-logical-message-id', /.+/);
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-2-duplicate')).toHaveCount(0);
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-2-duplicate')).toHaveCount(0);
   });
 
   test('mobile reader cards use native MessagePane width without desktop side padding', async ({ page, fixtureApi }, testInfo) => {
@@ -330,7 +330,7 @@ test.describe('native conversation engine matrix', () => {
     page.__newsletterCopy = 'conversation-gmail-copy-2';
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
-    const iframe = page.locator('#logical-message-conversation-gmail-logical-2 iframe');
+    const iframe = page.locator('#logical-message-conversation-gmail-copy-2 iframe');
     const frame = iframe.contentFrame();
     await expect(frame.locator('[data-testid="newsletter-final-words"]')).toBeVisible();
     await expect(frame.locator('[data-testid="newsletter-banner"]')).toBeVisible();
@@ -348,8 +348,8 @@ test.describe('native conversation engine matrix', () => {
     page.__plainQuoteFoldingCopy = 'conversation-gmail-copy-2';
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
-    const frame = page.locator('#logical-message-conversation-gmail-logical-2 iframe').contentFrame();
-    const iframe = page.locator('#logical-message-conversation-gmail-logical-2 iframe');
+    const frame = page.locator('#logical-message-conversation-gmail-copy-2 iframe').contentFrame();
+    const iframe = page.locator('#logical-message-conversation-gmail-copy-2 iframe');
     await expect(frame.locator('[data-testid="current-content"]')).toBeVisible();
     await expect(frame.locator('[data-testid="plain-reply-marker"]')).toBeHidden();
     await expect(frame.locator('.mailflow-quote-toggle')).toHaveCount(1);
@@ -371,7 +371,7 @@ test.describe('native conversation engine matrix', () => {
     });
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
-    const card = page.locator('#logical-message-conversation-gmail-logical-2');
+    const card = page.locator('#logical-message-conversation-gmail-copy-2');
     const frame = card.locator('iframe').contentFrame();
     const remote = frame.locator('[data-testid="remote-signature"]');
     await expect(remote).toHaveAttribute('data-mailflow-remote-blocked', 'true');
@@ -389,8 +389,8 @@ test.describe('native conversation engine matrix', () => {
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
-    const first = reader.locator('#logical-message-conversation-gmail-logical-1');
-    const second = reader.locator('#logical-message-conversation-gmail-logical-2');
+    const first = reader.locator('#logical-message-conversation-gmail-copy-1');
+    const second = reader.locator('#logical-message-conversation-gmail-copy-2');
     await first.locator('[data-conversation-message-toggle="true"]').click();
     await expect(second.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-2');
     await expect(first.locator('iframe').contentFrame().locator('body')).toContainText('conversation-gmail-copy-1');
@@ -404,7 +404,7 @@ test.describe('native conversation engine matrix', () => {
     page.__quoteFoldingCopy = 'conversation-gmail-copy-2';
     await open(page, fixtureApi, false, true);
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
-    const card = page.locator('#logical-message-conversation-gmail-logical-2');
+    const card = page.locator('#logical-message-conversation-gmail-copy-2');
     await expect(card.locator('iframe')).toBeVisible();
     const frame = card.locator('iframe').contentFrame();
     // Current authored content is visible.
@@ -427,7 +427,7 @@ test.describe('native conversation engine matrix', () => {
     page.__themeOverride = 'dark';
     await open(page, fixtureApi, true, true);
     await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
-    const card = page.locator('#logical-message-conversation-gmail-logical-5');
+    const card = page.locator('#logical-message-conversation-gmail-copy-5');
     const panel = card.locator('.conversation-message-body-panel');
     const bg = await panel.evaluate(element => getComputedStyle(element).backgroundColor);
     // Dark surface must not be white.
@@ -475,7 +475,7 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
     await expect(groupedReader).toHaveAttribute('data-selected-account-id', 'account-gmail');
     await expect(groupedReader).toHaveAttribute('data-selected-copy-id', 'conversation-gmail-copy-2');
     expect(await physicalCardIds(groupedReader)).toEqual(flatIds);
-    const groupedTarget = groupedReader.locator('#logical-message-conversation-gmail-logical-2');
+    const groupedTarget = groupedReader.locator('#logical-message-conversation-gmail-copy-2');
     await expect(groupedTarget).toHaveAttribute('data-conversation-message-state', 'expanded');
     const targetPosition = await groupedTarget.evaluate(element => {
       const reader = element.closest('section');
@@ -494,7 +494,7 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
     const flatReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(flatReader).toHaveAttribute('data-reader-source', 'native-thread');
     await expect(flatReader.locator('article')).toHaveCount(5);
-    await expect(flatReader.locator('#logical-message-conversation-gmail-logical-stale')).toHaveCount(0);
+    await expect(flatReader.locator('#logical-message-conversation-gmail-copy-stale')).toHaveCount(0);
 
     await open(page, fixtureApi, true, true);
     const parent = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
@@ -502,7 +502,7 @@ test.describe('thread context and ThreadRow interaction regressions', () => {
     const groupedReader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect(groupedReader).toHaveAttribute('data-reader-source', 'native-thread');
     await expect(groupedReader.locator('article')).toHaveCount(5);
-    await expect(groupedReader.locator('#logical-message-conversation-gmail-logical-stale')).toHaveCount(0);
+    await expect(groupedReader.locator('#logical-message-conversation-gmail-copy-stale')).toHaveCount(0);
   });
 
   test('whole parent surface toggles children, opens newest, and excludes child/action clicks', async ({ page, fixtureApi }, testInfo) => {
@@ -542,8 +542,8 @@ test.describe('reader target navigation follow-up', () => {
     await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
     await expect.poll(() => page.__bulkReadActions || []).toEqual([{ ids: ['conversation-gmail-copy-5'], read: true }]);
-    const m3 = reader.locator('#logical-message-conversation-gmail-logical-3 [data-conversation-message-subject="true"]');
-    const m5 = reader.locator('#logical-message-conversation-gmail-logical-5 [data-conversation-message-subject="true"]');
+    const m3 = reader.locator('#logical-message-conversation-gmail-copy-3 [data-conversation-message-subject="true"]');
+    const m5 = reader.locator('#logical-message-conversation-gmail-copy-5 [data-conversation-message-subject="true"]');
     await expect(m3).toHaveAttribute('data-unread', 'true');
     await expect(m5).toHaveAttribute('data-unread', 'false');
     await expect(m3).toHaveCSS('font-weight', '700');
@@ -645,7 +645,7 @@ test.describe('reader target navigation follow-up', () => {
       await open(page, fixtureApi, false, true);
       await page.locator(`[data-msgid="${copy}"]:visible`).click();
       const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
-      const target = reader.locator(`#logical-message-conversation-gmail-logical-${index}`);
+      const target = reader.locator(`#logical-message-conversation-gmail-copy-${index}`);
       const anchor = target.locator('[data-conversation-message-scroll-anchor]');
       const header = target.locator('[data-conversation-message-header]');
       await expect(anchor).toBeVisible();
@@ -676,7 +676,7 @@ test.describe('reader target navigation follow-up', () => {
       await open(page, fixtureApi, false, true);
       await page.locator('[data-msgid="conversation-gmail-copy-10"]:visible').click();
       const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
-      await expect(reader.locator('#logical-message-conversation-gmail-logical-10 iframe')).toBeVisible();
+      await expect(reader.locator('#logical-message-conversation-gmail-copy-10 iframe')).toBeVisible();
       // Finish the initial short-last-message navigation before recording the
       // next navigation. A visible iframe can still have its placeholder height.
       await expect.poll(() => reader.evaluate(element => Math.abs(
@@ -701,10 +701,10 @@ test.describe('reader target navigation follow-up', () => {
       // Playwright's visibility auto-scroll would hide the reader's own preliminary
       // navigation phase. The real header handler expands, mounts a 300px iframe,
       // then reports its larger first measured body layout.
-      await reader.locator(`#logical-message-conversation-gmail-logical-${target} [data-conversation-message-header]`).evaluate(element => element.click());
-      const anchor = reader.locator(`#logical-message-conversation-gmail-logical-${target} [data-conversation-message-scroll-anchor]`);
+      await reader.locator(`#logical-message-conversation-gmail-copy-${target} [data-conversation-message-header]`).evaluate(element => element.click());
+      const anchor = reader.locator(`#logical-message-conversation-gmail-copy-${target} [data-conversation-message-scroll-anchor]`);
       await expect(anchor).toBeVisible();
-      await expect(reader.locator(`#logical-message-conversation-gmail-logical-${target} iframe`).contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
+      await expect(reader.locator(`#logical-message-conversation-gmail-copy-${target} iframe`).contentFrame().locator('[data-testid="target-body"]')).toBeVisible();
       await expect.poll(async () => anchor.evaluate(element => {
         const container = element.closest('section');
         return Math.abs(element.getBoundingClientRect().top - (container.getBoundingClientRect().top + 8));
@@ -739,7 +739,7 @@ test.describe('reader target navigation follow-up', () => {
     expect(later.geometry.scrollTop).toBeLessThan(later.geometry.maxScrollTop);
     const middle = await twoPhaseNavigation({ target: 4, start: 'top' });
     expect(middle.geometry.scrollTop).toBeLessThan(middle.geometry.maxScrollTop);
-    const middleToolbarGeometry = await page.locator('#logical-message-conversation-gmail-logical-4').evaluate(element => {
+    const middleToolbarGeometry = await page.locator('#logical-message-conversation-gmail-copy-4').evaluate(element => {
       const reader = element.closest('section');
       const toolbar = element.querySelector('[data-conversation-message-actions="true"]')?.getBoundingClientRect();
       const header = element.querySelector('[data-conversation-message-header]')?.getBoundingClientRect();
@@ -775,7 +775,7 @@ test.describe('mobile parent thread navigation follow-up', () => {
     await expect(reader).toHaveAttribute('data-reader-source', 'native-thread');
     await expect(reader).toHaveAttribute('data-selected-copy-id', 'conversation-gmail-copy-3');
     await expect(reader.locator('article')).toHaveCount(5);
-    await expect(reader.locator('#logical-message-conversation-gmail-logical-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
+    await expect(reader.locator('#logical-message-conversation-gmail-copy-3')).toHaveAttribute('data-conversation-message-state', 'expanded');
     await expect.poll(() => page.__bulkReadActions || []).toEqual([{ ids: ['conversation-gmail-copy-3'], read: true }]);
   });
 

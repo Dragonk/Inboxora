@@ -4,10 +4,11 @@ import { requireCompleteMultistatus, decodeDavCharRefs } from '../utils/davXml.j
 // failures are recorded per source so one unavailable server cannot block others.
 import crypto from 'crypto';
 import { XMLParser } from 'fast-xml-parser';
-import { query } from './db.js';
+import { query, type DbClient } from './db.js';
 import { decrypt } from './encryption.js';
 import { safeFetch } from './safeFetch.js';
-import { davAuthenticatedFetch } from './davHttpAuth.js';
+import { davCollectionRequest, inspectDavCollection, normalizeDavCollectionUrl, resolveDavHref } from './davCollectionClient.js';
+import { captureDavSourceFence, withDavSourceProjection, isDavCollectionBlocked, retireDavCalendarSource } from './davCollectionLifecycle.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
 import { parseCalendarEvent } from '../utils/ical.js';
 import { toAppError } from '../utils/errors.js';
@@ -70,6 +71,8 @@ function propsOf(response: { propstat?: Record<string, unknown> | Array<Record<s
   }, {});
 }
 
+class MissingCalendarCollectionError extends Error {}
+
 async function remoteFetch(source: ExternalCalendarSource, options: ExternalFetchOptions, policy: ExternalCalendarPolicy, signal: AbortSignal | null | undefined, secretSink?: string[]): Promise<string> {
   const headers: Record<string, string> = { ...options.headers };
   const url = decrypt(source.url);
@@ -82,7 +85,9 @@ async function remoteFetch(source: ExternalCalendarSource, options: ExternalFetc
   if (source.kind === 'caldav') {
     const password = decrypt(source.password ?? '');
     if (!password) throw new Error('Stored calendar source password is unavailable');
-    response = await davAuthenticatedFetch(url, request, { username: source.username ?? '', password }, { allowPrivate: policy.allowPrivateHosts });
+    response = await davCollectionRequest({ url, username: source.username ?? '', password, allowPrivate: policy.allowPrivateHosts }, request);
+    if (response.status === 404 || response.status === 410) throw new MissingCalendarCollectionError('Remote calendar collection may be missing');
+    if (response.status !== 207) throw new Error(`Remote calendar REPORT did not return a multistatus response (${response.status})`);
   } else {
     response = await safeFetch(url, request, { allowPrivate: policy.allowPrivateHosts });
   }
@@ -100,9 +105,13 @@ async function fetchEvents(source: ExternalCalendarSource, policy: ExternalCalen
   const xml = parser.parse(rawXml);
   requireCompleteMultistatus(rawXml, xml);
   const payloads = [];
+  const collectionUrl = normalizeDavCollectionUrl(String(decrypt(source.url) ?? ''));
   for (const response of toArray(xml?.multistatus?.response)) {
+    const href = resolveDavHref(textOf(response.href), collectionUrl);
+    if (!href.startsWith(collectionUrl) || href === collectionUrl) throw new Error('DAV calendar resource is outside the requested collection');
     const data = decodeDavCharRefs(textOf(propsOf(response)['calendar-data']));
-    if (data) payloads.push(data);
+    if (!textOf(response.href).trim() || !data.trim()) throw new Error('DAV server returned an incomplete calendar resource');
+    payloads.push(data);
   }
   return { payloads, sourceDocument: null };
 }
@@ -111,74 +120,38 @@ function throwIfRemoved(state: CalendarSyncState): void {
   if (state.removed) throw new Error('Calendar source removed');
 }
 
-async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncState) {
+async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncState, client: DbClient) {
   const externalUrl = `source:${source.id}`;
-  const found = await query<{ id: string }>('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [source.user_id, externalUrl]);
+  const found = await client.query<{ id: string }>('SELECT id FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2 AND source = $3', [source.user_id, externalUrl, source.kind]);
   throwIfRemoved(state);
-  if (found.rows[0]) {
-    await linkExternalCollection(source, found.rows[0].id);
-    return found.rows[0].id;
-  }
+  if (found.rows[0]) return found.rows[0].id;
   for (let attempt = 0; attempt < 20; attempt++) {
     throwIfRemoved(state);
     const name = attempt ? `${source.display_name} (${attempt + 1})` : source.display_name;
-    try {
-      const inserted = await query<{ id: string }>(
-        // A newly connected external calendar is not published to DAV devices
-        // until the user explicitly enables it (plan §17.1).
-        `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only, dav_mode)
-         VALUES ($1, $1, $2, $3, $4, $5, true, 'off') RETURNING id`,
-        [source.user_id, name, source.color, source.kind, externalUrl],
-      );
-      await linkExternalCollection(source, inserted.rows[0].id);
-      return inserted.rows[0].id;
-    } catch (caught) {
-      const error = toAppError(caught);
-      if (error.code !== '23505') throw error;
-    }
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only, dav_mode)
+       VALUES ($1, $1, $2, $3, $4, $5, true, 'off') ON CONFLICT DO NOTHING RETURNING id`,
+      [source.user_id, name, source.color, source.kind, externalUrl],
+    );
+    if (inserted.rows[0]) return inserted.rows[0].id;
   }
   throw new Error(`Could not create a calendar for "${source.display_name}"`);
 }
 
-/**
- * Link the external collection to its source connection so the per-collection write-back switch has
- * something to enable (P02's backfill, P10's reachability).
- *
- * The link is not what this sync is for, so a failure here is reported and does not fail the import —
- * losing the events would be worse than a collection that has to be relinked on the next pass. An ICS
- * subscription is linked as `read_only`, which is what the capability model will keep refusing.
- */
-async function linkExternalCollection(source: ExternalCalendarSource, calendarId: string): Promise<void> {
-  try {
-    const kind = externalSourceKind(source.kind);
-    // DAV-02: a CalDAV collection is asked what this user may do with it, so a collection the server keeps
-    // read-only is recorded as such rather than assumed writable. An ICS subscription has no DAV to ask and stays
-    // read-only by its kind; a server that will not answer leaves the assumption, which a refused write corrects.
-    const discoveredAccess = kind === 'caldav'
-      ? await discoverDavWriteAccess({
-        // The same decryption `remoteFetch` uses for the collection itself, so discovery addresses the URL the
-        // sync does and not the stored ciphertext.
-        url: String(decrypt(String(source.url ?? '')) ?? ''),
-        username: String(source.username ?? ''),
-        password: String(decrypt(String(source.password ?? '')) ?? ''),
-        allowPrivate: (await getConnectionPolicy()).allowPrivateHosts === true,
-      })
-      : null;
-    await ensureExternalCollectionLink({
-      userId: String(source.user_id ?? ''),
-      kind,
-      url: typeof source.url === 'string' && source.url ? source.url : `source:${source.id}`,
-      remoteId: `source:${source.id}`,
-      label: typeof source.display_name === 'string' ? source.display_name : null,
-      localCalendarId: calendarId,
-      discoveredAccess,
-    });
-  } catch (caught) {
-    console.warn('Linking an external calendar to its source connection failed:', toAppError(caught).message);
-  }
+async function linkExternalCollection(source: ExternalCalendarSource, calendarId: string, discoveredAccess: 'read_only' | 'read_write', client: DbClient): Promise<void> {
+  const linked = await ensureExternalCollectionLink({
+    userId: String(source.user_id ?? ''),
+    kind: externalSourceKind(source.kind),
+    url: typeof source.url === 'string' && source.url ? source.url : `source:${source.id}`,
+    remoteId: `source:${source.id}`,
+    label: typeof source.display_name === 'string' ? source.display_name : null,
+    localCalendarId: calendarId,
+    discoveredAccess,
+  }, client);
+  if (!linked) throw new Error('The calendar source connection could not be linked');
 }
 
-async function syncSource(source: ExternalCalendarSource) {
+async function syncSource(source: ExternalCalendarSource): Promise<{ ok: boolean; error?: string; eventCount?: number; skipped?: Array<{ uid: string; reason: string }>; removed?: boolean }> {
   const sourceId = source.id;
   if (!sourceId) return { ok: false, error: 'Calendar source is incomplete' };
   if (syncing.has(sourceId)) return { ok: false, error: 'A sync is already in progress' };
@@ -186,8 +159,31 @@ async function syncSource(source: ExternalCalendarSource) {
   const outboundSecrets: string[] = [];
   const state = { controller: new AbortController(), removed: false };
   inFlight.set(sourceId, state);
+  let generation: string | undefined;
   try {
-    const { payloads, sourceDocument } = await fetchEvents(source, await getConnectionPolicy(), state.controller.signal, outboundSecrets);
+    const userId = String(source.user_id ?? '');
+    generation = await captureDavSourceFence(userId, 'calendar', sourceId);
+    // Scheduled jobs carry identifiers, never authority to use stale credentials/configuration.
+    const current = await query<ExternalCalendarSource>('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2 AND enabled = true', [sourceId, userId]);
+    if (!current.rows[0]) throw new Error('Calendar source removed');
+    source = current.rows[0];
+    const policy = await getConnectionPolicy();
+    let fetched;
+    try {
+      fetched = await fetchEvents(source, policy, state.controller.signal, outboundSecrets);
+    } catch (error) {
+      if (!(error instanceof MissingCalendarCollectionError)) throw error;
+      const presence = await inspectDavCollection({
+        kind: 'calendar',
+        url: String(decrypt(source.url) ?? ''), username: source.username ?? '',
+        password: String(decrypt(source.password ?? '') ?? ''), allowPrivate: policy.allowPrivateHosts,
+      });
+      if (presence !== 'missing') throw new Error('Remote calendar collection absence could not be verified', { cause: error });
+      throwIfRemoved(state);
+      await retireDavCalendarSource(userId, sourceId, generation);
+      return { ok: true, removed: true, eventCount: 0 };
+    }
+    const { payloads, sourceDocument } = fetched;
     throwIfRemoved(state);
     const parsedEvents = payloads.map((raw, index) => ({ raw, index, event: parseCalendarEvent(raw) }));
     const events = parsedEvents.filter(({ event }) => event).map(({ event }) => event);
@@ -199,53 +195,72 @@ async function syncSource(source: ExternalCalendarSource) {
     // A validated empty collection does remove its previous projection. In a mixed response, retain only the explicitly skipped
     // UIDs; other rows are known to be absent from the feed and are stale.
     if (!events.length && skipped.length) throw new Error('Remote calendar contains an unsupported event');
-    const calendarId = await calendarFor(source, state);
-    if (sourceDocument) {
+    const discoveredAccess = source.kind === 'caldav' ? await discoverDavWriteAccess({
+      url: String(decrypt(source.url) ?? ''), username: source.username ?? '',
+      password: String(decrypt(source.password ?? '') ?? ''), allowPrivate: policy.allowPrivateHosts,
+    }) ?? 'read_only' : 'read_only';
+    return await withDavSourceProjection(userId, 'calendar', sourceId, generation, async client => {
       throwIfRemoved(state);
-      await query(
-        `INSERT INTO calendar_import_documents (source_id, raw_ical)
-         VALUES ($1, $2)
-         ON CONFLICT (source_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical, updated_at = NOW()
-         WHERE calendar_import_documents.raw_ical IS DISTINCT FROM EXCLUDED.raw_ical`,
-        [source.id, sourceDocument],
-      );
-    }
-    const seen = [];
-    for (const event of events) {
-      if (!event) continue;
+      if (source.kind === 'caldav' && await isDavCollectionBlocked(client, userId, 'calendar', sourceId, String(decrypt(source.url) ?? ''))) {
+        throw new Error('Calendar collection deletion is pending');
+      }
+      const calendarId = await calendarFor(source, state, client);
+      await linkExternalCollection(source, calendarId, discoveredAccess, client);
+      if (sourceDocument) {
+        throwIfRemoved(state);
+        await client.query(
+          `INSERT INTO calendar_import_documents (source_id, raw_ical)
+           VALUES ($1, $2)
+           ON CONFLICT (source_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical, updated_at = NOW()
+           WHERE calendar_import_documents.raw_ical IS DISTINCT FROM EXCLUDED.raw_ical`,
+          [source.id, sourceDocument],
+        );
+      }
+      const seen = [];
+      for (const event of events) {
+        if (!event) continue;
+        throwIfRemoved(state);
+        seen.push(event.uid);
+        const etag = crypto.createHash('sha256').update(event.raw).digest('hex');
+        await client.query(
+          `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
+           ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical,
+             etag = EXCLUDED.etag, summary = EXCLUDED.summary, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
+             all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, description = EXCLUDED.description,
+             location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()
+           WHERE (calendar_events.raw_ical, calendar_events.etag, calendar_events.summary, calendar_events.starts_at, calendar_events.ends_at, calendar_events.all_day, calendar_events.timezone, calendar_events.description, calendar_events.location, calendar_events.url, calendar_events.organizer, calendar_events.attendees)
+             IS DISTINCT FROM (EXCLUDED.raw_ical, EXCLUDED.etag, EXCLUDED.summary, EXCLUDED.starts_at, EXCLUDED.ends_at, EXCLUDED.all_day, EXCLUDED.timezone, EXCLUDED.description, EXCLUDED.location, EXCLUDED.url, EXCLUDED.organizer, EXCLUDED.attendees)`,
+          [calendarId, source.user_id, event.uid, event.raw, etag, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)],
+        );
+      }
       throwIfRemoved(state);
-      seen.push(event.uid);
-      const etag = crypto.createHash('sha256').update(event.raw).digest('hex');
-      await query(
-        `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, etag, summary, starts_at, ends_at, all_day, timezone, description, location, url, organizer, attendees)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
-         ON CONFLICT (calendar_id, uid, recurrence_id) DO UPDATE SET raw_ical = EXCLUDED.raw_ical,
-           etag = EXCLUDED.etag, summary = EXCLUDED.summary, starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at,
-           all_day = EXCLUDED.all_day, timezone = EXCLUDED.timezone, description = EXCLUDED.description,
-           location = EXCLUDED.location, url = EXCLUDED.url, organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, updated_at = NOW()
-         WHERE (calendar_events.raw_ical, calendar_events.etag, calendar_events.summary, calendar_events.starts_at, calendar_events.ends_at, calendar_events.all_day, calendar_events.timezone, calendar_events.description, calendar_events.location, calendar_events.url, calendar_events.organizer, calendar_events.attendees)
-           IS DISTINCT FROM (EXCLUDED.raw_ical, EXCLUDED.etag, EXCLUDED.summary, EXCLUDED.starts_at, EXCLUDED.ends_at, EXCLUDED.all_day, EXCLUDED.timezone, EXCLUDED.description, EXCLUDED.location, EXCLUDED.url, EXCLUDED.organizer, EXCLUDED.attendees)`,
-        [calendarId, source.user_id, event.uid, event.raw, etag, event.summary, event.startsAt, event.endsAt, event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees)],
-      );
-    }
-    throwIfRemoved(state);
-    const retainedUids = [...seen, ...skipped.map(({ uid }) => uid)];
-    await query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid <> ALL($2::text[])', [calendarId, retainedUids.length ? retainedUids : ['']]);
-    if (skipped.length) {
+      const retainedUids = [...seen, ...skipped.map(({ uid }) => uid)];
+      await client.query('DELETE FROM calendar_events WHERE calendar_id = $1 AND uid <> ALL($2::text[])', [calendarId, retainedUids.length ? retainedUids : ['']]);
+      if (skipped.length) {
+        throwIfRemoved(state);
+        const warning = JSON.stringify({ code: 'unsupported_events', count: skipped.length, samples: skipped.slice(0, 3) });
+        await client.query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1 AND user_id = $3', [source.id, warning, userId]);
+        return { ok: true, eventCount: events.length, skipped };
+      }
       throwIfRemoved(state);
-      const warning = JSON.stringify({ code: 'unsupported_events', count: skipped.length, samples: skipped.slice(0, 3) });
-      await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1', [source.id, warning]);
-      return { ok: true, eventCount: events.length, skipped };
-    }
-    throwIfRemoved(state);
-    await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = NULL WHERE id = $1', [source.id]);
-    return { ok: true, eventCount: events.length };
+      await client.query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = NULL WHERE id = $1 AND user_id = $2', [source.id, userId]);
+      return { ok: true, eventCount: events.length };
+    });
   } catch (caught) {
     const error = toAppError(caught);
     if (state.removed) return { ok: false, error: 'Calendar source removed' };
     const secrets = [source.url, ...outboundSecrets].filter((value): value is string => typeof value === 'string' && value !== '');
     const safeError = secrets.reduce((message, secret) => message.replaceAll(secret, '[redacted]'), String(error.message || 'Calendar source sync failed'));
-    await query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1', [source.id, safeError]);
+    if (generation) {
+      try {
+        await withDavSourceProjection(String(source.user_id ?? ''), 'calendar', sourceId, generation, async client => {
+          await client.query('UPDATE calendar_import_sources SET last_sync_at = NOW(), last_error = $2 WHERE id = $1 AND user_id = $3', [source.id, safeError, source.user_id]);
+        });
+      } catch (fenceError) {
+        console.warn('Calendar sync failure could not be recorded for its original source generation:', toAppError(fenceError).message);
+      }
+    }
     return { ok: false, error: safeError };
   } finally {
     syncing.delete(sourceId);
@@ -265,9 +280,7 @@ function runSync(source: ExternalCalendarSource) {
 }
 
 export async function syncCalendarSource(userId: string, sourceId: string) {
-  const result = await query('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2 AND enabled = true', [sourceId, userId]);
-  if (!result.rows[0]) return { ok: false, error: 'Calendar source not found' };
-  return runSync(result.rows[0]);
+  return runSync({ id: sourceId, user_id: userId });
 }
 export async function syncAllCalendarSources() {
   const result = await query('SELECT * FROM calendar_import_sources WHERE enabled = true');
@@ -280,7 +293,11 @@ export function scheduleCalendarSource(source: ExternalCalendarSource): void {
   // schedule setInterval(NaN), which fires in a tight loop.
   if (!sourceId || !intervalMinutes) return;
   const previous = timers.get(sourceId); if (previous) clearInterval(previous);
-  timers.set(sourceId, setInterval(() => runSync(source).catch(() => {}), intervalMinutes * 60_000));
+  timers.set(sourceId, setInterval(() => {
+    void syncCalendarSource(String(source.user_id ?? ''), sourceId).catch(error => {
+      console.warn('Scheduled calendar sync failed:', toAppError(error).message);
+    });
+  }, intervalMinutes * 60_000));
 }
 export async function stopCalendarSource(id: string): Promise<void> {
   const timer = timers.get(id); if (timer) clearInterval(timer); timers.delete(id);

@@ -3,6 +3,9 @@ import { ImapFlow } from 'imapflow';
 import type { FolderMappings } from '../utils/mailUtils.js';
 import type { MailboxObject } from 'imapflow';
 import { query, withTransaction } from './db.js';
+import type { PoolClient } from 'pg';
+import { deferMailFlagReadback, enqueueMailFlagIntent } from './mailFlagState.js';
+import { classifyImapFlagFailure } from './providers/imapFlagMutation.js';
 import { parseMessage, snippetFromBody, detectBulkFromParsedHeaders, parseHeadersInput, headersToRawString, decodeMimeWords, enrichParsedMetadata } from './messageParser.js';
 import { classifyMessage, loadSocialDomains, getGlobalCategorizationEnabled } from './categorizer.js';
 import { pluginRegistry } from '../plugins/registry.js';
@@ -405,18 +408,6 @@ const STALENESS_CHECK_MS = 3 * 60 * 1000;
 // enough (30s) that a merely-slow-but-progressing sync is not misread as hung, yet well
 // below the 55s sync wall-clock so recovery beats the slow timeout-then-reconnect self-heal.
 const SYNC_HUNG_MS = 30 * 1000;
-
-// Durable flag push. A read/star change is written to the DB and pushed to IMAP
-// immediately; if that push fails (deaf/half-open pool connection, provider blip) the
-// message is queued here and re-pushed every cycle until the server confirms — otherwise
-// a later flag-sync PULL would silently revert the user's change. The cycle interval MUST
-// stay below the 30s read_changed_at/star_changed_at "local wins" window: each cycle
-// re-bumps the marker so that window never lapses while a push is still outstanding, which
-// is why we don't need to touch the three pull-sync guards. Give up (clear the marker so
-// the server's truth can show through) after MAX_ATTEMPTS connected failures.
-const FLAG_PUSH_RECONCILE_MS = 15 * 1000;
-const FLAG_PUSH_MAX_ATTEMPTS = 40;   // ~10 min of connected retries before honest revert
-const FLAG_PUSH_PER_CYCLE = 30;      // cap setFlag attempts per account per cycle (bounds cycle time)
 
 // One-time post-relocate repair bookkeeping. Completion is durable per
 // account in account_maintenance_state (migration 0096) — deliberately NOT a
@@ -1354,6 +1345,60 @@ async function withFreshClient<T>(account: EmailAccountRow, fn: (client: ImapCli
   }
 }
 
+// A durable flag lease lasts 90 seconds. Bound acquisition, mailbox selection and
+// the command together, and close the socket on expiry. Crucially a late pool or
+// lock completion must check the deadline before dispatching a stale STORE.
+async function withFlagClient<T>(account: EmailAccountRow,
+  run: (client: ImapClient, beforeRequest: () => void) => Promise<T>): Promise<T> {
+  let expired = false;
+  let dispatched = false;
+  const expiresAt = Date.now() + 45_000;
+  let active: ImapClient | undefined;
+  const timeoutError = Object.assign(new Error('IMAP flag operation exceeded its 45 second deadline'), {
+    code: 'MAIL_FLAG_NOT_DISPATCHED',
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      expired = true;
+      if (active) {
+        try { active.close(); } catch (error) {
+          console.warn('IMAP flag timeout socket close failed:', toAppError(error).message);
+        }
+      }
+      reject(timeoutError);
+    }, 45_000);
+  });
+  const operation = withFreshClient(account, async client => {
+    if (expired || Date.now() >= expiresAt) {
+      client.close();
+      throw timeoutError;
+    }
+    active = client;
+    try {
+      return await run(client, () => {
+        if (expired || Date.now() >= expiresAt) throw timeoutError;
+        dispatched = true;
+        timeoutError.code = 'MUTATION_OUTCOME_UNKNOWN';
+      });
+    } finally {
+      active = undefined;
+    }
+  });
+  try {
+    return await Promise.race([operation, deadline]);
+  } catch (error) {
+    // Acquisition/SELECT failed before STORE. Retry transient failures only;
+    // identity/auth refusals remain explicit, and post-STORE failures stay unknown.
+    if (!dispatched && classifyImapFlagFailure(error).status === 'outcome_unknown') {
+      throw Object.assign(new Error('IMAP flag request was not dispatched', { cause: error }), { code: 'MAIL_FLAG_NOT_DISPATCHED' });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Like withFreshClient, but bypasses the pool entirely: it opens a BRAND-NEW IMAP login,
 // runs fn(client), and tears it down. Used as the body-fetch retry path. When a pooled
 // connection returns nothing for a recently-arrived UID (the PurelyMail "frozen view"
@@ -1514,6 +1559,44 @@ export type ImapClient = ImapFlow & { namespace?: ImapClientNamespace };
 /** The websocket fan-out the manager broadcasts through. */
 type MailSocketServer = { clients: Set<{ send(data: string): void; readyState?: number; userId?: string }> };
 
+function assertFlagUidValidity(client: ImapClient, expected: number | string | null, folder: string): void {
+  const actual = openMailbox(client)?.uidValidity;
+  if (expected == null || !/^[1-9][0-9]*$/.test(String(expected)) || actual == null || String(actual) !== String(expected)) {
+    throw Object.assign(new Error(`Mail flag refused: UIDVALIDITY changed or unavailable for ${folder}`), { code: 'MAIL_IDENTITY_CHANGED' });
+  }
+}
+
+function imapFlagProtectedSql(flag: 'Seen' | 'Flagged'): string {
+  const marker = flag === 'Seen' ? 'read_changed_at' : 'star_changed_at';
+  return `((messages.${marker} IS NOT NULL AND NOW() - messages.${marker} < interval '30 seconds')
+    OR EXISTS (SELECT 1 FROM mail_flag_intents intent
+      WHERE intent.message_id = messages.id AND intent.flag = chr(92) || '${flag}'
+        AND intent.status IN ('pending', 'writing', 'readback')))`;
+}
+
+class MailFlagObservationError extends Error {}
+
+// Lock before inspecting guards, so a concurrent user intent cannot create a
+// protected observation after we decided no readback was needed. Persist the
+// obligation in the same transaction as ingest, before its cursor can advance.
+async function withImapFlagObservation<T>(accountId: string, folder: string, uids: unknown[],
+  apply: (client: PoolClient) => Promise<T>): Promise<T> {
+  try {
+    return await withTransaction(async client => {
+      const observed = await client.query<{ id: string; protected: boolean }>(`
+        SELECT id, (${imapFlagProtectedSql('Seen')} OR ${imapFlagProtectedSql('Flagged')}) AS protected
+        FROM messages WHERE account_id = $1 AND folder = $2 AND uid = ANY($3::bigint[])
+        ORDER BY id FOR UPDATE`, [accountId, folder, uids]);
+      for (const row of observed.rows) {
+        if (row.protected) await deferMailFlagReadback(row.id, client);
+      }
+      return apply(client);
+    });
+  } catch (cause) {
+    throw new MailFlagObservationError('Could not persist IMAP flag observation', { cause });
+  }
+}
+
 export class ImapManager {
   // Runtime state initialised by the constructor. Declared with `declare` so
   // these are purely type-level (no emitted field initialisers), keeping the
@@ -1527,13 +1610,6 @@ export class ImapManager {
   declare _bgConnSem: ReturnType<typeof createKeyedSemaphore>;
   declare _connectCooldown: Map<string, { until: number; failures: number }>;
   declare _syncErrorState: Map<string, unknown>;
-  declare _pendingFlagPush: Map<string, Map<string, {
-    messageId: string;
-    flag: string;
-    value: boolean;
-    attempts: number;
-    resolved?: boolean;
-  }>>;
   declare _pendingFlagSync: Set<string>;
   declare _pendingInboxSync: Set<string>;
   declare _pendingMoveUids: Map<string, number>;
@@ -1544,8 +1620,6 @@ export class ImapManager {
   declare _snoozeWatcherTimer: ReturnType<typeof setInterval> | undefined;
   declare _healthCheckTimer: ReturnType<typeof setInterval> | undefined;
   declare _snippetSchedulerTimer: ReturnType<typeof setInterval> | undefined;
-  declare _flagPushReconcilerTimer: ReturnType<typeof setInterval> | undefined;
-  declare _flagPushRunning: boolean;
   declare _flagDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   declare _expungeDebounceTimers: Map<string, ReturnType<typeof setTimeout>>;
   declare connectingAccounts: Set<string>;
@@ -1616,9 +1690,6 @@ export class ImapManager {
     this._flagDebounceTimers   = new Map(); // accountId -> debounce timer for flag-change syncs
     this._expungeDebounceTimers = new Map(); // accountId -> debounce timer for expunge reconciles
     this._pendingFlagSync = new Set(); // accountId — flag sync was skipped because a full sync was running; drain after sync
-    // accountId -> Map<`${messageId}:${flag}`, { messageId, flag, attempts }>: local read/star
-    // changes whose IMAP push failed and must be retried until the server confirms them.
-    this._pendingFlagPush = new Map();
     // Tracks UIDs that are actively being moved by inboxRules so reconcileDeletes
     // does not delete the DB row if an EXPUNGE arrives before the DB update completes,
     // or if the server is non-UIDPLUS and the DB temporarily holds a stale UID.
@@ -1884,132 +1955,21 @@ export class ImapManager {
         this._stalenessCheckRunning = false;
       }
     }, STALENESS_CHECK_MS);
-
-    // Durable flag-push reconciler: re-push any read/star change whose IMAP write failed,
-    // until the server confirms it. Runs below the 30s local-wins window so its per-cycle
-    // marker re-bump keeps a pull from reverting the change while the retry is outstanding.
-    this._flagPushReconcilerTimer = setInterval(() => {
-      if (this._flagPushRunning) return;
-      this._flagPushRunning = true;
-      this._reconcileFlagPushes()
-        .catch(err => console.error('Flag-push reconciler error:', err.message))
-        .finally(() => { this._flagPushRunning = false; });
-    }, FLAG_PUSH_RECONCILE_MS);
   }
 
-  // Record a local read/star change whose immediate IMAP push failed so the reconciler
-  // re-pushes it until the server confirms. Keyed by message+flag; a repeat toggle updates
-  // the intended `value` and preserves the attempt count. The reconciler pushes and
-  // re-asserts THIS value — never a re-read of the row, which a concurrent flag-pull could
-  // have reverted (that re-read was a silent-loss bug).
-  _enqueueFlagPush(accountId: string, messageId: string, flag: string, value: boolean) {
-    if (!accountId || !messageId) return;
-    let ops = this._pendingFlagPush.get(accountId);
-    if (!ops) { ops = new Map(); this._pendingFlagPush.set(accountId, ops); }
-    const key = `${messageId}:${flag}`;
-    const existing = ops.get(key);
-    ops.set(key, { messageId, flag, value: !!value, attempts: existing ? existing.attempts : 0 });
+  // Legacy rule callers persist work through the same queue as user actions.
+  async _enqueueFlagPush(accountId: string, messageId: string, flag: string, value: boolean): Promise<void> {
+    if (flag !== '\\Seen' && flag !== '\\Flagged') throw new Error('Unsupported mail flag');
+    const { rows: [account] } = await query<{ user_id: string }>(
+      'SELECT user_id FROM email_accounts WHERE id = $1', [accountId],
+    );
+    if (!account) throw new Error('Mail account no longer exists');
+    const intent = await enqueueMailFlagIntent({ userId: account.user_id, accountId, messageId, flag, value });
+    if (!intent) throw new Error('Mail message no longer exists');
   }
 
-  // A later push of the SAME message+flag succeeded — drop any queued op so the reconciler
-  // can't re-assert/re-push a now-stale value (e.g. mark-read failed, then mark-unread
-  // succeeded: the queued read=true must not resurrect).
-  _resolveFlagPush(accountId: string, messageId: string, flag: string) {
-    const ops = this._pendingFlagPush.get(accountId);
-    if (!ops) return;
-    const key = `${messageId}:${flag}`;
-    // Mark resolved as well as delete: a reconciler cycle may already hold this op object in
-    // its snapshot, parked on an await — the flag lets it bail before clobbering the newer value.
-    const op = ops.get(key);
-    if (op) op.resolved = true;
-    ops.delete(key);
-    if (ops.size === 0) this._pendingFlagPush.delete(accountId);
-  }
-
-  // Re-bump the *_changed_at marker for every pending message up-front, before any
-  // (possibly slow) setFlag, so the 30s "local wins" window can't lapse mid-cycle and let
-  // a concurrent pull revert an unconfirmed change.
-  async _rebumpFlagMarkers(ops: Map<string, { messageId: string; flag: string; value: boolean; attempts: number; resolved?: boolean; [key: string]: unknown }>) {
-    const readIds: string[] = [];
-    const starIds: string[] = [];
-    for (const op of ops.values()) {
-      (op.flag === '\\Seen' ? readIds : starIds).push(op.messageId);
-    }
-    if (readIds.length) {
-      await query('UPDATE messages SET read_changed_at = NOW() WHERE id = ANY($1::uuid[])', [readIds]).catch(() => {});
-    }
-    if (starIds.length) {
-      await query('UPDATE messages SET star_changed_at = NOW() WHERE id = ANY($1::uuid[])', [starIds]).catch(() => {});
-    }
-  }
-
-  // Clear the marker for a message+flag once the server has confirmed (or we give up), so a
-  // subsequent flag-sync pull resumes reflecting the server for that message.
-  async _clearFlagMarker(messageId: string, flag: string) {
-    const col = flag === '\\Seen' ? 'read_changed_at' : 'star_changed_at';
-    // col is a fixed internal literal (not user input) — safe to interpolate.
-    await query(`UPDATE messages SET ${col} = NULL WHERE id = $1`, [messageId]).catch(() => {});
-  }
-
-  async _reconcileFlagPushes() {
-    for (const [accountId, ops] of this._pendingFlagPush) {
-      if (ops.size === 0) { this._pendingFlagPush.delete(accountId); continue; }
-
-      // Hold the local-wins window for all pending messages this cycle regardless of
-      // whether we can push right now.
-      await this._rebumpFlagMarkers(ops);
-
-      // Only attempt pushes while the account has a live connection; otherwise keep the
-      // ops queued (markers already re-bumped) and wait for reconnect. Not counted as an
-      // attempt, so an outage doesn't burn the give-up budget.
-      if (!this.connections.has(accountId)) continue;
-
-      const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-      const account = acct.rows[0];
-      if (!account) { this._pendingFlagPush.delete(accountId); continue; }
-
-      let processed = 0;
-      for (const [key, op] of [...ops]) {
-        if (processed >= FLAG_PUSH_PER_CYCLE) break; // rest wait for the next cycle
-        if (!ops.has(key)) continue; // resolved by a concurrent successful push mid-cycle
-        processed++;
-        // Re-read only uid/folder (a move changes them) + existence — NOT the flag value,
-        // which we own via op.value. A concurrent pull may have reverted the row, so
-        // re-assert our intended value locally (with a fresh marker) before pushing the
-        // same value, so a slow cycle can never let the change be silently lost.
-        const { rows: [msg] } = await query<{ uid: number | string; folder: string }>(
-          'SELECT uid, folder FROM messages WHERE id = $1',
-          [op.messageId]
-        );
-        if (!msg) { ops.delete(key); continue; } // message gone — nothing to push
-        // A concurrent successful push may have resolved this op during the await above —
-        // don't re-assert/re-push a now-stale value over the newer one.
-        if (op.resolved) continue;
-        if (op.flag === '\\Seen') {
-          await query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = $2', [op.value, op.messageId]).catch(() => {});
-        } else {
-          await query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = $2', [op.value, op.messageId]).catch(() => {});
-        }
-        try {
-          await this.setFlag(account, msg.uid, msg.folder, op.flag, op.value);
-          // If a newer value was pushed elsewhere while our setFlag was in flight, leave its
-          // marker in place and let the pull reconcile, rather than clearing to our stale push.
-          if (!op.resolved) await this._clearFlagMarker(op.messageId, op.flag); // confirmed on server
-          ops.delete(key);
-        } catch (caught) {
-          const err = toAppError(caught);
-          op.attempts += 1;
-          if (op.attempts >= FLAG_PUSH_MAX_ATTEMPTS) {
-            console.warn(`Flag-push giving up after ${op.attempts} attempts (${op.flag} msg=${op.messageId}): ${extractImapError(err)}`);
-            await this._clearFlagMarker(op.messageId, op.flag); // honest revert to server truth
-            ops.delete(key);
-          }
-          // else keep queued; marker + value re-asserted above so nothing is lost before retry
-        }
-      }
-      if (ops.size === 0) this._pendingFlagPush.delete(accountId);
-    }
-  }
+  // Legacy acknowledgements carry no generation/lease, so cannot clear durable work.
+  _resolveFlagPush(_accountId: string, _messageId: string, _flag: string): void {}
 
   // Start IDLE immediately once the persistent INBOX client is quiescent. ImapFlow's
   // auto-IDLE deliberately waits 15 seconds; an explicit start prevents a 15-second sync
@@ -2770,17 +2730,16 @@ export class ImapManager {
     const uids    = flagsToUpdate.map(f => f.uid);
     const reads   = flagsToUpdate.map(f => f.isRead);
     const starred = flagsToUpdate.map(f => f.isStarred);
-    const result = await query(`
+    const result = await withImapFlagObservation(account.id, folder, uids, async client => {
+      const applied = await client.query(`
       UPDATE messages SET
         is_read = CASE
-          WHEN messages.read_changed_at IS NOT NULL
-               AND NOW() - messages.read_changed_at < interval '30 seconds'
+          WHEN ${imapFlagProtectedSql('Seen')}
           THEN messages.is_read
           ELSE updates.is_read
         END,
         is_starred = CASE
-          WHEN messages.star_changed_at IS NOT NULL
-               AND NOW() - messages.star_changed_at < interval '30 seconds'
+          WHEN ${imapFlagProtectedSql('Flagged')}
           THEN messages.is_starred
           ELSE updates.is_starred
         END
@@ -2793,17 +2752,19 @@ export class ImapManager {
         AND messages.folder = $5
         AND messages.uid = updates.uid
         AND (
-          (
-            messages.star_changed_at IS NULL
-            OR NOW() - messages.star_changed_at >= interval '30 seconds'
-          ) AND messages.is_starred != updates.is_starred
-          OR (
-            messages.read_changed_at IS NULL
-            OR NOW() - messages.read_changed_at >= interval '30 seconds'
-          ) AND messages.is_read != updates.is_read
+          NOT (${imapFlagProtectedSql('Flagged')}) AND messages.is_starred != updates.is_starred
+          OR NOT (${imapFlagProtectedSql('Seen')}) AND messages.is_read != updates.is_read
         )`,
       [uids, reads, starred, account.id, folder]
-    );
+      );
+      if (applied.rowCount) {
+        await client.query(`UPDATE folders SET unread_count = (
+          SELECT COUNT(*) FROM messages WHERE account_id = $1 AND folder = $2
+            AND is_read = false AND is_deleted = false), updated_at = NOW()
+          WHERE account_id = $1 AND path = $2`, [account.id, folder]);
+      }
+      return applied;
+    });
     return result.rowCount ?? 0;
   }
 
@@ -3400,6 +3361,7 @@ export class ImapManager {
               );
             }
           } catch (caught) {
+            if (caught instanceof MailFlagObservationError) throw caught;
             const parseErr = toAppError(caught);
             console.error('Message sync parse error:', parseErr.message);
           }
@@ -3954,7 +3916,7 @@ export class ImapManager {
                   } catch { /* non-fatal */ }
                 }
 
-                await query(`
+                await withImapFlagObservation(account.id, folder, [parsed.uid], tx => tx.query(`
                   INSERT INTO messages (
                     account_id, uid, folder, message_id, subject,
                     from_name, from_email, to_addresses, cc_addresses,
@@ -3991,14 +3953,12 @@ export class ImapManager {
                       snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
                                      ELSE messages.snippet END,
                       is_read = CASE
-                        WHEN messages.read_changed_at IS NOT NULL
-                             AND NOW() - messages.read_changed_at < interval '30 seconds'
+                        WHEN ${imapFlagProtectedSql('Seen')}
                         THEN messages.is_read
                         ELSE EXCLUDED.is_read
                       END,
                       is_starred = CASE
-                        WHEN messages.star_changed_at IS NOT NULL
-                             AND NOW() - messages.star_changed_at < interval '30 seconds'
+                        WHEN ${imapFlagProtectedSql('Flagged')}
                         THEN messages.is_starred
                         ELSE EXCLUDED.is_starred
                       END,
@@ -4037,7 +3997,7 @@ export class ImapManager {
                   sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? null)),
                   JSON.stringify(parsed.deliveryAddresses || []),
                   sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
-                ]);
+                ]));
                 backfilledRows++;
                 const inserted = await query<{ id: string }>(`SELECT id FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3`, [account.id, parsed.uid, folder]);
                 if (inserted.rows[0]) {
@@ -5132,41 +5092,45 @@ export class ImapManager {
     });
   }
 
-  async setFlag(account: EmailAccountRow, uid: number | string, folder: string, flag: string, value: boolean) {
-    console.log(`setFlag: uid=${uid} folder=${folder} flag=${flag} value=${value}`);
-    // Up to 2 attempts. ImapFlow returns false when the server did NOT apply the flag —
-    // typically a stale/half-open pooled connection whose SELECT view is missing the UID.
-    // Throwing on false makes withFreshClient evict that client from the pool, so the
-    // retry acquires a fresh connection (this is exactly why marking a message
-    // individually a moment later succeeds). Re-applying a flag is idempotent, so the
-    // retry is safe. Surfacing the final failure keeps callers such as bulk-read from
-    // reporting success while the DB read/flag state silently drifts from the server —
-    // which a later flag-sync would then revert, leaving the message unexpectedly unread.
-    let lastErr: unknown = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+  async readMessageFlags(account: EmailAccountRow, uid: number | string, folder: string,
+    expectedUidValidity: number | string | null): Promise<{ isRead: boolean; isStarred: boolean } | null> {
+    return withFlagClient(account, async (client, beforeRequest) => {
+      const lock = await client.getMailboxLock(folder);
       try {
-        await withFreshClient(account, async (client) => {
-          const lock = await client.getMailboxLock(folder);
-          try {
-            const flagResult = value
-              ? await client.messageFlagsAdd(String(uid), [flag], { uid: true })
-              : await client.messageFlagsRemove(String(uid), [flag], { uid: true });
-            if (flagResult === false) {
-              throw new Error(`server did not apply ${flag}=${value} for uid=${uid} (no matching message)`);
-            }
-            logger.debug(`setFlag success: uid=${uid} ${flag}=${value}`);
-          } finally {
-            lock.release();
-          }
-        });
-        return; // applied
-      } catch (err) {
-        lastErr = err;
-        if (attempt < 2) await new Promise(r => setTimeout(r, 400));
+        assertFlagUidValidity(client, expectedUidValidity, folder);
+        beforeRequest();
+        for await (const message of client.fetch(String(uid), { uid: true, flags: true }, { uid: true })) {
+          // Never accept a sequence number or a server's unrelated FETCH response.
+          if (String(message.uid) !== String(uid)) continue;
+          if (!message.flags) throw new Error('IMAP flag readback omitted flags');
+          return { isRead: message.flags.has('\\Seen'), isStarred: message.flags.has('\\Flagged') };
+        }
+        return null;
+      } finally {
+        lock.release();
       }
-    }
-    console.error(`setFlag failed after retry: uid=${uid} ${flag}=${value}:`, toAppError(lastErr).message);
-    throw lastErr;
+    });
+  }
+
+  async setFlag(account: EmailAccountRow, uid: number | string, folder: string, flag: string, value: boolean,
+    expectedUidValidity?: number | string | null) {
+    await withFlagClient(account, async (client, beforeRequest) => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        if (expectedUidValidity !== undefined) assertFlagUidValidity(client, expectedUidValidity, folder);
+        beforeRequest();
+        const result = value
+          ? await client.messageFlagsAdd(String(uid), [flag], { uid: true })
+          : await client.messageFlagsRemove(String(uid), [flag], { uid: true });
+        if (result === false) {
+          throw Object.assign(new Error(`server did not apply ${flag}=${value} for uid=${uid}`), { code: 'RESOURCE_NOT_FOUND' });
+        }
+        // A socket error after STORE is uncertain. The durable owner reads back before
+        // deciding anything; replay here could overwrite a newer user/provider edit.
+      } finally {
+        lock.release();
+      }
+    });
   }
 
   async createFolder(account: EmailAccountRow, path: string) {
@@ -6440,7 +6404,7 @@ export async function upsertIngestedMessageRow(
     } catch { /* non-fatal — leave category NULL */ }
   }
 
-  const result = await query<{ id: string; is_new?: boolean }>(`
+  const result = await withImapFlagObservation(account.id, folder, [parsed.uid], tx => tx.query<{ id: string; is_new?: boolean }>(`
     INSERT INTO messages (
       account_id, uid, folder, message_id, subject,
       from_name, from_email, to_addresses, cc_addresses,
@@ -6477,14 +6441,12 @@ export async function upsertIngestedMessageRow(
         snippet = CASE WHEN EXCLUDED.snippet != '' THEN EXCLUDED.snippet
                        ELSE messages.snippet END,
         is_read = CASE
-          WHEN messages.read_changed_at IS NOT NULL
-               AND NOW() - messages.read_changed_at < interval '30 seconds'
+          WHEN ${imapFlagProtectedSql('Seen')}
           THEN messages.is_read
           ELSE EXCLUDED.is_read
         END,
         is_starred = CASE
-          WHEN messages.star_changed_at IS NOT NULL
-               AND NOW() - messages.star_changed_at < interval '30 seconds'
+          WHEN ${imapFlagProtectedSql('Flagged')}
           THEN messages.is_starred
           ELSE EXCLUDED.is_starred
         END,
@@ -6526,7 +6488,7 @@ export async function upsertIngestedMessageRow(
     sanitizeStr(decodeMimeWords(parsed.parsedHeaders?.['list-unsubscribe-post'] ?? '') ?? ''),
     JSON.stringify(parsed.deliveryAddresses || []),
     sanitizeStr(parsed.senderName), sanitizeStr(parsed.senderEmail),
-  ]);
+  ]));
 
   // Propagate resolved thread_id to any earlier messages that used this
   // message as a provisional thread root (out-of-order delivery / sync).

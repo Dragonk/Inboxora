@@ -184,13 +184,12 @@ function nativeCopy(copy: ConversationCopyLike, logical: LogicalMessageLike, con
   };
 }
 
-export function conversationDetailToThreadMessages(detail: ConversationDetailLike | null | undefined, selectedFolder: string | null | undefined) {
+export function conversationDetailToThreadMessages(detail: ConversationDetailLike | null | undefined, _selectedFolder: string | null | undefined) {
   const conversationId = detail?.summary?.conversation_id ?? detail?.summary?.id;
   const accountId = detail?.summary?.account_id ?? detail?.summary?.accountId;
-  return (detail?.logicalMessages || []).map((logical: ConversationLogicalMessageLike) => {
-    const copy = preferredConversationCopy(logical.copies, accountId, selectedFolder);
-    return copy ? nativeCopy(copy, logical, conversationId, accountId) : null;
-  }).filter(Boolean);
+  return (detail?.logicalMessages || []).flatMap(logical =>
+    (logical.copies || []).filter(copy => copy.id && (!accountId || String(copy.accountId ?? copy.account_id) === String(accountId)))
+      .map(copy => nativeCopy(copy, logical, conversationId, accountId)));
 }
 
 export function conversationRowToThreadRow(row: ConversationRowLike) {
@@ -243,15 +242,14 @@ function isNativeThreadMessage(value: unknown): value is NativeThreadMessageLike
  * card. This is the fallback/primary source when CE graph is incomplete so the reader
  * never silently drops messages that the native thread list shows.
  *
- * Native thread children are already deduplicated by message_id by the backend
- * (DISTINCT ON), so one row here = one unique real message.
+ * Each row retains its physical identity even when RFC headers are identical.
  */
 export function nativeThreadToReaderMessages(threadMessages: unknown, accountId: string | null | undefined): ReaderMessageLike[] {
   const validMessages = Array.isArray(threadMessages)
     ? threadMessages.filter(isNativeThreadMessage)
     : [];
   return validMessages.map((msg: NativeThreadMessageLike, index: number) => ({
-    id: msg.message_id || msg.id,
+    id: msg.id,
     subject: msg.subject,
     canonicalMessageId: msg.message_id,
     canonical_message_id: msg.message_id,
@@ -270,6 +268,9 @@ export function nativeThreadToReaderMessages(threadMessages: unknown, accountId:
       thread_id: msg.thread_id,
       threadKey: msg.thread_key,
       folder: msg.folder,
+      category: msg.category,
+      is_archived: msg.is_archived,
+      folder_paths: msg.folder_paths,
       subject: msg.subject,
       fromName: msg.from_name,
       from_name: msg.from_name,
@@ -340,6 +341,6 @@ export function mergeThreadWithConversation(ceMessages: ConversationLogicalMessa
         .filter(([, value]) => value != null && value !== ''));
       return { ...ceCopy, ...definedNative };
     });
-    return { ...native, ...ce, copies, id: ce.id || native.id, _ceMatched: true };
+    return { ...native, ...ce, copies, id: native.id, logicalMessageId: ce.id, _ceMatched: true };
   });
 }

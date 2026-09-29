@@ -20,6 +20,7 @@ vi.mock('../../db.js', () => ({
 vi.mock('../../providerTokenService.js', () => ({ readGrantForUser: async () => null }));
 vi.mock('../../syncCoordinator.js', () => ({
   ensureSyncState: async () => 'state',
+  fenceSyncLease: async () => undefined,
   acquireSyncLease: mocks.acquire,
   readSyncState: async () => ({ cursor: null }),
   withFencedSyncLease: async (input: { run: (client: { query: typeof mocks.query }) => unknown }) => input.run({ query: mocks.query }),
@@ -33,6 +34,8 @@ vi.mock('../../syncCoordinator.js', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.query.mockImplementation(async (sql: string, params: unknown[]) => {
+    if (sql.startsWith('SELECT pc.provider,og.current_scopes')) return { rows: [{ provider: 'microsoft', current_scopes: ['Contacts.ReadWrite'] }] };
+    if (sql.startsWith('SELECT id FROM provider_connections')) return { rows: [{ id: 'connection' }] };
     if (sql.startsWith('SELECT id, local_address_book_id')) {
       return { rows: [{ id: `collection:${params[1]}`, local_address_book_id: `book:${params[1]}` }] };
     }
@@ -52,6 +55,7 @@ describe('Graph contacts target isolation', () => {
     ]);
     expect(result.books.map(book => book.addressBookId)).toEqual([`book:${DEFAULT_GRAPH_CONTACTS_TARGET}`, 'book:arbitrary-id']);
     expect(mocks.acquire.mock.calls.map(call => call[1].owner)).toEqual([
+      'graph-contacts:connection',
       `graph-contacts:connection:${DEFAULT_GRAPH_CONTACTS_TARGET}`, 'graph-contacts:connection:arbitrary-id',
     ]);
   });

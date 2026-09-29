@@ -2,6 +2,34 @@
 
 These changes are on the development branch for pre-merge testing. They are **not part of the published 4.1.2 release**; a release version has not been assigned.
 
+## Mail status and provider collection consistency
+
+Read/unread and star actions share a PostgreSQL-backed intent queue across Microsoft Graph, Gmail API and IMAP, including Gmail over IMAP. The latest explicit click owns its generation. Bulk requests persist every member before the first provider call; a bounded immediate slice runs while the worker owns the remainder. Responses distinguish confirmed, pending and failed IDs. The client requests fresh evidence after uncertainty instead of retaining an optimistic flag indefinitely, and old responses cannot overwrite another session or a newer click.
+
+Token-refresh contention and connection failures before dispatch can be retried safely. An IMAP STORE with a lost response is not blindly repeated: exact UIDVALIDITY and flag readback determine recovery. The queue survives restart and supports accounts without persistent IDLE connections. Historical unknown operations are observed, not replayed as old user commands or relabelled as historical successes.
+
+Flags skipped by recent-change protection create durable readback work before the sync checkpoint advances. These exact-message reads are independent of Graph delta, Gmail history and IMAP MODSEQ/recent-message windows. Confirmed and observed Gmail flags also update UNREAD/STARRED metadata while preserving other labels. Folder copies are read independently rather than assigned flags from RFC Message-ID alone.
+
+Thread expansion, conversation previews/readers and unread/category counts preserve distinct physical copies. Verified Graph compatibility aliases stay hidden with old links intact; uncertain bindings remain available for recovery. Conversation summary counts come from visible copies, not stale ingest counters. Genuine provider items with no subject, preview or RFC ID remain visible. Restoring local visibility requires current provider evidence and unchanged identity, without overriding deletion/move evidence.
+
+### Calendars and address books
+
+A complete validated listing can retire calendars and address books missing at their provider, along with their owned events/occurrences or contacts, collection links and relevant sync state. Memberships in another contact collection are preserved. Google calendar discovery includes hidden subscriptions. Microsoft contact folders and the primary contact endpoint retain separate identities. CardDAV cleanup is limited to the successfully enumerated home/source; a listed resource with an unexpected type is not considered absent. CalDAV verifies the exact missing collection before retiring its projection.
+
+Incomplete pagination, malformed responses, HTTP errors, revoked permissions and credential changes cannot authorize cleanup. Source and collection generations fence late pages after retirement or reconfiguration. Small tombstones and operation receipts remain as recovery metadata, not visible leftover collections or another content archive. Deleted identities remain fenced against stale rediscovery; a new provider identity is a separate resource.
+
+Collection settings offer remote deletion for supported secondary Microsoft books, owned secondary Microsoft/Google calendars and writable DAV collections. Exact-name confirmation and an acknowledgement of remote content removal are required. DAV checks the actual resource type, advertised DELETE support and parent unbind privileges. An uncertain result keeps the resource and a Check operation action; this reuses the same receipt and checks provider state rather than repeating an uncertain DELETE. Local disconnection is a separate operation. Opening settings from the mobile calendar closes its navigation panel.
+
+Primary books/calendars and shared or non-owned calendars are protected. Google People exposes the main contact collection, not a deletable address-book container: Inboxora does not substitute deleting all contacts or a contact group for deleting the book. Existing individual-contact synchronization remains available. Provider write permissions and enabled write-back are required; unverified or unsupported deletion capabilities remain disabled with an explanation.
+
+### Upgrade and validation
+
+Back up PostgreSQL and deploy matching backend/frontend revisions. After the existing chain through `0155_scheduled_mail_seen.sql`, apply `0156_mail_flag_state.sql`, `0158_native_collection_retirement.sql`, `0159_dav_collection_lifecycle.sql` and `0160_mail_flag_upgrade_readback.sql` in filename order before the backend serves requests. No `0157` migration is introduced. Normal startup applies pending migrations. No new environment variables or release version are introduced; remote deletion uses the provider's existing write permissions.
+
+Upgrade readbacks are bounded background observations, not a mailbox reset or a mass mark-read operation. Existing changed-at rows and unresolved flag evidence are compared with current provider state, protecting newer local work. Provider outages defer recovery; large mailboxes can take multiple batches. Do not reset cursors or clear unread counters to accelerate it.
+
+Regression suites use real PostgreSQL transactions, separate worker processes, token-refresh leases, generation/identity races, mixed bulk outcomes, old IMAP UIDs and canonical alias visibility. Collection cases cover incomplete/forbidden discovery, changed credentials, late pages, uncertain deletion and recovery after local cleanup failure; DAV fixtures use localhost HTTP servers. Browser tests cover status readback, confirmation, protected resources and pending-operation recovery across navigation on desktop/mobile. These fixtures do not contact users' providers or send real mail.
+
 ## Sender addresses and automatic From selection (#9)
 
 In Settings → Accounts → the account menu → Aliases, the Sender addresses view always includes the primary mailbox address. It cannot be deleted from this view. The radio buttons select exactly one default sender for new messages, independently for each account. Existing aliases keep their display name, Reply-To and signature settings, and can still be edited or removed.

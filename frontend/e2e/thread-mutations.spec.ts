@@ -323,7 +323,8 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect.poll(() => page.__bulkReadActions.length).toBe(5);
       await expect(sender).toHaveCSS('font-weight', '600');
       await expect(row.locator('.unread-dot')).toHaveCount(1);
-      if (!MOBILE.has(testInfo.project.name)) await expect(account).toContainText('5');
+      // Inbox copies 1/3/5 count here; the failed no-op copy belongs to Sent.
+      if (!MOBILE.has(testInfo.project.name)) await expect(account).toContainText('3');
     });
 
     test('archive, move, and delete remove immediately and restore their own row on API failure', async ({ page, fixtureApi }, testInfo) => {

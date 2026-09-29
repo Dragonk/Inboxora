@@ -1,3 +1,4 @@
+import { recoverUnknownCalendarDeletion } from './calendarCollectionRecovery.js';
 import { createHash } from 'node:crypto';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
 import { runProviderMutation, type ProviderAdapterOutcome, type ProviderMutationAdapter, type ProviderMutationResult } from './providerMutationService.js';
@@ -158,11 +159,21 @@ export function calendarCollectionMutationAdapter(userId: string, options: Calen
 /** Authorize ownership/capability before this call; project local state only after its confirmed result. */
 export async function runCalendarCollectionMutation(input: CalendarCollectionMutationInput, options: CalendarCollectionMutationOptions = {}): Promise<ProviderMutationResult<CalendarCollectionMutationValue>> {
   const intent = buildCalendarCollectionMutationIntent(input);
-  return runProviderMutation({
+  const result = await runProviderMutation({
     userId: intent.userId, accountId: intent.payload.accountId, connectionId: intent.payload.connectionId,
     collectionId: intent.payload.collectionId, resourceId: intent.payload.localCalendarId,
     channel: 'web', operation: intent.payload.action,
     idempotencyKey: intent.idempotencyKey, payloadHash: intent.payloadHash, payload: intent.payload,
     timeoutMs: 20_000,
   }, calendarCollectionMutationAdapter(intent.userId, options));
+  if (input.action === 'delete' && result.status === 'outcome_unknown' && result.replayed && result.operationId) {
+    try {
+      const value = await recoverUnknownCalendarDeletion({operationId:result.operationId,userId:intent.userId,accountId:intent.payload.accountId,connectionId:intent.payload.connectionId,provider:input.provider},options);
+      if (value) return {...result,status:'confirmed',code:undefined,value};
+    } catch (error) {
+      // A failed read cannot resolve an ambiguous mutation or permit repeating it.
+      console.warn('Calendar deletion remains unconfirmed after reconciliation', {operationId:result.operationId,error:error instanceof Error?error.message:String(error)});
+    }
+  }
+  return result;
 }

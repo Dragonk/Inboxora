@@ -10,7 +10,7 @@ describe('the IMAP flag adapter on the mutation layer', () => {
     const setFlag = vi.fn(async () => undefined);
     const adapter = imapFlagMutationAdapter({ account, write, setFlag });
 
-    expect(adapter.idempotent).toBe(true);
+    expect(adapter.idempotent).toBe(false);
     expect(adapter.resourceType).toBe('message');
     await expect(adapter.perform(undefined, { operationId: 'op-1', signal: new AbortController().signal }))
       .resolves.toEqual({ status: 'committed' });
@@ -29,6 +29,14 @@ describe('the IMAP flag adapter on the mutation layer', () => {
   it('classifies a vanished mailbox as a permanent missing resource', () => {
     expect(classifyImapFlagFailure(Object.assign(new Error('Mailbox does not exist'), { code: 'NONEXISTENT' })))
       .toEqual({ status: 'permanent', code: 'RESOURCE_NOT_FOUND' });
+  });
+
+  it('retries only a proven pre-dispatch timeout', () => {
+    expect(classifyImapFlagFailure(Object.assign(new Error('deadline before STORE'), {code:'MAIL_FLAG_NOT_DISPATCHED'}))).toEqual({status:'retryable',code:'MAIL_FLAG_NOT_DISPATCHED'});
+  });
+
+  it('rejects a changed UID epoch without retry', () => {
+    expect(classifyImapFlagFailure(Object.assign(new Error('epoch changed'), {code:'MAIL_IDENTITY_CHANGED'}))).toEqual({status:'permanent',code:'MAIL_IDENTITY_CHANGED'});
   });
 
   it('treats an unclassified connection failure as an unknown outcome, not a retry', () => {

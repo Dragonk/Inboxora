@@ -16,6 +16,13 @@ const { query, withTransaction } = vi.hoisted(() => {
 });
 vi.mock('../services/db.js', () => ({ query, withTransaction }));
 
+const collectionManagement = vi.hoisted(() => ({describe:vi.fn(),remove:vi.fn()}));
+vi.mock('../services/addressBookCollectionManagement.js',()=>({
+  describeAddressBookDeletion:collectionManagement.describe,
+  deleteProviderAddressBook:collectionManagement.remove,
+  AddressBookCollectionError:class extends Error {status=403;code='COLLECTION_PROTECTED';},
+}));
+
 import express from 'express';
 import session from 'express-session';
 import contactsRouter from './contacts.js';
@@ -85,6 +92,8 @@ function arrangeQuery(contact: ContactDateEntry[], result: typeof updatedContact
 beforeEach(() => {
   query.mockReset();
   withTransaction.mockClear();
+  collectionManagement.describe.mockReset().mockResolvedValue({supported:false,reason:"The provider does not support deleting this address book."});
+  collectionManagement.remove.mockReset();
 });
 
 describe('the address-book list exposes the write-back switch', () => {
@@ -101,16 +110,29 @@ describe('the address-book list exposes the write-back switch', () => {
     });
     const server = createApp().listen(0);
     try {
-      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books`);
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books?includeDeletionCapabilities=true`);
       expect(response.status).toBe(200);
       const body = await response.json() as { addressBooks: Array<{ id: string; collection_id: string | null; account_id?: string | null; account_email?: string | null; provider?: string | null; read_only: boolean }> };
-      expect(body.addressBooks.find(book => book.id === 'book-pulled')).toMatchObject({ collection_id: 'collection-1', provider: 'google', account_id: 'account-1', account_email: 'one@example.test', read_only: true });
+      expect(body.addressBooks.find(book => book.id === 'book-pulled')).toMatchObject({ collection_id: 'collection-1', provider: 'google', account_id: 'account-1', account_email: 'one@example.test', read_only: true, deletion: {supported:false,reason:expect.any(String)} });
       // A local book has no collection and is writable, so it offers no write-back switch at all.
-      expect(body.addressBooks.find(book => book.id === 'book-local')).toMatchObject({ collection_id: null, read_only: false });
+      expect(body.addressBooks.find(book => book.id === 'book-local')).toMatchObject({ collection_id: null, read_only: false, deletion: {supported:true} });
     } finally {
       await new Promise(resolve => server.close(resolve));
     }
   });
+});
+
+describe('ordinary address book list has no provider IO',()=>{
+ it('leaves remote deletion capabilities for the explicit management read',async()=>{
+   query.mockResolvedValueOnce({rows:[{id:'user-1'}]}).mockResolvedValueOnce({rows:[{id:'book-1',source:'microsoft'}]});
+   const server=createApp().listen(0);
+   try {
+     const response=await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books`);
+     expect(response.status).toBe(200);
+     expect(await response.json()).toMatchObject({addressBooks:[{id:'book-1'}]});
+     expect(collectionManagement.describe).not.toHaveBeenCalled();
+   } finally {await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+ });
 });
 
 describe('Contact REST PATCH legacy date synchronization', () => {
@@ -321,23 +343,20 @@ describe('Google CSV import persistence', () => {
   });
 });
 
-describe('an address book written by a source cannot be deleted', () => {
-  // Deleting one would leave its integration collection with no local book (the foreign key
-  // clears the link rather than failing), and the next sync would create the book again — so
-  // the delete would appear to work and silently undo itself. The guard is what prevents it,
-  // and it is pinned here because it is otherwise only reachable through the interface.
+describe('an address book written by a source requires explicit provider deletion', () => {
+  // A provider collection must never be removed by the unconfirmed local-delete path.
   for (const source of ['google', 'microsoft', 'carddav']) {
-    it(`refuses to delete a ${source} book, deleting nothing`, async () => {
+    it(`refuses to delete a ${source} book without confirmation, deleting nothing`, async () => {
       query.mockReset();
       query
         .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
-        .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Imported', source }] });
+        .mockResolvedValueOnce({ rows: [{ id: '22222222-2222-4222-8222-222222222222', name: 'Imported', source }] });
 
       const server = createApp().listen(0);
-      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, { method: 'DELETE' });
+      const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/22222222-2222-4222-8222-222222222222`, { method: 'DELETE' });
       await new Promise(resolve => server.close(resolve));
 
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(400);
       expect(query.mock.calls.some(([sql]) => String(sql).includes('DELETE FROM address_books'))).toBe(false);
     });
   }
@@ -346,12 +365,12 @@ describe('an address book written by a source cannot be deleted', () => {
     query.mockReset();
     query
       .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'book-1', name: 'Personal', source: 'local' }] })
+      .mockResolvedValueOnce({ rows: [{ id: '22222222-2222-4222-8222-222222222222', name: 'Personal', source: 'local' }] })
       .mockResolvedValueOnce({ rows: [{ count: 2 }] })
       .mockResolvedValueOnce({ rows: [], rowCount: 1 });
 
     const server = createApp().listen(0);
-    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-1`, { method: 'DELETE' });
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/22222222-2222-4222-8222-222222222222`, { method: 'DELETE' });
     await new Promise(resolve => server.close(resolve));
 
     expect(response.status).toBe(204);
@@ -498,4 +517,45 @@ describe('the read-only flag comes from the capability model, for every provider
     expect(response.status).toBe(200);
     expect((await response.json() as { read_only: boolean }).read_only).toBe(true);
   });
+});
+
+describe('native address book deletion routing',()=>{
+ async function requestDeletion(body:unknown,source:string|null='microsoft',nativeReceipt=true) {
+   query.mockResolvedValueOnce({rows:[{id:'user-1'}]}).mockResolvedValueOnce({rows:source?[{source,name:'Work'}]:[]});
+   if (!source) query.mockResolvedValueOnce({rows:[]}).mockResolvedValueOnce({rows:nativeReceipt?[{id:'op'}]:[]});
+   const server=createApp().listen(0);
+   try {
+     const response=await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/22222222-2222-4222-8222-222222222222`,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+     return {status:response.status,body:await response.json()};
+   } finally {await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+ }
+ it('dispatches confirmed native deletion with session ownership and explicit intent',async()=>{
+   collectionManagement.remove.mockResolvedValue({status:'confirmed',operationId:'op',replayed:false});
+   const result=await requestDeletion({confirmName:'Work',idempotencyKey:'delete-key',userId:'foreign',connectionId:'untrusted'});
+   expect(result).toMatchObject({status:200,body:{state:'confirmed',operationId:'op'}});
+   expect(collectionManagement.remove).toHaveBeenCalledWith({userId:'user-1',addressBookId:'22222222-2222-4222-8222-222222222222',confirmName:'Work',idempotencyKey:'delete-key'});
+   expect(query.mock.calls.some(([sql])=>sql.includes('DELETE FROM address_books'))).toBe(false);
+ });
+ it('preserves local data and exposes ambiguous provider outcomes',async()=>{
+   collectionManagement.remove.mockResolvedValue({status:'outcome_unknown',operationId:'op',replayed:false,code:'MUTATION_OUTCOME_UNKNOWN'});
+   const result=await requestDeletion({confirmName:'Work',idempotencyKey:'delete-key'});
+   expect(result).toMatchObject({status:502,body:{state:'outcome_unknown',code:'MUTATION_OUTCOME_UNKNOWN'}});
+   expect(query.mock.calls.some(([sql])=>sql.includes('DELETE FROM address_books'))).toBe(false);
+ });
+ it('allows the service to replay the same durable intent after projection removal',async()=>{
+   collectionManagement.remove.mockResolvedValue({status:'confirmed',operationId:'op',replayed:true});
+   expect(await requestDeletion({confirmName:'Work',idempotencyKey:'delete-key'},null)).toMatchObject({status:200,body:{replayed:true}});
+ });
+ it('does not send missing books without an owned matching receipt to native deletion',async()=>{
+   expect(await requestDeletion({confirmName:'Work',idempotencyKey:'delete-key'},null,false)).toMatchObject({status:404});
+   expect(collectionManagement.remove).not.toHaveBeenCalled();
+   expect(query.mock.calls.some(([sql])=>sql.includes('DELETE FROM address_books'))).toBe(false);
+   const receiptLookup = query.mock.calls.find(([sql])=>sql.includes('FROM provider_operations'));
+   expect(receiptLookup?.[0]).toContain("payload->>'confirmName'=$4");
+   expect(receiptLookup?.[1]).toEqual(['user-1','22222222-2222-4222-8222-222222222222','delete-key','Work']);
+ });
+ it('rejects a blank idempotency key before provider IO',async()=>{
+   expect(await requestDeletion({confirmName:'Work',idempotencyKey:' '})).toMatchObject({status:400});
+   expect(collectionManagement.remove).not.toHaveBeenCalled();
+ });
 });

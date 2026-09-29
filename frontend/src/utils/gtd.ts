@@ -425,7 +425,7 @@ export function restoreGtdThreadRemoval(sections: GtdSections | null | undefined
 // merged unread by one, not two); the rollup total is unaffected — the thread stays in
 // Waiting, only its read styling changes. Returns the same sections reference when nothing
 // changed, a new object otherwise; never mutates the input.
-export function setGtdThreadReadInSections(sections: GtdSections | null | undefined, identity: string | null | undefined, isRead: boolean) {
+export function setGtdThreadReadInSections(sections: GtdSections | null | undefined, identity: string | null | undefined, isRead: boolean, accountId?: string) {
   if (!sections || identity == null) return sections;
   const next = { ...sections };
   let changed = false;
@@ -434,7 +434,7 @@ export function setGtdThreadReadInSections(sections: GtdSections | null | undefi
     if (!sec || !Array.isArray(sec.threads)) continue;
     let unreadDelta = 0, touched = false;
     const threads = sec.threads.map(th => {
-      if ((th.message_id || th.id) !== identity || !!th.is_read === isRead) return th;
+      if ((th.message_id || th.id) !== identity || (accountId !== undefined && th.account_id !== accountId) || !!th.is_read === isRead) return th;
       touched = true;
       unreadDelta += isRead ? -1 : 1;
       return { ...th, is_read: isRead };

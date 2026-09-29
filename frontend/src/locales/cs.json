@@ -2521,6 +2521,7 @@
     "operationPending": "Vzdálená operace dosud není potvrzena. Neopakujte ji s novým identifikátorem požadavku.",
     "targetUnavailable": "Tento účet nebo zdroj již není dostupný. Vraťte se do seznamu a obnovte jej.",
     "deleteLocalWarning": "Tímto se odstraní zdroj a jeho obsah z Inboxora. Tuto operaci nelze vrátit zpět.",
+    "providerDeletionUnavailable": "Tuto kolekci nelze u poskytovatele odstranit. Výchozí, systémové a pouze pro čtení určené kolekce zde nelze odstranit.",
     "deleteRemoteWarning": "Tímto se odstraní zdroj včetně obsahu u poskytovatele. Nejde o skrytí ani odpojení.",
     "removeAccountHint": "Všechny synchronizované zprávy tohoto účtu budou odstraněny z Inboxora. Schránka u poskytovatele se nesmaže.",
     "intervalMinutes_zero": "Minuty: {{count}}",
@@ -2627,5 +2628,11 @@
     "recipientsUnavailable": "Údaje o příjemcích nejsou dostupné",
     "editingNotice": "Odesílání je během úprav pozastaveno. Uložení jej neobnoví; až budete připraveni, zvolte Odeslat nebo Naplánovat odeslání.",
     "resumeFromEditor": "Dokončete úpravy v otevřeném editoru a poté upravenou zprávu odešlete nebo naplánujte."
+  },
+  "mailStateChange": {
+    "pendingTitle": "Změna čeká na potvrzení",
+    "pendingBody": "Poskytovatel e-mailu tuto změnu zatím nepotvrdil. Aktuální stav schránky bude znovu zkontrolován.",
+    "failedTitle": "Změna se nezdařila",
+    "failedBody": "Poskytovatel e-mailu nemohl tuto změnu provést. Byl obnoven předchozí stav."
   }
 }

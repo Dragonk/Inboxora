@@ -1,4 +1,4 @@
-import { graphDelete, graphGet, graphGetWithHeaders, graphPatch, graphPost, graphUrl } from './graphApiClient.js';
+import { GraphApiError, graphDelete, graphGet, graphGetWithHeaders, graphPatch, graphPost, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import type { VCardContact } from '../../../utils/vcard.js';
 
@@ -175,11 +175,14 @@ export async function discoverGraphContactFolders(options: GraphApiOptions): Pro
     let next: string | null = url;
     for (let page = 0; page < 20 && next; page += 1) {
       const body: GraphCollection<GraphContactFolder> = await graphGet<GraphCollection<GraphContactFolder>>(options, next);
-      for (const folder of body.value ?? []) {
-        if (folder?.id) folders.push(folder);
+      if (!Array.isArray(body?.value) || body.value.some(folder => !folder || typeof folder.id !== 'string' || !folder.id.trim())
+        || (body['@odata.nextLink'] != null && (typeof body['@odata.nextLink'] !== 'string' || !body['@odata.nextLink'].trim()))) {
+        throw new GraphApiError({ code: 'PARTIAL_SYNC', message: 'Microsoft returned an invalid contact folder listing', status: 502 });
       }
+      folders.push(...body.value);
       next = body['@odata.nextLink'] ?? null;
     }
+    if (next) throw new GraphApiError({ code: 'PARTIAL_SYNC', message: 'Microsoft contact folder discovery exceeded its page limit', status: 502 });
     return folders;
   };
   const top = await list(graphUrl('/me/contactFolders', { $select: 'id,displayName,parentFolderId', $top: 100 }));
@@ -244,8 +247,12 @@ export async function fetchContactsPage(options: GraphApiOptions, input: {
   const body = isInitialFolderDelta
     ? await graphGetWithHeaders<GraphCollection<GraphContact & { '@removed'?: { reason?: string } }>>(options, url, { Prefer: `odata.maxpagesize=${top}` })
     : await graphGet<GraphCollection<GraphContact & { '@removed'?: { reason?: string } }>>(options, url);
+  if (!Array.isArray(body?.value) || body.value.some(entry => !entry || typeof entry.id !== 'string' || !entry.id.trim())
+    || (body['@odata.nextLink'] != null && (typeof body['@odata.nextLink'] !== 'string' || !body['@odata.nextLink'].trim()))) {
+    throw new GraphApiError({ code: 'PARTIAL_SYNC', message: 'Microsoft returned an invalid contacts snapshot', status: 502 });
+  }
   return {
-    contacts: (Array.isArray(body.value) ? body.value : []).map(entry => {
+    contacts: body.value.map(entry => {
       const removed = (entry as { '@removed'?: { reason?: string } })['@removed'];
       return removed ? { ...entry, removed } : entry;
     }),

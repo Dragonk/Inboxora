@@ -2521,6 +2521,7 @@
     "operationPending": "远程操作尚未确认。请勿使用新的请求标识重复执行。",
     "targetUnavailable": "此账户或资源已不可用。请返回列表并刷新。",
     "deleteLocalWarning": "这将从 Inboxora 删除该资源及其内容。此操作无法撤销。",
+    "providerDeletionUnavailable": "无法在服务商处删除此集合。默认、系统和只读集合无法在此删除。",
     "deleteRemoteWarning": "这将删除服务商处的资源及其内容，不等同于隐藏或断开连接。",
     "removeAccountHint": "此账户的所有已同步邮件将从 Inboxora 移除，但不会删除服务商处的邮箱。",
     "intervalMinutes_zero": "分钟：{{count}}",
@@ -2627,5 +2628,11 @@
     "recipientsUnavailable": "收件人信息不可用",
     "editingNotice": "编辑期间发送已暂停。保存不会恢复发送；完成后请选择“发送”或“计划发送”。",
     "resumeFromEditor": "请在已打开的编辑窗口中完成修改，然后发送或安排发送更新后的邮件。"
+  },
+  "mailStateChange": {
+    "pendingTitle": "更改等待确认",
+    "pendingBody": "邮件服务提供商尚未确认此更改。系统将再次检查邮箱的当前状态。",
+    "failedTitle": "更改失败",
+    "failedBody": "邮件服务提供商无法应用此更改。已恢复之前的状态。"
   }
 }

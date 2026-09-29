@@ -7,11 +7,11 @@ describe('read-state mutation lane', () => {
     resetReadStateMutationsForTest();
     const calls: unknown[] = [];
     let releaseFirst: (() => void) | undefined;
-    const first = queueReadStateMutation('m2', true, read => new Promise<void>(resolve => {
+    const first = queueReadStateMutation('m2', true, read => new Promise<{ ok: true }>(resolve => {
       calls.push(read);
-      releaseFirst = () => resolve();
+      releaseFirst = () => resolve({ ok: true });
     }));
-    const second = queueReadStateMutation('m2', false, async read => { calls.push(read); });
+    const second = queueReadStateMutation('m2', false, async read => { calls.push(read); return { ok: true }; });
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(calls, [true]);
     assert.equal(pendingReadState('m2'), false);
@@ -30,7 +30,7 @@ describe('read-state mutation lane', () => {
       calls.push(read);
       rejectFirst = reason => reject(reason);
     }));
-    const second = queueReadStateMutation('m3', false, async read => { calls.push(read); });
+    const second = queueReadStateMutation('m3', false, async read => { calls.push(read); return { ok: true }; });
     await new Promise(resolve => setTimeout(resolve, 0));
     if (rejectFirst === undefined) throw new Error('first read-state mutation did not start');
     rejectFirst(new Error('automatic read failed'));

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../utils/api.ts';
+import { toAppError } from '../utils/errors.ts';
 import { useStore } from '../store/index.ts';
 import { localizeContactCalendar } from '../utils/contactDateLabels.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
 import { HOLIDAY_CALENDARS, HOLIDAY_SYNC_INTERVAL_MIN, defaultHolidayCountry, holidayCalendarUrl, holidayCountryName, normalizeSubscriptionUrl } from '../utils/calendarSubscriptions.ts';
 import { Button, Dialog } from './ui.tsx';
 import { calendarSidebarGroups, type CalendarPresentation, type CalendarRow } from './calendarSettingsModel.ts';
-import { operationKey, nativeCalendarDeleteAllowed, type NativeCalendarOperationResponse } from './calendarCollectionManagementModel.ts';
+import { readCollectionDeleteIntents, sendCollectionDeletion, type CollectionDeleteIntent } from './collectionDeletionModel.ts';
+import { operationKey, providerCalendarDeleteAllowed, type NativeCalendarOperationResponse } from './calendarCollectionManagementModel.ts';
 import ServiceSettingsView, { ConnectionFeature, type ServiceConnection, type ServiceResource } from './accountUi/ServiceSettingsView.tsx';
 import { Header, Notice, Status, Switch, Icon } from './accountUi/AccountUi.tsx';
 import { featureState, sourceLabel, colorValue, syncFailed } from './accountUi/model.ts';
@@ -33,7 +35,16 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
   const [presentation, setPresentation] = useState<CalendarPresentation | null>(null); const [loading, setLoading] = useState(true); const [readFailed, setReadFailed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null); const [filter, setFilter] = useState('all'); const [adding, setAdding] = useState(false);
   const [davEditor, setDavEditor] = useState<Source | 'new' | null>(null); const [editing, setEditing] = useState<ResourceDraft | null>(null);
+  const [nativeError, setNativeError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<CalendarRow | null>(null);
+  const [pendingDavDeletes, setPendingDavDeletes] = useState<Record<string, CollectionDeleteIntent>>({});
+  const [davDeleteStorageFailed, setDavDeleteStorageFailed] = useState(false);
+  const davDeleteStorageKey = `inboxora:dav-calendar-deletions:${String(userId)}`;
+  useEffect(() => {
+    setPendingDavDeletes({}); setDavDeleteStorageFailed(false);
+    try { setPendingDavDeletes(readCollectionDeleteIntents(sessionStorage.getItem(davDeleteStorageKey))); }
+    catch { setDavDeleteStorageFailed(true); }
+  }, [davDeleteStorageKey, epoch]);
   const [removing, setRemoving] = useState<CalendarSourceRemoval | null>(null);
   const [create, setCreate] = useState<{ name: string; color: string; accountId: string } | null>(null);
   const [pending, setPending] = useState<Record<string, NativeIntent>>({}); const [target, setTarget] = useState<SettingsTarget | null>(null); const [missing, setMissing] = useState(false);
@@ -44,14 +55,14 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
   const load = useCallback(async () => {
     const generation = life.current; const ticket = ++request.current;
     try {
-      const [sourceResult, calendarResult, model] = await Promise.all([api.calendar.listSources(), api.calendar.listCalendars(), api.calendar.presentation()]);
+      const [sourceResult, calendarResult, model] = await Promise.all([api.calendar.listSources(), api.calendar.listCalendars({ includeDeletionCapabilities: true }), api.calendar.presentation()]);
       if (generation !== life.current || ticket !== request.current || useStore.getState().authEpoch !== epoch) return;
       setSources(sourceResult.sources || []); setCalendars(calendarResult.calendars || []); setPresentation(model as CalendarPresentation); setReadFailed(false);
     } catch { if (generation === life.current && ticket === request.current && useStore.getState().authEpoch === epoch) setReadFailed(true); }
     finally { if (generation === life.current && ticket === request.current && useStore.getState().authEpoch === epoch) setLoading(false); }
   }, [epoch]);
   useEffect(() => {
-    life.current++; setSources([]); setCalendars([]); setPresentation(null); setSelected(null); setEditing(null); setLoading(true); setPending({});
+    life.current++; setSources([]); setCalendars([]); setPresentation(null); setSelected(null); setEditing(null); setDeleting(null); setNativeError(null); setLoading(true); setPending({});
     void load(); const changed = () => { void load(); }; const cancel = () => { life.current++; request.current++; };
     window.addEventListener('inboxora:calendar-changed', changed);
     return () => { cancel(); window.removeEventListener('inboxora:calendar-changed', changed); };
@@ -145,19 +156,36 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
     const generation = life.current;
     const current = () => generation === life.current && useStore.getState().authEpoch === epoch;
     if (!current()) return false;
+    setNativeError(null);
     // Persist the idempotency key before sending; never lose it on a navigation/reload.
     sessionStorage.setItem(storageKey(intent.accountId), JSON.stringify(intent)); setPending(previous => ({ ...previous, [intent.accountId]: intent }));
     try {
       const response = await (intent.action === 'create'
         ? api.createAccountProviderCalendar(intent.accountId, { name: intent.name!, idempotencyKey: intent.idempotencyKey })
-        : api.deleteAccountProviderCalendar(intent.accountId, intent.collectionId!, { idempotencyKey: intent.idempotencyKey })) as NativeCalendarOperationResponse;
+        : api.deleteAccountProviderCalendar(intent.accountId, intent.collectionId!, { idempotencyKey: intent.idempotencyKey, confirmName: intent.name })) as NativeCalendarOperationResponse;
       if (!current()) return false;
       if (response.state === 'confirmed') { sessionStorage.removeItem(storageKey(intent.accountId)); setPending(previous => { const next = { ...previous }; delete next[intent.accountId]; return next; }); return true; }
       const next = { ...intent, response }; sessionStorage.setItem(storageKey(intent.accountId), JSON.stringify(next)); setPending(previous => ({ ...previous, [intent.accountId]: next })); return false;
     } catch (error) {
-      if (current()) { const next: NativeIntent = { ...intent, response: { state: 'outcome_unknown' } }; sessionStorage.setItem(storageKey(intent.accountId), JSON.stringify(next)); setPending(previous => ({ ...previous, [intent.accountId]: next })); }
+      if (current()) { setNativeError(toAppError(error).message); const next: NativeIntent = { ...intent, response: { state: 'outcome_unknown' } }; sessionStorage.setItem(storageKey(intent.accountId), JSON.stringify(next)); setPending(previous => ({ ...previous, [intent.accountId]: next })); }
       throw error;
     }
+  };
+  const sendDavDelete = async (intent: CollectionDeleteIntent, current: () => boolean) => {
+    setNativeError(null);
+    const persist = (next: CollectionDeleteIntent) => {
+      const stored = readCollectionDeleteIntents(sessionStorage.getItem(davDeleteStorageKey)); stored[next.id] = next;
+      sessionStorage.setItem(davDeleteStorageKey, JSON.stringify(stored)); setPendingDavDeletes(stored);
+    };
+    try {
+      return await sendCollectionDeletion(intent, { current, persist,
+        send: item => api.calendar.deleteCalendar(item.id, { confirmName: item.name, idempotencyKey: item.idempotencyKey }),
+        confirmed: item => {
+          const stored = readCollectionDeleteIntents(sessionStorage.getItem(davDeleteStorageKey)); delete stored[item.id];
+          sessionStorage.setItem(davDeleteStorageKey, JSON.stringify(stored)); setPendingDavDeletes(stored);
+        },
+      });
+    } catch (error) { if (current()) setNativeError(toAppError(error).message); throw error; }
   };
   const createCalendar = () => void operation.run(async current => {
     if (!create?.name.trim()) return;
@@ -173,12 +201,15 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
     if (!deleting?.name) return;
     let confirmed = true;
     if (deleting.source === 'local') await api.calendar.deleteCalendar(deleting.id, deleting.name);
-    else {
+    else if (deleting.source === 'caldav') {
+      if (!providerCalendarDeleteAllowed(deleting) || davDeleteStorageFailed || pendingDavDeletes[deleting.id]) return;
+      confirmed = await sendDavDelete({ id: deleting.id, name: deleting.name, idempotencyKey: operationKey(), response: { state: 'pending' } }, current);
+    } else {
       const accountId = sourceForCalendar(deleting.id)?.accountId;
-      if (!accountId || !deleting.collection_id || pending[accountId]) return;
-      confirmed = await sendNative({ accountId, collectionId: deleting.collection_id, action: 'delete', idempotencyKey: operationKey(), response: { state: 'pending' } });
+      if (!accountId || !providerCalendarDeleteAllowed(deleting) || !deleting.collection_id || pending[accountId]) return;
+      confirmed = await sendNative({ accountId, collectionId: deleting.collection_id, name: deleting.name, action: 'delete', idempotencyKey: operationKey(), response: { state: 'pending' } });
     }
-    if (current()) { await refresh(); if (current() && confirmed) { setDeleting(null); setEditing(null); } }
+    if (current() && confirmed) { await refresh(); if (current()) { setDeleting(null); setEditing(null); } }
   });
   const saveResource = () => void operation.run(async current => {
     if (!editing) return;
@@ -228,8 +259,11 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
   </>;
   return <div className="au-workspace" data-testid="calendar-settings-manager">
     {(readFailed || operation.failed) && <Notice danger>{t('accountUi.operationFailed')}<Button onClick={() => void load()}>{t('accountUi.retry')}</Button></Notice>}
+    {nativeError && <Notice danger>{nativeError}</Notice>}
+    {davDeleteStorageFailed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}
+    {Object.values(pendingDavDeletes).map(intent => <Notice key={intent.id}>{t('accountUi.operationPending')} <span>{intent.name}</span><Button disabled={operation.busy} onClick={() => void operation.run(async current => { const confirmed = await sendDavDelete(intent, current); if (current() && confirmed) { await refresh(); if (current()) { setDeleting(null); setEditing(null); } } })}>{t('accountUi.checkOperation')}</Button></Notice>)}
     {missing && <Notice danger>{t('accountUi.targetUnavailable')}</Notice>}
-    {Object.values(pending).map(intent => <Notice key={intent.accountId}>{t('accountUi.operationPending')} <span className="au-mono">{intent.response.code ?? intent.response.state}</span>{(intent.response.state === 'pending' || intent.response.state === 'retryable') && <Button disabled={operation.busy} onClick={() => void operation.run(async current => { await sendNative(intent); if (current()) await refresh(); })}>{t('accountUi.checkOperation')}</Button>}</Notice>)}
+    {Object.values(pending).map(intent => <Notice key={intent.accountId}>{t('accountUi.operationPending')} <span className="au-mono">{intent.response.code ?? intent.response.state}</span>{(intent.response.state === 'pending' || intent.response.state === 'retryable' || intent.response.state === 'outcome_unknown') && <Button disabled={operation.busy} onClick={() => void operation.run(async current => { await sendNative(intent); if (current()) await refresh(); })}>{t('accountUi.checkOperation')}</Button>}</Notice>)}
     {view === 'import' ? imports : <ServiceSettingsView contacts={false} view={view} connections={view === 'accounts' ? accountConnections : connections} resources={resources} selectedSourceId={selected} onSelectSource={setSelected} onAddConnection={() => setAdding(true)} onCreateResource={() => setCreate({ name: '', color: '#35558a', accountId: '' })} onOpenResources={openResources} onEditResource={edit} onVisibility={(id, visible) => runRefresh(() => api.calendar.updateCalendarPresentation(id, !visible))} renderDetail={sourceDetail} filter={filter} onFilter={setFilter} loading={loading} busy={operation.busy}/>}
     {adding && <Dialog title={t('accountUi.addAccount')} closeLabel={t('common.close')} onClose={() => setAdding(false)}><p className="au-note">{t('accountUi.chooseConnection')}</p><div className="au-actions"><Button onClick={() => { setAdding(false); openSettings({ module: 'accounts', add: true }); }}>{t('accountUi.providersNative')}</Button><Button onClick={() => { setAdding(false); setDavEditor('new'); }}>{t('accountUi.brandCalDAV')}</Button></div></Dialog>}
     {davEditor && <DavSourceEditor key={davEditor === 'new' ? 'new' : davEditor.id} kind="caldav" source={davEditor === 'new' ? undefined : { id: davEditor.id, label: davEditor.displayName, serverUrl: davEditor.serverOrigin || davEditor.url, username: davEditor.username, intervalMin: davEditor.intervalMin }} onClose={() => setDavEditor(null)} onChanged={refresh}/>}
@@ -243,9 +277,9 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
       <label>{t('accountUi.eventColor')}<div className="au-color-inputs"><input type="color" value={colorValue(editing.color) ?? '#35558a'} aria-label={t('accountUi.customColor')} disabled={operation.busy} onChange={event => setEditing({ ...editing, color: event.target.value, reset: false, colorDirty: true })}/><input type="text" value={editing.color} aria-label={t('accountUi.hexColor')} maxLength={7} disabled={operation.busy} onChange={event => setEditing({ ...editing, color: event.target.value, reset: false, colorDirty: true })}/></div></label><Button variant="ghost" disabled={operation.busy} onClick={() => setEditing({ ...editing, color: colorValue(editing.calendar.source_color) ?? getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), reset: true, colorDirty: true })}>{t('accountUi.resetColor')}</Button><p className="au-note">{t('accountUi.colorIsPersonal')}</p>
       {editing.calendar.collection_id && <div className="au-switch-row"><div><strong>{t('accountUi.writeBack')}</strong><p>{t('accountUi.sourceRightsHint')}</p></div><Switch checked={editing.writeBack} label={t('accountUi.writeBack')} disabled={operation.busy || editing.calendar.source_access === 'read_only'} onChange={writeBack => setEditing({ ...editing, writeBack })}/></div>}
       {editing.calendar.source === 'local' && <label>{t('accountUi.davSharing')}<select value={editing.davMode} disabled={operation.busy} onChange={event => setEditing({ ...editing, davMode: event.target.value === 'off' || event.target.value === 'read_only' ? event.target.value : 'read_write' })}><option value="off">{t('accountUi.statusOff')}</option><option value="read_only">{t('accountUi.readOnly')}</option><option value="read_write">{t('accountUi.readWrite')}</option></select></label>}
-      {(editing.calendar.source === 'local' || nativeCalendarDeleteAllowed(editing.calendar)) && <div className="au-section"><Button variant="danger" disabled={operation.busy} onClick={() => setDeleting(editing.calendar)}>{t('accountUi.deleteResource')}</Button></div>}
+      <div className="au-section"><Button variant="danger" disabled={operation.busy || (editing.calendar.source !== 'local' && (!providerCalendarDeleteAllowed(editing.calendar) || (editing.calendar.source === 'caldav' && (davDeleteStorageFailed || Boolean(pendingDavDeletes[editing.calendar.id])))))} onClick={() => setDeleting(editing.calendar)}>{t('accountUi.deleteResource')}</Button>{editing.calendar.source !== 'local' && !providerCalendarDeleteAllowed(editing.calendar) && <p className="au-note">{editing.calendar.deletion?.reason || t('accountUi.providerDeletionUnavailable')}</p>}</div>
     </div></Dialog>}
-    {deleting && <DeleteResourceDialog name={deleting.name ?? ''} remote={deleting.source !== 'local'} identity={sourceForCalendar(deleting.id)?.identityLabel ?? undefined} busy={operation.busy} failed={operation.failed} onClose={() => setDeleting(null)} onConfirm={deleteCalendar}/>}
+    {deleting && <DeleteResourceDialog key={deleting.id} name={deleting.name ?? ''} remote={deleting.source !== 'local'} identity={sourceForCalendar(deleting.id)?.identityLabel ?? undefined} busy={operation.busy} failed={operation.failed} error={nativeError ?? undefined} blocked={Boolean(pending[sourceForCalendar(deleting.id)?.accountId ?? ''] || pendingDavDeletes[deleting.id] || (deleting.source === 'caldav' && davDeleteStorageFailed))} onClose={() => setDeleting(null)} onConfirm={deleteCalendar}/>}
     {removing && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setRemoving(null)} footer={<><Button disabled={operation.busy} onClick={() => setRemoving(null)}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await confirmCalendarSourceRemoval(api.calendar, removing); if (current()) { await refresh(); if (current()) { setRemoving(null); setSelected(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}
     {ics && <Dialog title={t('accountUi.icsSubscription')} closeLabel={t('common.close')} onClose={() => setIcs(null)} busy={operation.busy} footer={<><Button disabled={operation.busy} onClick={() => setIcs(null)}>{t('common.cancel')}</Button><Button variant="primary" disabled={operation.busy || !ics.name.trim() || !ics.url.trim()} onClick={() => void operation.run(async current => { await api.calendar.createSource({ kind: 'ical_url', displayName: ics.name.trim(), url: normalizeSubscriptionUrl(ics.url), intervalMin: ics.interval }); if (current()) { await refresh(); if (current()) setIcs(null); } })}>{t('accountUi.addSubscription')}</Button></>}><div className="ui-form"><label>{t('accountUi.resourceName')}<input value={ics.name} onChange={event => setIcs({ ...ics, name: event.target.value })}/></label><label>{t('accountUi.serverUrl')}<input value={ics.url} onChange={event => setIcs({ ...ics, url: event.target.value })}/></label><label>{t('accountUi.syncInterval')}<select value={ics.interval} onChange={event => setIcs({ ...ics, interval: Number(event.target.value) })}>{[15,30,60,180,1440].map(minutes => <option key={minutes} value={minutes}>{t('accountUi.intervalMinutes', { count: minutes })}</option>)}</select></label>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</div></Dialog>}
   </div>;

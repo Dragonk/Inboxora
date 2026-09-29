@@ -1,3 +1,5 @@
+import { appendPhysicalMessages, missingPhysicalMessages } from '../utils/nativeThreadMembership.ts';
+import { projectMailFlagIntents, projectMailThreadRows, scopedThreadUnreadCount } from '../utils/mailFlagIntents.ts';
 import { nativeThreadCacheMatchesRow, normalizedNativeThreadMembers } from '../utils/nativeThreadMembership.ts';
 import { invalidateMailListCache, invalidateMailListCacheForAccounts } from '../utils/mailListCache.ts';
 import { resolveSelectedAccount, pruneFolders } from '../utils/accountScope.ts';
@@ -22,9 +24,6 @@ import {
   restoreGtdThreadRemoval,
   setGtdThreadReadInSections,
   snapshotGtdThreadRemoval,
-  appendMessagesByIdentity,
-  dedupeByIdentity,
-  missingByIdentity,
 } from '../utils/gtd.ts';
 import { applyGtdRemovalGuard } from '../utils/pendingGtdRemovals.ts';
 import { clampRightSidebarWidth } from '../utils/rightSidebar.ts';
@@ -316,8 +315,8 @@ export interface StoreState {
   scheduleGtdSectionsFetch: () => void;
   removeGtdThread: (identity: string, states: string[]) => GtdRemovalSnapshot | null;
   restoreGtdThread: (snapshot: GtdRemovalSnapshot) => void;
-  markGtdThreadRead: (identity: string, isRead: boolean) => void;
-  markGtdThreadStarred: (identity: string, isStarred: boolean) => void;
+  markGtdThreadRead: (identity: string, isRead: boolean, accountId?: string) => void;
+  markGtdThreadStarred: (identity: string, isStarred: boolean, accountId?: string) => void;
   gtdPetSlug: string | null;
   setGtdPetSlug: (slug: string) => void;
   layout: string;
@@ -730,20 +729,21 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   // Messages
   messages: [],
-  // Dedupe by stable identity on every raw list load: the same email can arrive as two rows
-  // (same message delivered to two unified accounts, or a received copy + its Sent twin) and
-  // must render once, matching isSelectedRow's identity model (#378). appendMessages/restore
-  // dedupe on their own paths; this covers the initial/refresh/page loads that replace wholesale.
-  setMessages: (messages: StoreMessageRow[]) =>set({ messages: dedupeByIdentity(messages) }),
+  // Preserve every physical copy; RFC headers can be shared by distinct provider messages.
+  setMessages: (messages: StoreMessageRow[]) =>set(state => ({ messages: normalizedNativeThreadMembers(projectMailThreadRows(messages, state.threadMessages)) })),
   appendMessages: (newMessages: StoreMessageRow[]) =>set((state: StoreStateRead) => {
-    // Merge by stable identity (Message-ID when present, else id): a same-id row is dropped so the
-    // existing copy keeps any optimistic local-only fields a refresh lost (unread_count, etc.),
-    // while a reindexed message (same Message-ID, new id after a purge+reinsert) replaces its stale
-    // row in place instead of appearing as a duplicate. See appendMessagesByIdentity.
-    const messages = appendMessagesByIdentity(state.messages, newMessages);
+    const messages = appendPhysicalMessages(state.messages, projectMailFlagIntents(newMessages));
     return messages === state.messages ? {} : { messages };
   }),
   updateMessage: (id: string, updates: Record<string, unknown>, accountHint?: string) =>set((state: StoreStateRead) => {
+    // Account-scoped flag events can arrive before a queued provider write settles.
+    if (accountHint) {
+      const projected = projectMailFlagIntents([{ id,
+        ...(typeof updates.is_read === 'boolean' ? { is_read: updates.is_read } : {}),
+        ...(typeof updates.is_starred === 'boolean' ? { is_starred: updates.is_starred } : {}),
+      }])[0];
+      updates = { ...updates, ...projected };
+    }
     const keys = Object.keys(updates);
     if (keys.length && !(keys.length === 1 && keys[0] === 'message_count')) {
       // A scoped server event may refer to an offscreen copy. Its account is
@@ -754,18 +754,23 @@ export const useStore = create<StoreState>()((set, get) => ({
         invalidateMailListCacheForAccounts([...accountIds, updates.account_id]);
       } else invalidateMailListCacheForAccounts(accountIds);
     }
+    // Aggregate flags describe the list row, never its representative physical copy.
+    const aggregateUpdate = Object.hasOwn(updates, 'unread_count');
     let matched = false;
-    const apply = (m: StoreMessageRow) => {
+    const apply = (m: StoreMessageRow, physical = false) => {
       if (m.id !== id) return m;
       matched = true;
-      return { ...m, ...updates };
+      if (physical && aggregateUpdate) return m;
+      const head = aggregateUpdate ? state.threadMessages[m.thread_id || m.id]?.find(copy => copy.id === id) : undefined;
+      const physicalRead = aggregateUpdate ? head?.is_read : updates.is_read;
+      return { ...m, ...updates,
+        ...(typeof m.physical_is_read === 'boolean' && typeof physicalRead === 'boolean'
+          ? { physical_is_read: physicalRead } : {}),
+      };
     };
     const threadMessages = Object.fromEntries(
-      Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(apply)])
+      Object.entries(state.threadMessages).map(([tid, msgs]) => [tid, msgs.map(m => apply(m, true))])
     );
-    // An explicit unread_count is a whole-thread action. Otherwise a physical
-    // copy (including the representative row itself) changes only its own state.
-    const aggregateUpdate = Object.hasOwn(updates, 'unread_count');
     const messages = state.messages.map(m => {
       const updated = apply(m);
       if (!state.threadedView || !m.thread_id || aggregateUpdate || typeof updates.is_read !== 'boolean') return updated;
@@ -780,11 +785,11 @@ export const useStore = create<StoreState>()((set, get) => ({
       // Derive a full aggregate only from complete membership. A stale 14-child
       // cache must not mark three unseen replies read when its last child changes.
       const unread_count = nativeThreadCacheMatchesRow(m, subs)
-        ? normalizedNativeThreadMembers(subs).filter(copy => !copy.is_read).length
-        : Math.max(0, (Number(m.unread_count) || 0) + Number(!updates.is_read) - Number(!before.is_read));
+        ? scopedThreadUnreadCount(m, normalizedNativeThreadMembers(subs))
+        : Math.max(0, (Number(m.unread_count) || 0) + scopedThreadUnreadCount(m, [{ ...before, is_read: false }]) * (Number(!updates.is_read) - Number(!before.is_read)));
       return { ...updated, unread_count, is_read: unread_count === 0 };
     });
-    const searchResults = state.searchResults.map(apply);
+    const searchResults = state.searchResults.map(m => apply(m));
     // Cache invalidation already happened. An offscreen event needs no store
     // notification or full list/sidebar rerender when it changed no loaded row.
     return matched ? { messages, searchResults, threadMessages } : state;
@@ -812,17 +817,13 @@ export const useStore = create<StoreState>()((set, get) => ({
     };
   }),
   restoreMessages: (msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => {
-    const list = Array.isArray(msgs) ? msgs : [msgs];
+    const list = projectMailFlagIntents(Array.isArray(msgs) ? msgs : [msgs]);
     if (!list.length) return {};
     invalidateMailListCacheForAccounts(messageAccountScope(state, new Set(list.map(row => row.id)), list));
     const sort = (arr: StoreMessageRow[]) => [...arr].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-    // Deduplicate against both the main list and searchResults by stable identity (Message-ID when
-    // present, else id): if the message is already present — including re-added by a network
-    // refresh under a regenerated id (matched via Message-ID) — skip it. The local copy carries the
-    // freshest optimistic state, so we prefer it over the server view. See missingByIdentity.
-    const missing = missingByIdentity(state.messages, list);
+    const missing = missingPhysicalMessages(state.messages, list);
     if (missing.length === 0 && !state.searchQuery.trim()) return {};
-    const missingFromSearch = missingByIdentity(state.searchResults, list);
+    const missingFromSearch = missingPhysicalMessages(state.searchResults, list);
     return {
       messages: missing.length ? sort([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length
@@ -1031,7 +1032,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   isSearching: false,
   setIsSearching: (v: boolean) =>set({ isSearching: v }),
   searchResults: [],
-  setSearchResults: (r: StoreMessageRow[]) =>set({ searchResults: r }),
+  setSearchResults: (r: StoreMessageRow[]) =>set({ searchResults: normalizedNativeThreadMembers(projectMailFlagIntents(r)) }),
 
   // Loading
   loadingMessages: false,
@@ -1241,7 +1242,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   setExpandedThreadId: (id: string | null) =>set({ expandedThreadId: id }),
   threadMessages: {},
   setThreadMessages: (threadId: string, msgs: StoreMessageRow[]) =>set((state: StoreStateRead) => ({
-    threadMessages: { ...state.threadMessages, [threadId]: msgs },
+    threadMessages: { ...state.threadMessages, [threadId]: projectMailFlagIntents(msgs) },
   })),
   clearThreadMessages: (threadId: string) =>set((state: StoreStateRead) => ({
     threadMessages: removeThreadCacheEntry(state.threadMessages, threadId),
@@ -1428,15 +1429,15 @@ export const useStore = create<StoreState>()((set, get) => ({
   // identity is message_id||id and matches across every state a thread is labelled with
   // (a merged Waiting row lives in both watch and delegated), keeping them in sync — and
   // the deduped Waiting rollup's unread with them (pure helper, unit-tested in gtd.test.js).
-  markGtdThreadRead: (identity: string, isRead: boolean) =>set((state: StoreStateRead) => {
-    const next = setGtdThreadReadInSections(state.gtdSections, identity, isRead);
+  markGtdThreadRead: (identity: string, isRead: boolean, accountId?: string) =>set((state: StoreStateRead) => {
+    const next = setGtdThreadReadInSections(state.gtdSections, identity, isRead, accountId);
     return next === state.gtdSections ? {} : { gtdSections: next };
   }),
   // Optimistically flip a section thread's star so a rail row's star fills/empties instantly
   // on a toggle; the WS/gtd refetch reconciles. identity is message_id||id and matches across
   // every state a thread is labelled with (a merged Waiting row lives in both watch and
   // delegated), keeping them in sync. Star does not affect the unread rollup.
-  markGtdThreadStarred: (identity: string, isStarred: boolean) =>set((state: StoreStateRead) => {
+  markGtdThreadStarred: (identity: string, isStarred: boolean, accountId?: string) =>set((state: StoreStateRead) => {
     const cur = state.gtdSections;
     if (!cur || identity == null) return {};
     const next = { ...cur };
@@ -1445,7 +1446,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (!sec || !Array.isArray(sec.threads)) continue;
       let touched = false;
       const threads = sec.threads.map(th => {
-        if ((th.message_id || th.id) !== identity || !!th.is_starred === isStarred) return th;
+        if ((th.message_id || th.id) !== identity || (accountId !== undefined && th.account_id !== accountId) || !!th.is_starred === isStarred) return th;
         touched = true;
         return { ...th, is_starred: isStarred };
       });

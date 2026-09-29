@@ -8,6 +8,7 @@ import { readFileSync } from 'fs';
 import { WebSocketServer } from 'ws';
 import RedisStore from 'connect-redis';
 import 'dotenv/config';
+import { createMailFlagWorker } from './services/mailFlagState.js';
 import { startStorageMaintenance, stopStorageMaintenance } from './services/storageMaintenance.js';
 import { redisClient } from './services/redis.js';
 
@@ -395,6 +396,8 @@ setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => co
 // Retry calendar invitations whose SMTP delivery failed, so a transient outage
 // does not leave a saved event whose invitation never reached the attendees.
 startCalendarInvitationOutboxWorker();
+const mailFlagWorker = createMailFlagWorker({manager:imapManager});
+if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 'true') mailFlagWorker.start();
 const scheduledMailWorker = createScheduledMailWorker();
 if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 'true') scheduledMailWorker.start();
 // Hourly staggered full-retrain of per-user spam models (single-flight,
@@ -443,8 +446,10 @@ httpServer.listen(PORT, () => {
 process.on('SIGTERM', () => {
   console.log('SIGTERM received — shutting down gracefully');
   const scheduledMailStopped = scheduledMailWorker.stop();
+  const mailFlagsStopped = mailFlagWorker.stop();
   httpServer.close(async () => {
     await scheduledMailStopped;
+    await mailFlagsStopped;
     await stopStorageMaintenance();
     try { await redisClient.quit(); } catch { /* ignore */ }
     process.exit(0);

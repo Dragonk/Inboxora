@@ -2521,6 +2521,7 @@
     "operationPending": "L’opération distante n’est pas encore confirmée. Ne la répétez pas avec un nouvel identifiant de requête.",
     "targetUnavailable": "Ce compte ou cette ressource n’est plus disponible. Revenez à la liste et actualisez-la.",
     "deleteLocalWarning": "La ressource et son contenu seront supprimés d’Inboxora. Cette opération est irréversible.",
+    "providerDeletionUnavailable": "La suppression de cette collection chez le fournisseur est indisponible. Les collections par défaut, système et en lecture seule ne peuvent pas être supprimées ici.",
     "deleteRemoteWarning": "La ressource et son contenu seront supprimés chez le fournisseur. Il ne s’agit pas de la masquer ou de la déconnecter.",
     "removeAccountHint": "Tous les messages synchronisés de ce compte seront supprimés d’Inboxora. La boîte chez le fournisseur ne sera pas supprimée.",
     "intervalMinutes_zero": "Minutes : {{count}}",
@@ -2627,5 +2628,11 @@
     "recipientsUnavailable": "Informations sur les destinataires indisponibles",
     "editingNotice": "L’envoi est suspendu pendant la modification. Enregistrer ne le reprend pas ; choisissez Envoyer ou Planifier l’envoi lorsque vous avez terminé.",
     "resumeFromEditor": "Terminez la modification dans la fenêtre ouverte, puis envoyez ou planifiez le message modifié."
+  },
+  "mailStateChange": {
+    "pendingTitle": "Modification en attente de confirmation",
+    "pendingBody": "Le fournisseur de messagerie n’a pas encore confirmé cette modification. L’état actuel de la boîte sera vérifié à nouveau.",
+    "failedTitle": "Échec de la modification",
+    "failedBody": "Le fournisseur de messagerie n’a pas pu appliquer cette modification. L’état précédent a été rétabli."
   }
 }

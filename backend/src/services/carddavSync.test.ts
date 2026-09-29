@@ -22,7 +22,22 @@ vi.mock('./db.js', () => ({
   // separate mock, so a case can prove those statements went through it rather than through the pool.
   withTransaction: async (fn: (client: { query: Query }) => unknown) => fn({ query: transactionQuery }),
 }));
-vi.mock('./carddavClient.js', () => ({ discoverAddressBooks, fetchAddressBookCards, discoverDavWriteAccess }));
+vi.mock('./carddavClient.js', () => ({
+  discoverAddressBookSnapshot: async (input: { serverUrl: string; username: string; password: string; allowPrivate: boolean }) => {
+    const collections = await discoverAddressBooks(input);
+    return { homeUrl: new URL('/books/', input.serverUrl).href,
+      collections, resourceUrls: collections.map(book => book.url) };
+  }, fetchAddressBookCards, discoverDavWriteAccess,
+}));
+vi.mock('./davCollectionLifecycle.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('./davCollectionLifecycle.js')>();
+  return { ...actual,
+    captureDavSourceFence: async () => 'fence-1',
+    withDavSourceProjection: async (_user: string, _kind: string, _source: string, _generation: string, fn: (client: { query: Query }) => unknown) => fn({ query: transactionQuery }),
+    isDavCollectionBlocked: async () => false,
+    canRetireDavCollection: async () => true,
+  };
+});
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
 vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value, encrypt: (value: string) => `enc:v1:${value}` }));
 
@@ -49,6 +64,11 @@ function parseJsonParameter(value: QueryParameter): unknown {
   return JSON.parse(value);
 }
 
+function configureQueries(handler: Query) {
+  query.mockImplementation(handler);
+  transactionQuery.mockImplementation(handler);
+}
+
 function configureSync() {
   const handler = async (sql: string, params?: unknown[]) => {
     if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password' } }] };
@@ -64,7 +84,7 @@ function configureSync() {
     if (sql.includes('INSERT INTO contacts')) return { rows: [{ id: `contact-${String(params?.[2] ?? 'unknown')}` }] };
     return { rows: [] };
   };
-  query.mockImplementation(handler);
+  configureQueries(handler);
   // The transaction client sees the same database (DAV-04).
   transactionQuery.mockImplementation(handler);
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false });
@@ -107,13 +127,13 @@ describe('remote CardDAV contact-date persistence', () => {
     // opt in. Without the link the write-back switch has no collection id and is never offered.
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true });
 
-    const link = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO integration_collections'));
+    const link = transactionQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO integration_collections'));
     expect(link).toBeDefined();
     const sql = String(link?.[0]);
     expect(sql).toContain('INSERT INTO integration_collections');
     expect(sql).toContain("'source', 'off'");
     expect(link?.[1]).toEqual([
-      'user-1', expect.any(String), 'address_book', 'https://dav.example/contacts', null, 'book-1', 'read_write',
+      'user-1', expect.any(String), 'address_book', 'https://dav.example/contacts', null, 'book-1', 'read_only',
     ]);
 
     // Idempotency is a database property (the helper's SELECT finds the row a previous pass wrote), so it is
@@ -154,7 +174,7 @@ describe('remote CardDAV contact-date persistence', () => {
       { label: 'Birthday', value: '1991-02-03' }, { label: 'Anniversary', value: '2021-10-19' }, { label: 'Rencontre', value: '2019-10-19' },
     ]],
   ])('merges %s labelled dates into an existing matching-email contact idempotently', async (_source, href, vcard, contactDates) => {
-    query.mockImplementation(async (sql: string) => {
+    configureQueries(async (sql: string) => {
       if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password', dupMode: 'merge' } }] };
       if (sql.includes('INSERT INTO carddav_source_sync_leases')) return { rows: [{ generation: 1 }] };
       if (sql.includes('SELECT 1 AS ok') && sql.includes('carddav_source_sync_leases')) return { rows: [{ ok: 1 }] };
@@ -232,7 +252,7 @@ describe('remote CardDAV contact-date persistence', () => {
 
     await expect(syncUser('user-1')).resolves.toMatchObject({ ok: true, contactCount: 2 });
 
-    const link = query.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO integration_collections'));
+    const link = transactionQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO integration_collections'));
     expect(link).toBeDefined();
     // The link's `source_access` is the discovered value, not the assumed one.
     expect((link?.[1] as unknown[])[6]).toBe('read_only');
@@ -246,7 +266,7 @@ describe('remote CardDAV contact-date persistence', () => {
     // DAV-03: `dupMode=merge` wrote the DAV card's fields onto a matching contact in a Google or Microsoft book.
     // This pull has no write-through to that provider, so the overwrite existed only locally and the provider's
     // next sync reverted it — whichever change came second was lost. The card is created in its own book instead.
-    query.mockImplementation(async (sql: string) => {
+    configureQueries(async (sql: string) => {
       if (sql.includes('SELECT config FROM user_integrations')) return { rows: [{ config: { serverUrl: 'https://dav.example', username: 'user', password: 'password', dupMode: 'merge' } }] };
       if (sql.includes('INSERT INTO carddav_source_sync_leases')) return { rows: [{ generation: 1 }] };
       if (sql.includes('SELECT 1 AS ok') && sql.includes('carddav_source_sync_leases')) return { rows: [{ ok: 1 }] };
@@ -277,10 +297,9 @@ describe('remote CardDAV contact-date persistence', () => {
       error: 'Remote CardDAV vCard contains an invalid contact date',
     });
 
-    const postConfigQueries = query.mock.calls.slice(1);
-    // Source-aware reads may probe the labelled form before falling back to the legacy unlabelled source; the
-    // persistent error update is still exactly one and is what this test pins.
-    const configUpdates = postConfigQueries.filter(([sql]) => String(sql).includes('UPDATE user_integrations source'));
+    expect(transactionQuery.mock.calls.some(([sql]) => /(?:INSERT INTO|UPDATE|DELETE FROM) (?:contacts|address_books)/.test(sql))).toBe(false);
+    // Error status belongs to the original fenced source transaction.
+    const configUpdates = transactionQuery.mock.calls.filter(([sql]) => String(sql).includes('UPDATE user_integrations source'));
     expect(configUpdates).toHaveLength(1);
   });
 });
@@ -310,7 +329,16 @@ describe('CardDAV source isolation and scheduling', () => {
   });
 
   it('prunes only books linked to the selected source', async () => {
-    query.mockImplementation(async (sql: string) => {
+    configureQueries(async (sql: string, params) => {
+      if (sql.includes('SELECT config FROM user_integrations')) {
+        const name = params[0] === 'source-other-user' ? 'other' : params[0] === 'source-b' ? 'b' : 'a';
+        return { rows: [{ config: { serverUrl: `https://${name}.example`, username: name, password: `secret-${name}` } }] };
+      }
+      if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-a' }] };
+      if (sql.includes('SELECT id, external_url, updated_at::text AS revision FROM address_books')) return { rows: [
+        { id: 'stale-book-a', external_url: 'https://a.example/books/gone/', revision: '2026-01-01 00:00:00+00' },
+        { id: 'different-home', external_url: 'https://a.example/another/gone/', revision: '2026-01-01 00:00:00+00' },
+      ] };
       if (sql.includes('SELECT id, label, config FROM user_integrations')) {
         return { rows: [
           { id: 'source-a', label: null, config: { serverUrl: 'https://a.example', username: 'a', password: 'secret-a' } },
@@ -323,23 +351,33 @@ describe('CardDAV source isolation and scheduling', () => {
       if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-a' }] };
       return { rows: [] };
     });
-    transactionQuery.mockImplementation(async (sql: string) => sql.includes('SELECT 1 AS ok') ? { rows: [{ ok: 1 }] } : { rows: [] });
     discoverAddressBooks.mockResolvedValue([{ url: 'https://a.example/books/a', displayName: 'A' }]);
 
     await expect(syncUser('user-1', 'source-a')).resolves.toMatchObject({ ok: true });
 
     expect(discoverAddressBooks).toHaveBeenCalledOnce();
     expect(discoverAddressBooks).toHaveBeenCalledWith(expect.objectContaining({ serverUrl: 'https://a.example', username: 'a', password: 'secret-a' }));
-    const prune = transactionQuery.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM address_books ab'));
-    expect(prune?.[1]).toEqual(['user-1', 'source-connection-a', ['https://a.example/books/a'], 'source-a']);
-    expect(String(prune?.[0])).toContain('ab.source_connection_id = $2');
-    expect(String(prune?.[0])).toContain('sc.integration_id = $4');
+    const prunes = transactionQuery.mock.calls.filter(([sql]) => String(sql).includes('DELETE FROM address_books WHERE'));
+    expect(prunes).toHaveLength(1);
+    expect(prunes[0]?.[1]).toEqual(['user-1', 'source-connection-a', 'stale-book-a']);
+    expect(String(prunes[0]?.[0])).toContain('source_connection_id = $2');
+    const owned = transactionQuery.mock.calls.find(([sql]) => sql.includes('SELECT id, external_url, updated_at::text AS revision FROM address_books'));
+    expect(owned?.[1]).toEqual(['user-1', 'source-connection-a']);
   });
 
   it('joins concurrent requests for one source before the remote discovery begins', async () => {
     let releaseDiscovery!: (books: AddressBook[]) => void;
     const discovery = new Promise<AddressBook[]>(resolve => { releaseDiscovery = resolve; });
-    query.mockImplementation(async (sql: string) => {
+    configureQueries(async (sql: string, params) => {
+      if (sql.includes('SELECT config FROM user_integrations')) {
+        const name = params[0] === 'source-other-user' ? 'other' : params[0] === 'source-b' ? 'b' : 'a';
+        return { rows: [{ config: { serverUrl: `https://${name}.example`, username: name, password: `secret-${name}` } }] };
+      }
+      if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-a' }] };
+      if (sql.includes('SELECT id, external_url, updated_at::text AS revision FROM address_books')) return { rows: [
+        { id: 'stale-book-a', external_url: 'https://a.example/books/gone/', revision: '2026-01-01 00:00:00+00' },
+        { id: 'different-home', external_url: 'https://a.example/another/gone/', revision: '2026-01-01 00:00:00+00' },
+      ] };
       if (sql.includes('SELECT id, label, config FROM user_integrations')) return { rows: [{ id: 'source-a', label: null, config: { serverUrl: 'https://a.example', username: 'a', password: 'secret-a' } }] };
       if (sql.includes('INSERT INTO carddav_source_sync_leases')) return { rows: [{ generation: 1 }] };
       if (sql.includes('SELECT 1 AS ok') && sql.includes('carddav_source_sync_leases')) return { rows: [{ ok: 1 }] };
@@ -347,7 +385,6 @@ describe('CardDAV source isolation and scheduling', () => {
       if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-a' }] };
       return { rows: [] };
     });
-    transactionQuery.mockImplementation(async (sql: string) => sql.includes('SELECT 1 AS ok') ? { rows: [{ ok: 1 }] } : { rows: [] });
     discoverAddressBooks.mockImplementation(() => discovery);
 
     const first = syncUser('user-1', 'source-a');
@@ -363,7 +400,16 @@ describe('CardDAV source isolation and scheduling', () => {
 
   it('runs independent source timers at their own intervals and stops all timers for one user only', async () => {
     const calls: string[] = [];
-    query.mockImplementation(async (sql: string) => {
+    configureQueries(async (sql: string, params) => {
+      if (sql.includes('SELECT config FROM user_integrations')) {
+        const name = params[0] === 'source-other-user' ? 'other' : params[0] === 'source-b' ? 'b' : 'a';
+        return { rows: [{ config: { serverUrl: `https://${name}.example`, username: name, password: `secret-${name}` } }] };
+      }
+      if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-a' }] };
+      if (sql.includes('SELECT id, external_url, updated_at::text AS revision FROM address_books')) return { rows: [
+        { id: 'stale-book-a', external_url: 'https://a.example/books/gone/', revision: '2026-01-01 00:00:00+00' },
+        { id: 'different-home', external_url: 'https://a.example/another/gone/', revision: '2026-01-01 00:00:00+00' },
+      ] };
       if (sql.includes('SELECT id, label, config FROM user_integrations')) {
         return { rows: [
           { id: 'source-a', label: null, config: { serverUrl: 'https://a.example', username: 'a', password: 'secret-a' } },
@@ -377,7 +423,6 @@ describe('CardDAV source isolation and scheduling', () => {
       if (sql.includes('SELECT id FROM address_books')) return { rows: [{ id: 'book-1' }] };
       return { rows: [] };
     });
-    transactionQuery.mockImplementation(async (sql: string) => sql.includes('SELECT 1 AS ok') ? { rows: [{ ok: 1 }] } : { rows: [] });
     discoverAddressBooks.mockImplementation(async ({ serverUrl }: { serverUrl: string }) => {
       calls.push(serverUrl);
       return [];

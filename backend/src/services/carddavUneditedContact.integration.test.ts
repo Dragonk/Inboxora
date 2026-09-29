@@ -25,6 +25,10 @@ const calls = vi.hoisted(() => ({
 vi.mock('./carddavClient.js', async importOriginal => ({
   ...(await importOriginal<typeof import('./carddavClient.js')>()),
   discoverAddressBooks: calls.discover,
+  discoverAddressBookSnapshot: async () => {
+    const collections = await calls.discover();
+    return { homeUrl: 'https://dav.example/', resourceUrls: collections.map(book => book.url), collections };
+  },
   discoverDavWriteAccess: calls.access,
   fetchAddressBookCards: calls.cards,
 }));

@@ -1,7 +1,4 @@
-// Native thread endpoints normally return one canonical physical copy for each
-// normalized mail. Keep the UI defensive: older/provider responses can still contain
-// duplicate physical copies of the same RFC Message-ID. Membership, expansion and
-// thread-scope actions must all use this one definition.
+// A provider copy is actionable by physical ID; an RFC header is not an identity.
 type NativeThreadMember = {
   id?: unknown;
   message_id?: unknown;
@@ -10,8 +7,7 @@ type NativeThreadMember = {
 };
 
 function membershipKey(message: NativeThreadMember): string {
-  const messageId = String(message.message_id || message.messageId || '').trim().toLowerCase();
-  return messageId ? `message-id:${messageId}` : `physical:${String(message.id || '')}`;
+  return `physical:${String(message.account_id || '')}:${String(message.id || '')}`;
 }
 
 function isNativeThreadMember(value: unknown): value is NativeThreadMember {
@@ -54,6 +50,16 @@ export function nativeThreadCacheMatchesRow(
   if (Number.isFinite(expected) && expected > 0 && members.length !== expected) return false;
   if (row.account_id && members.some(member => member.account_id && member.account_id !== row.account_id)) return false;
   // The representative can change after a read/filter refresh or provider move.
-  // Match a normalized identity as well as a physical ID for deduplicated folders.
-  return members.some(member => member.id === row.id || membershipKey(member) === membershipKey(row));
+  // The exact physical head must still be a member.
+  return members.some(member => membershipKey(member) === membershipKey(row));
+}
+
+/** Pagination only deduplicates the same physical ID within its account. */
+export function missingPhysicalMessages<T extends NativeThreadMember>(existing: readonly T[], incoming: readonly T[]): T[] {
+  const present = new Set(existing.map(membershipKey));
+  return normalizedNativeThreadMembers(incoming).filter(row => !present.has(membershipKey(row)));
+}
+export function appendPhysicalMessages<T extends NativeThreadMember>(existing: T[], incoming: readonly T[]): T[] {
+  const missing = missingPhysicalMessages(existing, incoming);
+  return missing.length ? [...existing, ...missing] : existing;
 }

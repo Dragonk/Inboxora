@@ -13,6 +13,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../db.js';
+import { drainMailFlagReadbacks, enqueueMailFlagIntent } from '../../mailFlagState.js';
 import {
   GOOGLE_GRANT_AUDIENCE,
   GOOGLE_ISSUER,
@@ -23,6 +24,8 @@ import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
 import { listMessages } from '../../messageService.js';
 import { labelMembershipReport } from '../../providerLabelMembership.js';
 import {
+  applyGmailThread,
+  reconcileGmailMailVisibility,
   gmailLabelIdForPath,
   syncGmailMailLabels,
   syncGmailMailLabelsForAccount,
@@ -335,6 +338,146 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
       expect(wrongOwner).toEqual([]);
       expect((await storedMessages()).find(row => row.provider_message_id === 'pr14-gmail')).toMatchObject({ folder: 'INBOX', is_read: false });
     } finally { stop(); stopOther(); }
+  });
+
+
+
+  it.each([false, true])('persists suppressed Gmail flags across empty history (durable intent=%s)', async durable => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    const applied = await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['UNREAD', 'INBOX'])] }));
+    const rowId = applied.rowIds[0];
+    if (durable) for (const flag of ['\\Seen', '\\Flagged']) {
+      await enqueueMailFlagIntent({ userId: USER_ID, accountId: ACCOUNT_ID, messageId: rowId, flag, value: true });
+    }
+    await autocommit(client => client.query(
+      `UPDATE messages SET is_read=true,is_starred=true,read_changed_at=NOW()-make_interval(secs=>$2),star_changed_at=NOW()-make_interval(secs=>$2) WHERE id=$1`,
+      [rowId, durable ? 60 : 0],
+    ));
+    const syncStateId = await inTransaction(client => ensureSyncState(client, { userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail', coverage: 'history' }));
+    await autocommit(client => client.query("UPDATE sync_states SET cursor='1000' WHERE id=$1", [syncStateId]));
+    const changed = fakeGmail([
+      { match: /\/history$/, handle: () => json({ historyId: '1001', history: [{ id: '1001', labelsAdded: [{ message: { id: 'm1', threadId: 't1' }, labelIds: ['UNREAD'] }] }] }) },
+      { match: /\/threads\/t1$/, handle: () => json({ id: 't1', messages: [message('m1', 't1', ['UNREAD', 'INBOX'])] }) },
+    ]);
+    await syncGmailMailMessagesForAccount({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: changed.fetchImpl });
+    expect((await storedMessages())[0]).toMatchObject({ is_read: true, is_starred: true });
+    expect((await autocommit(client => client.query('SELECT * FROM mail_flag_readbacks WHERE message_id=$1', [rowId]))).rows).toHaveLength(1);
+    if (durable) return; // An active intent must stay protected until its worker settles it.
+    await autocommit(client => client.query("UPDATE messages SET read_changed_at=NOW()-interval '1 minute',star_changed_at=NOW()-interval '1 minute' WHERE id=$1", [rowId]));
+    await syncGmailMailMessagesForAccount({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/history$/, handle: () => json({ historyId: '1002', history: [] }) }]).fetchImpl,
+    });
+    await autocommit(client => client.query('UPDATE mail_flag_readbacks SET next_attempt_at=NOW() WHERE message_id=$1', [rowId]));
+    let reads = 0;
+    await drainMailFlagReadbacks({
+      manager: { setFlag: async () => {}, _resolveFlagPush() {}, _enqueueFlagPush() {}, readMessageFlags: async () => null },
+      read: async () => { reads += 1; return { isRead: false, isStarred: false }; },
+    }, 25, ACCOUNT_ID);
+    expect(reads).toBe(1);
+    expect((await storedMessages())[0]).toMatchObject({ is_read: false, is_starred: false });
+    expect((await autocommit(client => client.query('SELECT * FROM mail_flag_readbacks WHERE message_id=$1', [rowId]))).rows).toEqual([]);
+  });
+
+
+  it.each([false, true])('does not let a stale thread resurrect archived Gmail mail (move journal=%s)', async newerMove => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    const applied = await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', [])] }));
+    const rowId = applied.rowIds[0];
+    if (newerMove) await autocommit(client => client.query(
+      `INSERT INTO provider_operations (user_id,account_id,resource_type,resource_id,operation,status,payload)
+       VALUES ($1,$2,'message',$3,'update','committed',$4::jsonb)`,
+      [USER_ID, ACCOUNT_ID, rowId, JSON.stringify({ providerMessageId: 'm1', addLabelIds: [], removeLabelIds: ['INBOX'] })],
+    ));
+    // This thread response began before the archive. Applying it must leave both
+    // visibility and label membership alone until an independent current read.
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX'])] }));
+    const stale = await autocommit(client => client.query('SELECT is_archived,provider_labels FROM messages WHERE id=$1', [rowId]));
+    expect(stale.rows[0]).toEqual({ is_archived: true, provider_labels: [] });
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: () => json(message('m1', 't1', ['INBOX'])) }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(newerMove ? 0 : 1);
+    const current = await autocommit(client => client.query('SELECT is_archived FROM messages WHERE id=$1', [rowId]));
+    expect(current.rows[0]?.is_archived).toBe(newerMove);
+    expect(provider.urls).toHaveLength(newerMove ? 0 : 1);
+  });
+
+  it('recovers a hidden Gmail row from a current physical read and keeps true archive state', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX'])] }));
+    await autocommit(client => client.query('UPDATE messages SET is_deleted = true WHERE account_id = $1', [ACCOUNT_ID]));
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: () => json(message('m1', 't1', ['STARRED'])) }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(1);
+    const current = await autocommit(client => client.query('SELECT is_deleted, is_archived, is_read, is_starred FROM messages WHERE account_id = $1', [ACCOUNT_ID]));
+    expect(current.rows).toEqual([{ is_deleted: false, is_archived: true, is_read: true, is_starred: true }]);
+    expect(provider.urls).toHaveLength(1);
+  });
+
+  it.each(['local-change', 'delete-journal', 'connection-change', 'missing'] as const)('rejects a Gmail visibility read after %s', async kind => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    await inTransaction(client => applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) }, {
+      id: 't1', messages: [message('m1', 't1', ['INBOX'])],
+    }));
+    await autocommit(client => client.query('UPDATE messages SET is_deleted = true WHERE account_id = $1', [ACCOUNT_ID]));
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: async () => {
+      if (kind === 'local-change') await autocommit(client => client.query("UPDATE messages SET folder = 'Trash' WHERE account_id = $1", [ACCOUNT_ID]));
+      if (kind === 'connection-change') await autocommit(client => client.query('UPDATE email_accounts SET provider_connection_id = NULL WHERE id = $1', [ACCOUNT_ID]));
+      if (kind === 'delete-journal') await autocommit(client => client.query(
+        `INSERT INTO provider_operations (user_id, account_id, resource_type, resource_id, operation, status)
+         SELECT $1, account_id, 'message', id, 'delete', 'in_flight' FROM messages WHERE account_id = $2`, [USER_ID, ACCOUNT_ID],
+      ));
+      return kind === 'missing' ? json({ error: { code: 404, message: 'not found' } }, 404)
+        : json(message('m1', 't1', ['INBOX']));
+    } }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(0);
+    const current = await autocommit(client => client.query('SELECT is_deleted, folder FROM messages WHERE account_id = $1', [ACCOUNT_ID]));
+    expect(current.rows[0]).toEqual({ is_deleted: true, folder: kind === 'local-change' ? 'Trash' : 'INBOX' });
+  });
+
+
+  it('waits for an uncommitted move journal and preserves hidden Gmail visibility', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    await inTransaction(client => applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) }, {
+      id: 't1', messages: [message('m1', 't1', ['INBOX'])],
+    }));
+    await autocommit(client => client.query('UPDATE messages SET is_deleted=true WHERE account_id=$1', [ACCOUNT_ID]));
+    const journal = await pool.connect();
+    let releaseStarted = () => {};
+    const started = new Promise<void>(resolve => { releaseStarted = resolve; });
+    let repair: Promise<number> | undefined;
+    try {
+      await journal.query('BEGIN');
+      const pid = (await journal.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: async () => {
+        await journal.query(`INSERT INTO provider_operations(user_id,account_id,resource_type,resource_id,operation,status,payload)
+          SELECT $1,account_id,'message',id,'update','in_flight',$3::jsonb FROM messages WHERE account_id=$2`,
+        [USER_ID, ACCOUNT_ID, JSON.stringify({ addLabelIds: ['TRASH'], removeLabelIds: ['INBOX'] })]);
+        releaseStarted();
+        return json(message('m1', 't1', ['INBOX']));
+      } }]);
+      repair = reconcileGmailMailVisibility({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+      await Promise.race([started, repair.then(() => { throw new Error('Recovery completed before journal insert'); })]);
+      await vi.waitFor(async () => {
+        const blocked = await pool.query<{ waiting: boolean }>(
+          'SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))) AS waiting', [pid],
+        );
+        expect(blocked.rows[0].waiting).toBe(true);
+      }, { timeout: 5000, interval: 20 });
+      await journal.query('COMMIT');
+      expect(await repair).toBe(0);
+      const row = await autocommit(client => client.query('SELECT is_deleted FROM messages WHERE account_id=$1', [ACCOUNT_ID]));
+      expect(row.rows[0]?.is_deleted).toBe(true);
+    } finally {
+      await journal.query('ROLLBACK');
+      journal.release();
+      if (repair) await repair;
+    }
   });
 
   it('builds a baseline from the message list and stores the mailbox history cursor', async () => {

@@ -49,7 +49,7 @@ test('creating an address book uses the app dialog, not a native prompt', async 
   const created = [];
   let nativePromptUsed = false;
   page.on('dialog', async dialog => { nativePromptUsed = true; await dialog.dismiss(); });
-  await page.route('**/api/contacts/address-books', route => {
+  await page.route('**/api/contacts/address-books{,?*}', route => {
     if (route.request().method() === 'POST') { created.push(route.request().postDataJSON()); return route.fulfill({ json: { id: 'book-new', name: 'Nowa', source: 'local', visible: true } }); }
     return route.fallback();
   });
@@ -70,7 +70,7 @@ test('an empty name is refused in place instead of sending a bad request', async
   test.skip(testInfo.project.name !== 'chromium-desktop', 'address book menu is a desktop contract');
   await fixtureApi; await setupV3(page);
   let posted = 0;
-  await page.route('**/api/contacts/address-books', route => {
+  await page.route('**/api/contacts/address-books{,?*}', route => {
     if (route.request().method() === 'POST') { posted += 1; return route.fulfill({ json: { id: 'book-new', name: 'x', source: 'local', visible: true } }); }
     return route.fallback();
   });

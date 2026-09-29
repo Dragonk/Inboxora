@@ -203,6 +203,8 @@ export default function CalendarPage({ isActive = true }) {
   const [seriesSnapshot, setSeriesSnapshot] = useState<Partial<CalendarEventFormState> | null>(null);
   const [occurrenceSnapshot, setOccurrenceSnapshot] = useState<Partial<CalendarEventFormState> | null>(null);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const settingsOpen = useStore(state => state.showAdmin);
+  useEffect(() => { if (settingsOpen) setMobilePanelOpen(false); }, [settingsOpen]);
   const range = useMemo(() => calendarVisibleRange(anchor, view, calendarWeekStartsOn), [anchor, calendarWeekStartsOn, view]);
   const rangeStart = iso(range.start); const rangeEnd = iso(range.end);
   // Requests in flight for this page. Every new load aborts the previous one, and

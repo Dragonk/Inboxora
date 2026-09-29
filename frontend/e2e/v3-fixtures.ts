@@ -30,7 +30,7 @@ export async function setupV3(page) {
     { id: 'v3-remote', calendar_id: 'calendar-remote', calendar_color: '#35793a', source: 'caldav', read_only: true, summary: 'Wyjazd zespołu', description: 'Wydarzenie ze źródła CalDAV.', all_day: true, starts_at: '2026-09-10T00:00:00Z', ends_at: '2026-09-12T00:00:00Z' },
     { id: 'v3-next-month', calendar_id: 'calendar-personal', source: 'local', summary: 'Plan października', starts_at: '2026-10-01T09:00:00Z', ends_at: '2026-10-01T10:00:00Z' },
   ];
-  await page.route('**/api/calendar/calendars', route => route.fulfill({ json: { calendars } }));
+  await page.route('**/api/calendar/calendars{,?*}', route => route.fulfill({ json: { calendars } }));
   await page.route('**/api/calendar/presentation/sources/**', route => {
     if (route.request().method() === 'PATCH') calendarCollapsed = Boolean(route.request().postDataJSON()?.collapsed);
     return route.fulfill({ json: { ok: true } });

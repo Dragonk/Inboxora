@@ -1,5 +1,5 @@
 import { getMicrosoftAccessToken } from '../../providerTokenService.js';
-import { microsoftConfigFromEnv } from '../../providerAuthService.js';
+import { microsoftConfigFromEnv, ProviderAuthError } from '../../providerAuthService.js';
 import type { FetchLike } from '../../providerAuthService.js';
 import type { ApiProblemCode } from '../contracts.js';
 
@@ -37,8 +37,9 @@ export class GraphApiError extends Error {
     retryable?: boolean;
     retryAfterSeconds?: number;
     providerReason?: string;
+    cause?: unknown;
   }) {
-    super(input.message);
+    super(input.message, { cause: input.cause });
     this.name = 'GraphApiError';
     this.code = input.code;
     this.status = input.status;
@@ -174,15 +175,33 @@ function graphPreferValues(headers: Record<string, string>): string[] {
 }
 
 async function accessToken(options: GraphApiOptions, skewSeconds?: number): Promise<string> {
-  const result = await getMicrosoftAccessToken({
-    userId: options.userId,
-    connectionId: options.connectionId,
-    config: options.config ?? microsoftConfigFromEnv(),
-    ...(options.owner ? { owner: options.owner } : {}),
-    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-    ...(skewSeconds !== undefined ? { skewSeconds } : {}),
-  });
-  return result.accessToken;
+  try {
+    const result = await getMicrosoftAccessToken({
+      userId: options.userId,
+      connectionId: options.connectionId,
+      config: options.config ?? microsoftConfigFromEnv(),
+      ...(options.owner ? { owner: options.owner } : {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(skewSeconds !== undefined ? { skewSeconds } : {}),
+    });
+    return result.accessToken;
+  } catch (cause) {
+    // This boundary is before the resource request (or after a definitive 401).
+    // Even a token-endpoint timeout cannot have changed the message itself.
+    const reason = cause instanceof ProviderAuthError ? cause.code : undefined;
+    const authRequired = reason !== undefined && [
+      'REAUTH_REQUIRED', 'GRANT_NOT_FOUND', 'invalid_grant', 'unauthorized_client', 'invalid_client',
+    ].includes(reason);
+    throw new GraphApiError({
+      code: authRequired ? 'PROVIDER_AUTH_REQUIRED' : 'UPSTREAM_UNAVAILABLE',
+      message: authRequired ? 'Microsoft authorization is required' : 'Microsoft access token is temporarily unavailable',
+      status: authRequired ? 401 : 503,
+      retryable: !authRequired,
+      ...(!authRequired ? { retryAfterSeconds: 5 } : {}),
+      providerReason: reason,
+      cause,
+    });
+  }
 }
 
 /**

@@ -1,4 +1,4 @@
-import { visiblePhysicalMessageSql } from './messageVisibility.js';
+import { populatedMessageSql, visiblePhysicalMessageSql } from './messageVisibility.js';
 import { query } from './db.js';
 import type { UnifiedInboxAccount } from './unifiedInbox.js';
 import { resolveAccountScope } from './unifiedInbox.js';
@@ -73,7 +73,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   // Message-ID, a real subject, or a snippet, so this predicate only ever hides the hollow
   // placeholder, never a real message. Applies to both the flat and threaded queries (shared
   // `where`), so pagination and the threaded count stay consistent.
-  whereConditions.push(`NOT (m.message_id IS NULL AND (m.subject IS NULL OR m.subject = '(no subject)') AND COALESCE(m.snippet, '') = '')`);
+  whereConditions.push(populatedMessageSql);
 
   const where = whereConditions.join(' AND ');
 
@@ -106,11 +106,9 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
     const threadIdentityExpr = isSpecificAccount
       ? effectiveThreadExpr
       : `(m.account_id::text || ':' || ${effectiveThreadExpr})`;
-    // The thread badge must equal the number of unique children the expansion renders.
-    // /mail/thread/:threadId loads ALL folders (Inbox + Sent + Archive + duplicates) and
-    // deduplicates by message_id, so thread_totals must count across all folders too.
-    // Scoping the badge to the current folder produced badge=2 while expansion showed 3
-    // (Inbox+Sent+Inbox) — a silent mismatch between the list and the reader.
+    // Expansion and its badge count physical messages across all folders. RFC
+    // Message-ID is a conversation hint, never proof of provider object identity.
+    // Filtered unread_count still describes this folder/category/unread view.
     const threadResult = await query(`
       WITH paged_threads AS (
         SELECT m.account_id, ${effectiveThreadExpr} AS thread_bucket
@@ -120,10 +118,8 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         ORDER BY MAX(m.date) DESC, m.account_id, thread_bucket
         LIMIT $${p + 1} OFFSET $${p + 2}
       ),
-      deduped AS MATERIALIZED (
-        SELECT DISTINCT ON (m.account_id, ${effectiveThreadExpr},
-                            COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))
-               m.id, m.uid, m.folder, m.message_id,
+      physical_messages AS MATERIALIZED (
+        SELECT m.id, m.uid, ${displayFolderExpr} AS folder, m.message_id,
                ${threadIdentityExpr} AS thread_id,
                m.thread_key,
                m.subject, m.from_name, m.from_email,
@@ -146,23 +142,16 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
         JOIN email_accounts a ON m.account_id = a.id
 
         WHERE ${where}
-        ORDER BY m.account_id,
-                 ${effectiveThreadExpr},
-                 COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
-                 CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
-                 m.date ASC
       ),
       thread_totals AS (
         SELECT ${threadIdentityExpr} AS thread_id,
-               -- Same normalized identity as /mail/thread/:threadId expansion:
-               -- valid RFC Message-ID (trimmed) dedupes folder copies; NULL/empty IDs
-               -- fall back to their physical message ID so they remain visible/countable.
-               COUNT(DISTINCT COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))::int AS message_count
+               COUNT(*)::int AS message_count
         FROM messages m
         JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_bucket = ${effectiveThreadExpr}
         WHERE m.account_id = ANY($${p})
           AND m.is_deleted = false
           AND ${visiblePhysicalMessageSql}
+          AND ${populatedMessageSql}
         GROUP BY ${threadIdentityExpr}
       ),
       ranked AS (
@@ -174,19 +163,19 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                FIRST_VALUE(d.from_email)         OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_from_email,
                FIRST_VALUE(d.has_contact_photo)  OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_has_contact_photo,
                -- Latest message direction: the parent row shows the direction of the
-               -- most recent unique child, not the thread's first message. ORDER BY date DESC
+               -- most recent physical child, not the thread's first message. ORDER BY date DESC
                -- picks the newest; the tie-breaker (id) keeps it deterministic when two
                -- children share the same timestamp.
                FIRST_VALUE(d.from_email) OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_email,
                FIRST_VALUE(d.from_name)  OVER (PARTITION BY d.thread_id ORDER BY d.date DESC, d.id DESC) AS latest_from_name,
                ROW_NUMBER() OVER (PARTITION BY d.thread_id ORDER BY d.date DESC NULLS LAST, d.id DESC) AS rn
-        FROM deduped d
+        FROM physical_messages d
         LEFT JOIN thread_totals tt ON tt.thread_id = d.thread_id
       )
       SELECT id, uid, folder, message_id, thread_id, thread_key, thread_subject AS subject,
              thread_from_name AS from_name, thread_from_email AS from_email,
              to_addresses, cc_addresses, draft_bcc_addresses, draft_uid_validity, draft_alias_id, draft_in_reply_to, draft_references, draft_composition, reply_to, in_reply_to,
-             date, snippet, is_starred, is_read, has_attachments, account_id,
+             date, snippet, is_starred, is_read AS physical_is_read, (unread_count = 0) AS is_read, has_attachments, account_id,
              account_name, account_email, account_color,
              category, spam_verdict, spam_score_ml, spam_score_blended, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
              message_count, unread_count,

@@ -523,7 +523,7 @@ export async function useEnglishWorkspaceData(page) {
       },
     ],
   } }));
-  await page.route('**/api/calendar/calendars', route => route.fulfill({ json: { calendars } }));
+  await page.route('**/api/calendar/calendars{,?*}', route => route.fulfill({ json: { calendars } }));
   await page.route('**/api/calendar/sources**', route => route.fulfill({ json: { sources: [] } }));
   await page.route('**/api/calendar/events**', route => {
     const url = new URL(route.request().url());

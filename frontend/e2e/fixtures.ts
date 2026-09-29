@@ -3,9 +3,9 @@ import { test as base, expect } from '@playwright/test';
 const fixture = {
   user: { id: 'e2e-user', username: 'e2e@example.test', isAdmin: true },
   accounts: [
-    { id: 'account-gmail', name: 'Gmail fixture', email_address: 'me@gmail.test', color: '#4285f4' },
-    { id: 'account-outlook', name: 'Outlook fixture', email_address: 'me@outlook.test', color: '#0078d4' },
-    { id: 'account-fastmail', name: 'Fastmail fixture', email_address: 'me@fastmail.test', color: '#4b6bfb' },
+    { id: 'account-gmail', enabled: true, name: 'Gmail fixture', email_address: 'me@gmail.test', color: '#4285f4' },
+    { id: 'account-outlook', enabled: true, name: 'Outlook fixture', email_address: 'me@outlook.test', color: '#0078d4' },
+    { id: 'account-fastmail', enabled: true, name: 'Fastmail fixture', email_address: 'me@fastmail.test', color: '#4b6bfb' },
   ],
   conversations: [
     {
@@ -154,14 +154,14 @@ export const test = base.extend({
     await page.route('**/api/todoist/status', route => route.fulfill({ json: { connected: false } }));
     await page.route('**/api/update', route => route.fulfill({ json: { current: '3.2.4', latest: '3.2.4', updateAvailable: false } }));
     await page.route('**/api/contacts**', route => route.fulfill({ json: { contacts: [], total: 0 } }));
-    await page.route('**/api/calendar/calendars', route => route.fulfill({ json: { calendars: [
+    await page.route('**/api/calendar/calendars{,?*}', route => route.fulfill({ json: { calendars: [
       { id: 'calendar-personal', name: 'Personal', color: '#6366f1', source: 'local', read_only: false },
     ] } }));
     await page.route('**/api/calendar/events**', route => route.fulfill({ json: { events: [] } }));
     await page.route('**/api/auth/registration-status', route => route.fulfill({ json: { open: true, internalAuthDisabled: false } }));
     await page.route('**/api/auth/oidc/providers', route => route.fulfill({ json: { providers: [] } }));
     await page.route('**/api/mail/unread-counts', route => {
-      const total = new Set(page.__unreadCopies || []).size;
+      const total = new Set((page.__unreadCopies || []).filter(id => !['conversation-gmail-copy-2', 'conversation-gmail-copy-4'].includes(id))).size;
       return route.fulfill({ json: { total, byAccount: total ? { 'account-gmail': total } : {} } });
     });
     page.__conversationActions = [];
@@ -234,7 +234,7 @@ export const test = base.extend({
           from_email: 'sender@gmail.test', message_id: `<large-${index}@fixture.test>`,
           thread_id: `large-thread-${index}`, thread_key: `large-thread-${index}`, message_count: 2,
         }))
-        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: page.__initialThreadStarred ?? true, is_read: !unread.has('conversation-gmail-copy-5'), unread_count: unread.has('conversation-gmail-copy-5') ? unread.size : 0 }] : messages;
+        : threaded ? [{ ...messages.at(-1), thread_key: 'conversation-gmail', is_starred: page.__hasStarWrites ? starred.has('conversation-gmail-copy-5') : page.__initialThreadStarred ?? true, physical_is_read: !unread.has('conversation-gmail-copy-5'), is_read: !messages.some(message => message.folder === 'INBOX' && !message.is_read), unread_count: messages.filter(message => message.folder === 'INBOX' && !message.is_read).length }] : messages;
       return route.fulfill({ json: { messages: listMessages, total: listMessages.length, ...(threaded ? { threaded: true } : {}) } });
     });
     await page.route('**/api/mail/thread/*', async route => {
@@ -301,6 +301,10 @@ export const test = base.extend({
       if (page.__starFailureIds?.has(id)) {
         return route.fulfill({ status: 503, json: { error: 'Fixture star failed' } });
       }
+      const stars = new Set(page.__starredCopies || []);
+      if (route.request().postDataJSON()?.starred) stars.add(id); else stars.delete(id);
+      page.__starredCopies = stars;
+      page.__hasStarWrites = true;
       return route.fulfill({ json: { ok: true } });
     });
     await page.route('**/api/mail/messages/bulk-*', async route => {

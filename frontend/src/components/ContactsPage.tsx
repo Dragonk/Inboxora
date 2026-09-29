@@ -1,3 +1,4 @@
+import type { CollectionDeletionCapability } from './collectionDeletionModel.ts';
 import BookSelectionPanel from './accountUi/BookSelectionPanel.tsx';
 import useBookPresentation from './accountUi/useBookPresentation.ts';
 import { openSettings } from './accountUi/navigation.ts';
@@ -155,6 +156,7 @@ interface ContactRow {
 
 /** An address book as the contacts API returns it. */
 interface AddressBookRow {
+  deletion?: CollectionDeletionCapability | null;
   id: string;
   name?: string | null;
   /**
@@ -343,7 +345,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     if (useStore.getState().authEpoch !== authEpoch) return;
     const generation = ++bookLoadGeneration.current;
     const [books, google, microsoft, dav] = await Promise.all([
-      api.addressBooks.list(),
+      api.addressBooks.list({ includeDeletionCapabilities: settingsOnly || booksManagerOpen }),
       // A server without a provider adapter must not break the address books.
       api.googleContacts.status().catch(() => null),
       api.microsoftContacts.status().catch(() => null),
@@ -360,7 +362,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     setMicrosoftContacts(microsoft ?? null);
     setDavStatus(dav ?? null);
     if (settingsOnly) window.dispatchEvent(new Event('inboxora:contact-books-changed'));
-  }, [settingsOnly, authEpoch]);
+  }, [settingsOnly, booksManagerOpen, authEpoch]);
 
   const load = useCallback(async (q = '') => {
     if (settingsOnly || !bookPresentation.ready || useStore.getState().authEpoch !== authEpoch) return;
@@ -887,6 +889,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
       visible: book.visible !== false,
       readOnly: book.read_only !== false,
       collectionId: book.collection_id ?? null,
+      deletion: book.deletion,
       accountLabel: typeof book.account_email === 'string' ? book.account_email : null,
       accountId: book.account_id ?? null,
       connectionId: book.connection_id ?? (typeof book.source_connection_id === 'string' ? book.source_connection_id : null),

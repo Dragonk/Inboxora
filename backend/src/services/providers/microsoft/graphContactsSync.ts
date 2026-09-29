@@ -1,3 +1,4 @@
+import { AddressBookCollectionDeletedError, assertAddressBookCollectionPresent, reconcileAddressBookCollections, withAddressBookCollectionSyncFence } from '../../addressBookCollectionFence.js';
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { withSavepoint, withTransaction } from '../../db.js';
@@ -95,7 +96,7 @@ async function graphContactSourceAccess(client: PoolClient, userId: string, conn
     // The caller's own client: this runs inside the transaction that creates or finds the link, and opening
     // a second one for one `SELECT` would take a pool connection per sync for no reason.
     const grant = await readGrantForUser(client, { userId, connectionId, audience: MICROSOFT_GRANT_AUDIENCE });
-    return grant && graphGrantCoversScope(grant.scopes, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE) ? 'read_write' : 'read_only';
+    return grant?.status === 'active' && graphGrantCoversScope(grant.currentScopes, REQUIRED_GRAPH_CONTACT_WRITE_SCOPE) ? 'read_write' : 'read_only';
   } catch {
     // A transient read failure must not be recorded as a permission the connection may not have.
     return 'read_only';
@@ -113,8 +114,9 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
    */
   folderId?: string;
 }): Promise<{ addressBookId: string; collectionId: string }> {
-  const sourceAccess = await graphContactSourceAccess(client, input.userId, input.connectionId);
   const remoteId = input.folderId?.trim() || GRAPH_CONTACTS_FOLDER;
+  await assertAddressBookCollectionPresent(client, { ...input, remoteAddressBookId: remoteId });
+  const sourceAccess = await graphContactSourceAccess(client, input.userId, input.connectionId);
   const linkQuery = `SELECT id, local_address_book_id FROM integration_collections
      WHERE connection_id = $1 AND kind = 'address_book' AND remote_id = $2`;
   let existing = await client.query<{ id: string; local_address_book_id: string | null }>(
@@ -367,13 +369,14 @@ async function syncGraphContactFolder(input: {
   fetchImpl?: FetchLike;
   /** The page cap for one delta; injectable so the "limited run is not complete" path is provable. */
   maxPages?: number;
+  discoveryLease: { syncStateId: string; generation: number };
 }, folder: GraphContactFolder, owner: string, api: GraphApiOptions): Promise<GraphContactsFolderResult> {
-  const ensured = await withTransaction(client => ensureGraphAddressBook(client, {
+  const ensured = await withFencedSyncLease({ ...input.discoveryLease, run: client => ensureGraphAddressBook(client, {
     userId: input.userId,
     connectionId: input.connectionId,
     label: input.label ?? folder.displayName ?? undefined,
     folderId: folder.id,
-  }));
+  }) });
   const syncStateId = await withTransaction(client => ensureSyncState(client, {
     userId: input.userId,
     connectionId: input.connectionId,
@@ -440,7 +443,7 @@ async function syncGraphContactFolder(input: {
         throw caught;
       }
       if (page === 0 && cursor === null) fullSync = true;
-      const applied = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => applyGraphContactsPage(client, context, fetched.contacts, seen) });
+      const applied = await withAddressBookCollectionSyncFence({ ...input, remoteAddressBookId: folder.id }, { syncStateId, generation: lease.generation, run: client => applyGraphContactsPage(client, context, fetched.contacts, seen) });
       totals.created += applied.created;
       totals.updated += applied.updated;
       totals.deleted += applied.deleted;
@@ -461,7 +464,7 @@ async function syncGraphContactFolder(input: {
 
     if (fullSync) {
       // A baseline lists everything that still exists, so anything else is gone.
-      const removed = await withFencedSyncLease({ syncStateId, generation: lease.generation, run: client => reconcileGraphContacts(client, context, seen) });
+      const removed = await withAddressBookCollectionSyncFence({ ...input, remoteAddressBookId: folder.id }, { syncStateId, generation: lease.generation, run: client => reconcileGraphContacts(client, context, seen) });
       totals.deleted += removed;
     }
 
@@ -488,7 +491,7 @@ async function syncGraphContactFolder(input: {
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     return { addressBookId: ensured.addressBookId, ...totals, fullSync, cursor: finalCursor, incomplete: false, disabled: false };
   } catch (caught) {
-    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
+    const code = caught instanceof AddressBookCollectionDeletedError || caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError ? caught.code : 'INTERNAL_ERROR';
     await withTransaction(client => failSyncRun(client, { syncStateId, generation: lease.generation, errorCode: code })).catch(() => {});
     throw caught;
   }
@@ -525,73 +528,86 @@ export async function syncGraphContacts(input: {
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
-  // The default collection is independent from contact-folder discovery. A broken
-  // child branch must not prevent the documented `/me/contacts` read from running.
-  const errors: GraphContactsSyncResult['errors'] = [];
-  let discovered: GraphContactFolder[] = [];
+  const discoveryStateId = await withTransaction(client => ensureSyncState(client, { ...input, feature: 'contacts', coverage: 'collection_discovery' }));
+  const discoveryClaim = await withTransaction(client => acquireSyncLease(client, { syncStateId: discoveryStateId, owner }));
+  if (!discoveryClaim) throw new GraphApiError({ code: 'SYNC_ALREADY_RUNNING', message: 'Microsoft contacts discovery is already running', status: 409 });
+  const discoveryLease = { syncStateId: discoveryStateId, generation: discoveryClaim.generation };
   try {
-    discovered = await discoverGraphContactFolders(api);
-  } catch (caught) {
-    const code = caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
-      ? caught.code : 'INTERNAL_ERROR';
-    errors.push({ folderId: 'discovery', code, stage: 'discovery', ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}) });
-    console.warn(`Microsoft contacts folder discovery failed for connection ${input.connectionId}:`, code);
-  }
-  // Names (including "Contacts"), localization and discovery order do not prove
-  // that a folder is the default collection. Keep its explicit endpoint and state
-  // independent until provider evidence establishes an identity we can safely adopt.
-  const primary: GraphContactFolder = { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
-  const ordered = [primary, ...discovered].filter((folder, index, all) =>
-    all.findIndex(candidate => candidate.id === folder.id) === index,
-  );
-  const books: GraphContactsFolderResult[] = [];
-  for (const folder of ordered) {
+    // The default collection is independent from contact-folder discovery. A broken
+    // child branch must not prevent the documented `/me/contacts` read from running.
+    const errors: GraphContactsSyncResult['errors'] = [];
+    let discovered: GraphContactFolder[] = [];
     try {
-      const result = await syncGraphContactFolder(
-        folder.id === primary.id ? input : { ...input, label: undefined },
-        folder,
-        // A distinct owner per folder keeps the lease keyed to the collection's own sync state, so two folders of
-        // one connection cannot appear as each other's concurrent run.
-        `${owner}:${folder.id}`,
-        api,
-      );
-      books.push(result);
+      discovered = await discoverGraphContactFolders(api);
+      await withFencedSyncLease({ ...discoveryLease, run: async client => {
+        await reconcileAddressBookCollections(client, { ...input, syncStateId: discoveryStateId, seenRemoteIds: discovered.map(folder => folder.id) });
+        await finishSyncRun(client, { ...discoveryLease, lastErrorCode: null });
+      } });
     } catch (caught) {
-      const db = toAppError(caught);
-      const emailCollision = db.code === '23505'
-        && (db.constraint === 'contacts_book_primary_email_idx' || db.constraint === 'contacts_address_book_primary_email_idx');
-      // Preserve distinct provider identities: only the historical address-book
-      // e-mail constraint is diagnosed this way. Other integrity violations keep
-      // their own failure code rather than being misreported as an e-mail clash.
-      const code = emailCollision ? 'CONTACT_EMAIL_COLLISION' : caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
+      discovered = [];
+      const code = caught instanceof AddressBookCollectionDeletedError || caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
         ? caught.code : 'INTERNAL_ERROR';
-      if (folder.id === primary.id) throw caught;
-      errors.push({
-        folderId: folder.id, code, stage: emailCollision ? 'db-project' : 'provider-request',
-        ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}),
-      });
-      console.warn(`Microsoft contacts sync failed for folder ${folder.id} of connection ${input.connectionId}:`, code);
+      errors.push({ folderId: 'discovery', code, stage: 'discovery', ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}) });
+      console.warn(`Microsoft contacts folder discovery failed for connection ${input.connectionId}:`, code);
     }
-  }
+    // Names (including "Contacts"), localization and discovery order do not prove
+    // that a folder is the default collection. Keep its explicit endpoint and state
+    // independent until provider evidence establishes an identity we can safely adopt.
+    const primary: GraphContactFolder = { id: DEFAULT_GRAPH_CONTACTS_TARGET, displayName: GRAPH_CONTACTS_BOOK_NAME };
+    const ordered = [primary, ...discovered].filter((folder, index, all) =>
+      all.findIndex(candidate => candidate.id === folder.id) === index,
+    );
+    const books: GraphContactsFolderResult[] = [];
+    for (const folder of ordered) {
+      try {
+        const result = await syncGraphContactFolder(
+          { ...input, label: folder.id === primary.id ? input.label : undefined, discoveryLease },
+          folder,
+          // A distinct owner per folder keeps the lease keyed to the collection's own sync state, so two folders of
+          // one connection cannot appear as each other's concurrent run.
+          `${owner}:${folder.id}`,
+          api,
+        );
+        books.push(result);
+      } catch (caught) {
+        const db = toAppError(caught);
+        const emailCollision = db.code === '23505'
+          && (db.constraint === 'contacts_book_primary_email_idx' || db.constraint === 'contacts_address_book_primary_email_idx');
+        // Preserve distinct provider identities: only the historical address-book
+        // e-mail constraint is diagnosed this way. Other integrity violations keep
+        // their own failure code rather than being misreported as an e-mail clash.
+        const code = emailCollision ? 'CONTACT_EMAIL_COLLISION' : caught instanceof AddressBookCollectionDeletedError || caught instanceof GraphApiError || caught instanceof ProviderAuthError || caught instanceof SyncLeaseLostError
+          ? caught.code : 'INTERNAL_ERROR';
+        if (folder.id === primary.id) throw caught;
+        errors.push({
+          folderId: folder.id, code, stage: emailCollision ? 'db-project' : 'provider-request',
+          ...(caught instanceof GraphApiError ? { status: caught.status, providerReason: caught.providerReason } : {}),
+        });
+        console.warn(`Microsoft contacts sync failed for folder ${folder.id} of connection ${input.connectionId}:`, code);
+      }
+    }
 
-  const totals = books.reduce((sum, book) => ({
-    created: sum.created + book.created,
-    updated: sum.updated + book.updated,
-    deleted: sum.deleted + book.deleted,
-    skipped: sum.skipped + book.skipped,
-  }), { created: 0, updated: 0, deleted: 0, skipped: 0 });
-  // The explicit `/me/contacts` collection always runs first.
-  const primaryBook = books[0];
-  return {
-    addressBookId: primaryBook?.addressBookId ?? '',
-    ...totals,
-    // The run is complete when every folder that ran reached the end of its delta; a folder that failed is not
-    // a completed folder, so its book's state is not claimed as synchronised either.
-    fullSync: books.length > 0 && books.every(book => book.fullSync),
-    cursor: primaryBook?.cursor ?? null,
-    incomplete: books.some(book => book.incomplete) || errors.length > 0,
-    disabled: books.length > 0 && books.every(book => book.disabled),
-    books,
-    errors,
-  };
+    const totals = books.reduce((sum, book) => ({
+      created: sum.created + book.created,
+      updated: sum.updated + book.updated,
+      deleted: sum.deleted + book.deleted,
+      skipped: sum.skipped + book.skipped,
+    }), { created: 0, updated: 0, deleted: 0, skipped: 0 });
+    // The explicit `/me/contacts` collection always runs first.
+    const primaryBook = books[0];
+    return {
+      addressBookId: primaryBook?.addressBookId ?? '',
+      ...totals,
+      // The run is complete when every folder that ran reached the end of its delta; a folder that failed is not
+      // a completed folder, so its book's state is not claimed as synchronised either.
+      fullSync: books.length > 0 && books.every(book => book.fullSync),
+      cursor: primaryBook?.cursor ?? null,
+      incomplete: books.some(book => book.incomplete) || errors.length > 0,
+      disabled: books.length > 0 && books.every(book => book.disabled),
+      books,
+      errors,
+    };
+  } finally {
+    await withTransaction(client => releaseSyncLease(client, discoveryLease));
+  }
 }

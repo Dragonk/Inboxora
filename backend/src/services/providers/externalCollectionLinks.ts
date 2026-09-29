@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { query } from '../db.js';
+import { query, type DbClient } from '../db.js';
 import { encrypt } from '../encryption.js';
 
 /**
@@ -68,9 +68,10 @@ export async function ensureExternalSourceConnection(input: {
    * assumed writable — which the write path corrects from a refusal.
    */
   discoveredAccess?: 'read_only' | 'read_write' | null;
-}): Promise<string | null> {
+}, client?: DbClient): Promise<string | null> {
+  const execute: DbClient['query'] = client ? client.query.bind(client) : query;
   const fingerprint = externalSourceFingerprint(input.url);
-  const existing = await query<{ id: string }>(
+  const existing = await execute<{ id: string }>(
     input.integrationId
       ? 'SELECT id FROM source_connections WHERE user_id = $1 AND kind = $2 AND integration_id = $3'
       : 'SELECT id FROM source_connections WHERE user_id = $1 AND url_fingerprint = $2 AND integration_id IS NULL',
@@ -78,34 +79,28 @@ export async function ensureExternalSourceConnection(input: {
   );
   if (existing.rows[0]) {
     // The label is cosmetic and refreshed; the kind is not — the same URL cannot be two kinds at once.
-    await query(
+    await execute(
       'UPDATE source_connections SET label = COALESCE($2, label), updated_at = NOW() WHERE id = $1',
       [existing.rows[0].id, input.label ?? null],
     );
     return existing.rows[0].id;
   }
 
-  try {
-    const created = await query<{ id: string }>(
-      `INSERT INTO source_connections (user_id, kind, label, url_encrypted, url_fingerprint, integration_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id`,
-      [input.userId, input.kind, input.label ?? null, encrypt(input.url), fingerprint, input.integrationId ?? null],
-    );
-    if (!created.rows[0]?.id) throw new Error('The source connection could not be created');
-    return created.rows[0].id;
-  } catch (caught) {
-    // A concurrent pass inserted the same URL between the SELECT and the INSERT; the unique index holds,
-    // so re-read rather than failing the sync that is merely linking a collection.
-    if ((caught as { code?: string }).code !== '23505') throw caught;
-    const raced = await query<{ id: string }>(
-      input.integrationId
-        ? 'SELECT id FROM source_connections WHERE user_id = $1 AND kind = $2 AND integration_id = $3'
-        : 'SELECT id FROM source_connections WHERE user_id = $1 AND url_fingerprint = $2 AND integration_id IS NULL',
-      input.integrationId ? [input.userId, input.kind, input.integrationId] : [input.userId, fingerprint],
-    );
-    return raced.rows[0]?.id ?? null;
-  }
+  const created = await execute<{ id: string }>(
+    `INSERT INTO source_connections (user_id, kind, label, url_encrypted, url_fingerprint, integration_id)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT DO NOTHING RETURNING id`,
+    [input.userId, input.kind, input.label ?? null, encrypt(input.url), fingerprint, input.integrationId ?? null],
+  );
+  if (created.rows[0]?.id) return created.rows[0].id;
+  // ON CONFLICT preserves the transaction when another source pass won the insert.
+  const raced = await execute<{ id: string }>(
+    input.integrationId
+      ? 'SELECT id FROM source_connections WHERE user_id = $1 AND kind = $2 AND integration_id = $3'
+      : 'SELECT id FROM source_connections WHERE user_id = $1 AND url_fingerprint = $2 AND integration_id IS NULL',
+    input.integrationId ? [input.userId, input.kind, input.integrationId] : [input.userId, fingerprint],
+  );
+  return raced.rows[0]?.id ?? null;
 }
 
 /**
@@ -131,21 +126,25 @@ export async function ensureExternalCollectionLink(input: {
   discoveredAccess?: 'read_only' | 'read_write' | null;
   /** Existing integration identity for sources with multiple credential sets. */
   integrationId?: string | null;
-}): Promise<string | null> {
+}, client?: DbClient): Promise<string | null> {
+  const execute: DbClient['query'] = client ? client.query.bind(client) : query;
   const sourceConnectionId = await ensureExternalSourceConnection({
     userId: input.userId, kind: input.kind, url: input.url, label: input.label,
     integrationId: input.integrationId,
-  });
+  }, client);
   if (!sourceConnectionId) return null;
 
   const collectionKind = externalCollectionKind(input.kind);
   // A caller that has asked the origin itself (DAV-02's privilege discovery) passes what it found; the assumed
   // value is the fallback for a source that cannot be asked, not the answer.
   const sourceAccess = input.discoveredAccess ?? externalSourceAccess(input.kind);
-  const existing = await query<{ id: string; local_calendar_id: string | null; local_address_book_id: string | null }>(
+  const existing = await execute<{ id: string; local_calendar_id: string | null; local_address_book_id: string | null }>(
     `SELECT id, local_calendar_id, local_address_book_id FROM integration_collections
-      WHERE user_id = $1 AND source_connection_id = $2 AND kind = $3 AND remote_id = $4`,
-    [input.userId, sourceConnectionId, collectionKind, input.remoteId],
+      WHERE user_id = $1 AND source_connection_id = $2 AND kind = $3
+        AND (remote_id = $4 OR ($5::uuid IS NOT NULL AND local_calendar_id = $5)
+             OR ($6::uuid IS NOT NULL AND local_address_book_id = $6))
+      ORDER BY (remote_id = $4) DESC LIMIT 1`,
+    [input.userId, sourceConnectionId, collectionKind, input.remoteId, input.localCalendarId ?? null, input.localAddressBookId ?? null],
   );
 
   if (existing.rows[0]) {
@@ -154,7 +153,7 @@ export async function ensureExternalCollectionLink(input: {
     // `user_access`, `enabled` and `dav_mode` belong to the user and are deliberately left alone.
     const needsLocalLink = (collectionKind === 'calendar' && !row.local_calendar_id && input.localCalendarId)
       || (collectionKind === 'address_book' && !row.local_address_book_id && input.localAddressBookId);
-    await query(
+    await execute(
       `UPDATE integration_collections
           SET source_access = $2,
               local_calendar_id = COALESCE(local_calendar_id, $3),
@@ -166,27 +165,25 @@ export async function ensureExternalCollectionLink(input: {
     return row.id;
   }
 
-  try {
-    const created = await query<{ id: string }>(
-      `INSERT INTO integration_collections
-         (user_id, source_connection_id, kind, remote_id, local_calendar_id, local_address_book_id,
-          enabled, source_access, user_access, dav_mode)
-       VALUES ($1, $2, $3, $4, $5, $6, true, $7, 'source', 'off')
-       RETURNING id`,
-      [
-        input.userId, sourceConnectionId, collectionKind, input.remoteId,
-        input.localCalendarId ?? null, input.localAddressBookId ?? null, sourceAccess,
-      ],
-    );
-    if (!created.rows[0]?.id) throw new Error('The collection link could not be created');
-    return created.rows[0].id;
-  } catch (caught) {
-    if ((caught as { code?: string }).code !== '23505') throw caught;
-    const raced = await query<{ id: string }>(
-      `SELECT id FROM integration_collections
-        WHERE user_id = $1 AND source_connection_id = $2 AND kind = $3 AND remote_id = $4`,
-      [input.userId, sourceConnectionId, collectionKind, input.remoteId],
-    );
-    return raced.rows[0]?.id ?? null;
-  }
+  const created = await execute<{ id: string }>(
+    `INSERT INTO integration_collections
+       (user_id, source_connection_id, kind, remote_id, local_calendar_id, local_address_book_id,
+        enabled, source_access, user_access, dav_mode)
+     VALUES ($1, $2, $3, $4, $5, $6, true, $7, 'source', 'off')
+     ON CONFLICT DO NOTHING RETURNING id`,
+    [
+      input.userId, sourceConnectionId, collectionKind, input.remoteId,
+      input.localCalendarId ?? null, input.localAddressBookId ?? null, sourceAccess,
+    ],
+  );
+  if (created.rows[0]?.id) return created.rows[0].id;
+  const raced = await execute<{ id: string }>(
+    `SELECT id FROM integration_collections
+      WHERE user_id = $1 AND source_connection_id = $2 AND kind = $3
+        AND (remote_id = $4 OR ($5::uuid IS NOT NULL AND local_calendar_id = $5)
+             OR ($6::uuid IS NOT NULL AND local_address_book_id = $6))
+      ORDER BY (remote_id = $4) DESC LIMIT 1`,
+    [input.userId, sourceConnectionId, collectionKind, input.remoteId, input.localCalendarId ?? null, input.localAddressBookId ?? null],
+  );
+  return raced.rows[0]?.id ?? null;
 }
