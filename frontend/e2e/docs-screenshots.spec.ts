@@ -104,6 +104,8 @@ async function capture(page, name, { mode = 'mail-list', require: required = [],
   await parkPointer(page);
   await settle(page);
   await assertDocsPresentation(page, { mode, require: required });
+  await expect(page.getByText('Mail change pending', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Mail change failed', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: `${OUTPUT_DIR}${name}-${variant}.png`, animations: 'disabled' });
 }
 

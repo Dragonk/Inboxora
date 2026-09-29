@@ -364,13 +364,36 @@ const demoBodies = Object.fromEntries(
  * handlers take precedence wherever they overlap.
  */
 export async function useEnglishMailData(page) {
+  // Per-page provider state: opening a physical card must acknowledge and expose
+  // its read change, not fall through to the list JSON response.
+  const reads = new Map();
+  const flatMessages = () => demoFlatMessages().map(row => ({ ...row, is_read: reads.get(row.id) ?? row.is_read }));
+  const unreadCounts = () => {
+    const byAccount = Object.fromEntries(demoAccounts.map(account => [account.id, 0]));
+    for (const row of flatMessages()) if (row.folder === 'INBOX' && !row.is_read) byAccount[row.account_id]++;
+    return { total: Object.values(byAccount).reduce((sum, count) => sum + count, 0), byAccount };
+  };
+  const threadedMessages = () => demoThreadedMessages().map(row => {
+    const children = flatMessages().filter(child => child.thread_id === row.thread_id);
+    const unread = children.filter(child => child.folder === 'INBOX' && !child.is_read).length;
+    return { ...row, unread_count: unread, is_read: unread === 0,
+      physical_is_read: children.find(child => child.id === row.id)?.is_read ?? row.is_read };
+  });
+  const detail = entry => {
+    const payload = conversationPayload(entry);
+    return { ...payload, summary: { ...payload.summary, unread_count: threadedMessages().find(row => row.thread_id === entry.id)?.unread_count ?? 0 },
+      logicalMessages: payload.logicalMessages.map(message => {
+        const copies = message.copies.map(copy => ({ ...copy, isRead: reads.get(copy.id) ?? copy.isRead }));
+        return { ...message, copies, unread: copies.some(copy => !copy.isRead) };
+      }) };
+  };
   await page.route('**/api/accounts', route => route.fulfill({ json: demoAccounts }));
   await page.route(url => /\/api\/accounts\/[^/]+\/folders$/.test(url.pathname), route => {
     const id = new URL(route.request().url()).pathname.split('/').at(-2);
-    return route.fulfill({ json: demoFolders[id] || demoFolders['account-studio'] });
+    return route.fulfill({ json: (demoFolders[id] || demoFolders['account-studio']).map(row => row.path === 'INBOX' ? { ...row, unread_count: unreadCounts().byAccount[row.account_id] } : row) });
   });
   await page.route('**/api/mail/unread-counts', route => route.fulfill({
-    json: { total: 4, byAccount: { 'account-studio': 2, 'account-personal': 1 } },
+    json: unreadCounts(),
   }));
 
   // The flat reader asks for `/messages/<copyId>/body`, while the conversation reader
@@ -423,7 +446,7 @@ export async function useEnglishMailData(page) {
       from_email: copy.fromEmail,
       folder: copy.folder,
       date: copy.date,
-      is_read: copy.isRead,
+      is_read: reads.get(copy.id) ?? copy.isRead,
       message_count: entry.messages.length,
       position: messageIndex + 1,
     })) } });
@@ -437,23 +460,32 @@ export async function useEnglishMailData(page) {
     if (id && id !== 'conversations') {
       const entry = demoThreads.find(item => item.id === id);
       if (!entry) return route.fulfill({ status: 404, json: { error: 'Not found' } });
-      return route.fulfill({ json: conversationPayload(entry) });
+      return route.fulfill({ json: detail(entry) });
     }
     return route.fulfill({ json: {
-      conversations: demoThreads.map(entry => conversationPayload(entry).summary),
+      conversations: demoThreads.map(entry => detail(entry).summary),
       nextCursor: null,
       total: demoThreads.length,
     } });
   });
 
-  // Keep destructive actions harmless if a capture ever triggers one.
-  await page.route('**/api/mail/messages/bulk-*', route => route.fulfill({ json: { ok: true } }));
+  // No remote mailbox is involved; successful synthetic flags are observable.
+  await page.route('**/api/mail/messages/bulk-read', route => {
+    const body = route.request().postDataJSON();
+    if (!Array.isArray(body.ids) || typeof body.read !== 'boolean') return route.fulfill({ status: 400, json: { error: 'Invalid demo flag request' } });
+    const updated = body.ids.filter(id => COPY_INDEX.has(id));
+    for (const id of updated) reads.set(id, body.read);
+    return route.fulfill({ json: { ok: true, updated, failed: body.ids.filter(id => !COPY_INDEX.has(id)), pending: [] } });
+  });
+  // Unexpected destructive operations must not silently claim success.
+  await page.route('**/api/mail/messages/bulk-*', route => new URL(route.request().url()).pathname.endsWith('/bulk-read')
+    ? route.fallback() : route.fulfill({ status: 409, json: { error: 'Destructive actions are not enabled in documentation fixtures' } }));
 
   await page.route('**/api/mail/messages**', route => {
     const url = new URL(route.request().url());
-    if (/\/(?:conversation|body)$/.test(url.pathname)) return route.fallback();
+    if (route.request().method() !== 'GET' || url.pathname !== '/api/mail/messages') return route.fallback();
     const threaded = url.searchParams.get('threaded') === 'true';
-    const messages = threaded ? demoThreadedMessages() : demoFlatMessages();
+    const messages = threaded ? threadedMessages() : flatMessages();
     return route.fulfill({ json: { messages, total: messages.length, ...(threaded ? { threaded: true } : {}) } });
   });
 }
