@@ -133,6 +133,7 @@ jobs:
           REQUIRE_GRAPH_POSTGRES: "1"
           REQUIRE_DAV_POSTGRES: "1"
           REQUIRE_STORAGE_POSTGRES: "1"
+          REQUIRE_CE_POSTGRES: "1"
           # The send-ledger suite is skipped without this flag, so a job that omits it
           # would report the durable send intent as covered while never running it.
           REQUIRE_SEND_POSTGRES: "1"
@@ -149,6 +150,7 @@ jobs:
           # worker so fixed fixture identities cannot race across suites under SERIALIZABLE.
           npx vitest run --no-file-parallelism --maxWorkers=1 \
             src/services/storageMaintenance.integration.test.ts \
+            src/services/conversationStorage.integration.test.ts \
             src/services/storageRetention.integration.test.ts \
             src/services/mailBodyPrefetch.integration.test.ts \
             src/services/mailBodyCacheRetention.integration.test.ts \

@@ -58,6 +58,8 @@ finalized below and dated with its publication date.
 - Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
 
 ### Fixed
+- **Large-account header repair (#16).** Scan bounded immutable account/UUID pages instead of searching all remaining header payloads; preserve existing UUID checkpoints and avoid daily rescans of completed accounts. Keep a 50-header/32 MiB repair budget per batch, report scan progress and failure stage, and add concurrent index migration `0165_header_repair_scan_index.sql` after 0164. No automatic full table rewrite or mail deletion.
+
 - Preserve recent calendar agenda/sender choices during preference hydration, and keep manual navigation ahead of delayed notification lookups.
 - Report failed or incomplete IMAP reindexing without a false completion timestamp; keep diagnostics usable after account/session changes and retain client errors for unavailable invitation aliases. Failed folder-count or synchronization-timestamp writes also prevent a success result.
 - Isolate DAV startup migration failures per user; apply late native language/theme responses once, update Android shortcuts off the UI thread, and retain visible keyboard focus in inline settings editors.
