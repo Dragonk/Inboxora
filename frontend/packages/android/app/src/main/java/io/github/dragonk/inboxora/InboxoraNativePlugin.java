@@ -581,6 +581,14 @@ public class InboxoraNativePlugin extends Plugin {
             || ACTION_INSTALL_UPDATE.equals(action);
     }
 
+    static boolean isRepeatableLaunch(String action, String scheme, String route) {
+        if (ACTION_COMPOSE.equals(action) || ACTION_SYNC.equals(action)) return true;
+        if ((Intent.ACTION_VIEW.equals(action) || Intent.ACTION_SENDTO.equals(action)) && "mailto".equalsIgnoreCase(scheme)) return true;
+        if (!Intent.ACTION_VIEW.equals(action) || !"inboxora".equalsIgnoreCase(scheme)) return false;
+        return "compose".equalsIgnoreCase(route) || "calendar".equalsIgnoreCase(route)
+            || "contacts".equalsIgnoreCase(route) || "sync".equalsIgnoreCase(route);
+    }
+
     static boolean isTrustedNativeIntent(Context context, Intent intent) {
         if (context == null || intent == null || !isPrivilegedNativeAction(intent.getAction())) {
             return false;

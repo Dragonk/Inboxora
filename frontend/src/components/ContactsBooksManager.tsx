@@ -111,7 +111,7 @@ export default function ContactsBooksManager(props: ContactsBooksManagerProps) {
       else setTargetMissing(true);
     } else if (target.sourceId || target.accountId) {
       const source = connections.find(item => item.id === target.sourceId || Boolean(target.accountId && item.accountId === target.accountId));
-      if (target.section === 'resources') setFilter(target.sourceId === 'local' ? 'local' : source?.id ?? 'all');
+      if (target.section === 'resources' || target.section === 'accounts') setFilter(target.sourceId === 'local' ? 'local' : source?.id ?? 'all');
       else if (source) setSelectedSourceId(source.id);
       else setTargetMissing(true);
     }

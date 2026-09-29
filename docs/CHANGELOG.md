@@ -58,6 +58,9 @@ finalized below and dated with its publication date.
 - Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
 
 ### Fixed
+- Preserve recent calendar agenda/sender choices during preference hydration, and keep manual navigation ahead of delayed notification lookups.
+- Report failed or incomplete IMAP reindexing without a false completion timestamp; keep diagnostics usable after account/session changes and retain client errors for unavailable invitation aliases.
+- Isolate DAV startup migration failures per user; apply late native language/theme responses once, update Android shortcuts off the UI thread, and retain visible keyboard focus in inline settings editors.
 - Save the default calendar invitation sender and alias instead of silently discarding the preference; route API-only invitations and reindex requests through their native provider transport.
 - Open the exact incoming or scheduled message from its notification, including scheduled entries outside the loaded page. Use an application confirmation dialog for removing scheduled mail and an outlined Refresh button.
 - Keep resource editors within the settings viewport, preserve DAV source pauses during metadata edits, and place mobile contact settings beside the address-book picker.

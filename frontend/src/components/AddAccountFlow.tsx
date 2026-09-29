@@ -209,7 +209,7 @@ export default function AddAccountFlow({ status, reloadAccounts, goToIntegration
           {([
             { key: 'microsoft' as const, label: t('admin.accounts.addAccountFlow.microsoft'), description: t('admin.accounts.addAccountFlow.microsoftDescription'), action: t('admin.accounts.addAccountFlow.connectMicrosoft') },
             { key: 'google' as const, label: t('admin.accounts.addAccountFlow.google'), description: t('admin.accounts.addAccountFlow.googleDescription'), action: t('admin.accounts.addAccountFlow.connectGoogle') },
-            ...(onChooseDav ? [{key:'dav' as const,label:'DAV',description:t('davAccount.description'),action:t('accountUi.connect')}] : []),
+            ...(onChooseDav ? [{key:'dav' as const,label:t('contacts.booksManager.dav'),description:t('davAccount.description'),action:t('accountUi.connect')}] : []),
             { key: 'imap' as const, label: t('admin.accounts.addAccountFlow.imap'), description: t('admin.accounts.addAccountFlow.imapDescription'), action: t('admin.accounts.addAccountFlow.configureImap') },
           ]).map(choice => (
             <button

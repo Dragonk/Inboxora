@@ -105,3 +105,50 @@ test('an unavailable target propagates the error for the localized toast and lea
   assert.equal(useStore.getState().showAdmin, true);
   assert.equal(refreshes, 0);
 });
+
+for (const [label, navigate] of [
+  ['another account', () => useStore.getState().setSelectedAccount('account-c')],
+  ['another folder', () => useStore.getState().setSelectedAccount('account-a', 'Archive')],
+  ['same mailbox reload', () => useStore.getState().setSelectedAccount('account-a', 'INBOX')],
+  ['another message', () => useStore.getState().setSelectedMessage('manual-choice')],
+  ['contacts', () => useStore.getState().setShowContacts(true)],
+  ['calendar', () => useStore.getState().setShowCalendar(true)],
+  ['scheduled', () => useStore.getState().setShowScheduled(true)],
+  ['another settings tab', () => useStore.getState().setAdminTab('calendar')],
+  ['a new search', () => useStore.getState().setSearchQuery('manual search')],
+  ['navigation away and back', () => { useStore.getState().setShowContacts(true); useStore.getState().setShowContacts(false); }],
+] as const) {
+  test(`manual navigation to ${label} wins over a pending notification`, async () => {
+    let release!: (value: ReturnType<typeof row>) => void;
+    api.resolveMessage = () => new Promise(resolve => { release = resolve; });
+    const pending = openNotificationMessage('late', 'account-b', 12);
+    navigate();
+    const selected = useStore.getState().selectedMessageId;
+    release(row('late')); await pending;
+    assert.equal(useStore.getState().selectedMessageId, selected);
+    assert.equal(useStore.getState().messages.some(message => message.id === 'late'), false);
+    assert.equal(refreshes, 0);
+  });
+}
+
+test('a rejected lookup after locking is silent', async () => {
+  let reject!: (error: Error) => void;
+  api.resolveMessage = () => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; });
+  const pending = openNotificationMessage('late', 'account-b', 12);
+  useStore.setState({ isLocked: true });
+  reject(new Error('not found'));
+  await assert.doesNotReject(pending);
+  assert.equal(refreshes, 0);
+});
+
+test('an older rejected lookup cannot add an error after a later notification wins', async () => {
+  let reject!: (error: Error) => void;
+  api.resolveMessage = id => id === 'first'
+    ? new Promise((_resolve, rejectPromise) => { reject = rejectPromise; })
+    : Promise.resolve(row(id));
+  const first = openNotificationMessage('first', 'account-b', 12);
+  await openNotificationMessage('second', 'account-b', 12);
+  reject(new Error('not found')); await assert.doesNotReject(first);
+  assert.equal(useStore.getState().selectedMessageId, 'second');
+  assert.equal(refreshes, 1);
+});

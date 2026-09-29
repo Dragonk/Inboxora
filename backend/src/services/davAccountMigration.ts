@@ -72,5 +72,12 @@ export async function migrateDavAccounts(userId: string): Promise<void> {
 export async function migrateAllDavAccounts(): Promise<void> {
   const users = await query<{ user_id: string }>(`SELECT DISTINCT user_id FROM calendar_import_sources WHERE kind='caldav' AND dav_account_id IS NULL
     UNION SELECT DISTINCT user_id FROM user_integrations WHERE provider='carddav' AND dav_account_id IS NULL`);
-  for (const row of users.rows) await migrateDavAccounts(row.user_id);
+  for (const row of users.rows) {
+    try {
+      await migrateDavAccounts(row.user_id);
+    } catch (caught) {
+      const error = caught instanceof Error ? caught : new Error(String(caught));
+      console.error(`DAV account migration failed for user ${row.user_id}:`, error.message);
+    }
+  }
 }

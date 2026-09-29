@@ -55,6 +55,12 @@ import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrence
 import { queryString, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 
+function invitationAliasClientError(caught: unknown): { status: 400 | 409; message: string } | null {
+  if (!(caught instanceof Error)) return null;
+  const status = Number((caught as Error & { status?: unknown }).status);
+  return status === 400 || status === 409 ? { status, message: caught.message } : null;
+}
+
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
 const MAX_EVENT_RANGE_MS = MAX_EVENT_RANGE_DAYS * 24 * 60 * 60 * 1000;
@@ -1037,7 +1043,13 @@ router.post('/events', async (req, res) => {
       'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))',
       [inviteAccountId, req.session.userId],
     );
-    invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
+    try {
+      invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
+    } catch (caught) {
+      const error = invitationAliasClientError(caught);
+      if (error) return res.status(error.status).json({ error: error.message });
+      throw caught;
+    }
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
@@ -1710,7 +1722,13 @@ router.patch('/events/:eventId', async (req, res) => {
       if (typeof inviteAccountId !== 'string' || !UUID_PATTERN.test(inviteAccountId)) return res.status(400).json({ error: 'Select a sender account' });
       const account = (await query<EmailAccountRow>(`SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2 AND enabled=true AND (NULLIF(smtp_host, '') IS NOT NULL OR mail_transport IN ('gmail_api','microsoft_graph'))`, [inviteAccountId,req.session.userId])).rows[0];
       if (!account) return res.status(400).json({ error: 'The selected sender account is unavailable' });
-      davInvitationAccount = await withInvitationAlias(account,inviteAliasId);
+      try {
+        davInvitationAccount = await withInvitationAlias(account,inviteAliasId);
+      } catch (caught) {
+        const error = invitationAliasClientError(caught);
+        if (error) return res.status(error.status).json({ error: error.message });
+        throw caught;
+      }
     }
     const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
     if (!existing) return res.status(404).json({ error: 'Event not found' });
@@ -1744,7 +1762,13 @@ router.patch('/events/:eventId', async (req, res) => {
   let invitationAccount = null;
   if (sendInvites && !invitesHandledByProvider) {
     const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [inviteAccountId, req.session.userId]);
-    invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
+    try {
+      invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
+    } catch (caught) {
+      const error = invitationAliasClientError(caught);
+      if (error) return res.status(error.status).json({ error: error.message });
+      throw caught;
+    }
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 

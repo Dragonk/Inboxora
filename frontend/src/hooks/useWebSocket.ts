@@ -205,7 +205,10 @@ export function useWebSocket() {
               type: 'new_mail',
               actionLabel: t('common.view'),
               onAction: () => { void openNotificationMessage(latest.id, accountId, notificationEpoch).catch(() => {
-                if (useStore.getState().authEpoch === notificationEpoch) addNotification({ type: 'error', title: t('accountUi.targetUnavailable') });
+                const state = useStore.getState();
+                if (state.authEpoch === notificationEpoch && state.user && !state.isLocked) {
+                  addNotification({ type: 'error', title: t('accountUi.targetUnavailable') });
+                }
               }); },
               accountId,
               folder: folder || 'INBOX',

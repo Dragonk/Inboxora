@@ -13,13 +13,25 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /** App-selected copy is also available to background notifications and launchers. */
 final class InboxoraNativeLocale {
     private static final String PREFS = "inboxora-native";
     private static final String LANGUAGE = "language";
     private static final List<String> LANGUAGES = Arrays.asList("en", "pl", "de", "cs", "fr", "es", "it", "ru", "zhCN");
+    private static final ExecutorService SHORTCUT_UPDATES = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "Inboxora-shortcuts");
+        thread.setDaemon(true);
+        return thread;
+    });
     private InboxoraNativeLocale() {}
+
+    static Future<?> queueShortcutUpdate(Runnable update) {
+        return SHORTCUT_UPDATES.submit(update);
+    }
 
     static String normalize(String language) {
         String tag = language == null ? "en" : language.replace('_', '-').toLowerCase(Locale.ROOT);
@@ -52,9 +64,18 @@ final class InboxoraNativeLocale {
 
     static void publishShortcuts(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return;
-        ShortcutManager manager = context.getSystemService(ShortcutManager.class);
-        if (manager == null || manager.isRateLimitingActive()) return;
+        // Keep activity startup responsive and never retain the activity itself.
+        // One worker serializes launch, configuration and language updates.
+        Context application = context.getApplicationContext();
+        queueShortcutUpdate(() -> publishShortcutsOnWorker(application));
+    }
+
+    private static void publishShortcutsOnWorker(Context context) {
+        // This boundary also protects API 24 if a queued update crosses a configuration change.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return;
         try {
+            ShortcutManager manager = context.getSystemService(ShortcutManager.class);
+            if (manager == null || manager.isRateLimitingActive()) return;
             String[] routes = { "compose", "calendar", "contacts" };
             int[] labels = { R.string.native_compose, R.string.native_calendar, R.string.native_contacts };
             List<ShortcutInfo> shortcuts = new ArrayList<>();

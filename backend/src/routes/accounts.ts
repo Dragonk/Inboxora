@@ -945,8 +945,13 @@ router.post('/:id/reindex', async (req, res) => {
       const input = { userId: req.session.userId!, accountId: account.id, connectionId: target.connectionId, config: target.config };
       await syncGraphMailFoldersForAccount(input); await syncGraphMailMessagesForAccount(input);
     } else {
-      await imapManager.backfillAllFolders(account);
-      await query('UPDATE email_accounts SET reindex_completed_at = NOW() WHERE id = $1', [account.id]);
+      const outcome = await imapManager.backfillAllFolders(account);
+      if (!outcome.ran || outcome.failedFolders || outcome.skippedFolders) {
+        throw Object.assign(new Error('IMAP reindex did not complete'), {
+          code: outcome.failedFolders ? 'REINDEX_FAILED' : 'REINDEX_INCOMPLETE',
+        });
+      }
+      await query('UPDATE email_accounts SET reindex_completed_at = NOW(), reindex_error = NULL WHERE id = $1', [account.id]);
     }
   };
   void run().catch(async (caught: unknown) => {

@@ -18,16 +18,20 @@
   };
   window.nativeTranslate = (key, values) => i18n.text(language, key, values);
   apply();
-  window.nativeLanguageReady = Promise.race([readNativeLanguage(), new Promise(resolve => setTimeout(() => resolve(null), 1500))])
-    .then(result => {
-      if (result?.language) { language = i18n.normalize(result.language); apply(); }
-      if (result?.theme && /^#[0-9a-f]{6}$/i.test(result.theme.color) && /^#[0-9a-f]{6}$/i.test(result.theme.symbolColor)) {
-        const style = document.documentElement.style;
-        style.setProperty('--native-background', result.theme.color);
-        style.setProperty('--native-foreground', result.theme.symbolColor);
-        style.setProperty('--native-muted', `color-mix(in srgb, ${result.theme.symbolColor} 70%, ${result.theme.color})`);
-        style.setProperty('--native-input', result.theme.color);
-        style.setProperty('--native-border', `color-mix(in srgb, ${result.theme.symbolColor} 25%, ${result.theme.color})`);
-      }
-    }).catch(() => {});
+  const nativeLanguageRequest = readNativeLanguage().then(result => {
+    if (result?.language) { language = i18n.normalize(result.language); apply(); }
+    if (result?.theme && /^#[0-9a-f]{6}$/i.test(result.theme.color) && /^#[0-9a-f]{6}$/i.test(result.theme.symbolColor)) {
+      const style = document.documentElement.style;
+      style.setProperty('--native-background', result.theme.color);
+      style.setProperty('--native-foreground', result.theme.symbolColor);
+      style.setProperty('--native-input', result.theme.color);
+      style.setProperty('--native-muted', `color-mix(in srgb, ${result.theme.symbolColor} 70%, ${result.theme.color})`);
+      style.setProperty('--native-border', `color-mix(in srgb, ${result.theme.symbolColor} 25%, ${result.theme.color})`);
+    }
+  }).catch(() => {});
+  // Timeout releases startup only. The same request still applies a late native
+  // result, without applying an early response twice or flashing a foreign theme.
+  window.nativeLanguageReady = Promise.race([
+    nativeLanguageRequest, new Promise(resolve => setTimeout(resolve, 1500)),
+  ]);
 })();

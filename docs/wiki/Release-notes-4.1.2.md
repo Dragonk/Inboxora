@@ -55,6 +55,16 @@ open the exact queue item even when it is outside the loaded page. Cancelling a
 scheduled message uses an application confirmation dialog. Refresh has an outlined
 button, and contact settings no longer consume a separate mobile toolbar row.
 
+Delayed preference reads no longer revert a newly chosen agenda setting or sender
+alias. Notification lookups yield to subsequent manual navigation, locking or
+session changes. Diagnostics cannot report a failed or incomplete IMAP backfill
+as complete, and pending actions cannot lock controls after switching accounts.
+An unavailable invitation alias returns a recoverable validation/conflict response
+before any event is written. A failed DAV migration for one user is logged and
+retried on that user's next account access without preventing other users from
+starting normally; a global database/encryption configuration failure still stops
+startup.
+
 Native server-setup screens, menus, notification actions and launcher shortcuts
 have copy for all nine supported languages. Shortcuts expose Compose, Calendar and
 Contacts, while existing Compose/Sync links remain valid. The language selected in
@@ -62,7 +72,9 @@ Inboxora is reused by native surfaces, including background notifications. These
 native-shell changes require rebuilding/updating the desktop or Android application;
 updating only the Docker containers cannot replace an installed native binary.
 Android shortcuts use dynamic launcher entries so their labels can change with the
-application language. Installed Linux launcher actions contain all nine translations;
+application language; launcher updates run serially off the UI thread. Late native
+language/theme responses still update server-setup screens without delaying startup
+indefinitely. Installed Linux launcher actions contain all nine translations;
 the desktop environment selects their labels using its own locale.
 
 Regression coverage includes PostgreSQL migration/ownership, preservation of paused

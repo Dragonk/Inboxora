@@ -72,7 +72,6 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        lastHandledIntentKey = null;
         setIntent(intent);
         handleNativeIntent(intent);
     }
@@ -105,6 +104,15 @@ public class MainActivity extends BridgeActivity {
         Uri data = intent.getData();
         if (InboxoraNativePlugin.isPrivilegedNativeAction(action)
             && !InboxoraNativePlugin.isTrustedNativeIntent(this, intent)) return;
+        String route = data == null ? null : data.getHost();
+        if (data != null && (route == null || route.isEmpty())) {
+            route = data.getPath() == null ? "" : data.getPath().replaceFirst("^/", "");
+        }
+        // Repeated launcher taps are new navigation requests. Notification mutations
+        // still retain the existing replay guard, after the native intent is authenticated.
+        if (InboxoraNativePlugin.isRepeatableLaunch(action, data == null ? null : data.getScheme(), route)) {
+            lastHandledIntentKey = null;
+        }
         if (!markIntentHandled(intent)) return;
 
         if (InboxoraNativePlugin.ACTION_OPEN_MESSAGE.equals(action)) {
@@ -143,11 +151,6 @@ public class MainActivity extends BridgeActivity {
         }
 
         if (Intent.ACTION_VIEW.equals(action) && data != null && "inboxora".equalsIgnoreCase(data.getScheme())) {
-            String route = data.getHost();
-            if (route == null || route.isEmpty()) {
-                route = data.getPath() == null ? "" : data.getPath().replaceFirst("^/", "");
-            }
-
             if ("compose".equalsIgnoreCase(route)) {
                 InboxoraNativePlugin.sendComposeAction();
                 return;

@@ -60,3 +60,50 @@ test('installed Linux launchers contain translated Compose, Calendar and Contact
     }
   }
 });
+
+
+test('Android keeps only product identity and URI identifiers non-translatable', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../android/app/src/main/res/values/strings.xml'), 'utf8');
+  const expected = { app_name:'Inboxora', title_activity_main:'Inboxora', package_name:'io.github.dragonk.inboxora', custom_url_scheme:'io.github.dragonk.inboxora' };
+  const entries = [...source.matchAll(/<string name="([^"]+)" translatable="false">([^<]+)<\/string>/g)];
+  assert.deepEqual(Object.fromEntries(entries.map(([,key,value]) => [key,value])), expected);
+  for (const directory of Object.values(languageDirectories)) {
+    const translations = fs.readFileSync(path.join(__dirname, '../android/app/src/main/res', directory, 'native_strings.xml'), 'utf8');
+    assert.ok(!translations.includes('translatable="false"'), `${directory}: actual labels must remain translated`);
+  }
+});
+
+for (const late of [false, true]) {
+  test(`native setup applies ${late ? 'late' : 'early'} language and theme exactly once`, async () => {
+    let resolveNative;
+    const request = new Promise(resolve => { resolveNative = resolve; });
+    let timeout; let applied = 0;
+    const styles = new Map();
+    const element = { dataset: { nativeI18n: 'changeHost' }, set textContent(value) { applied++; this.value = value; } };
+    const document = { documentElement: { lang: '', style: { setProperty: (key,value) => styles.set(key,value) } },
+      querySelectorAll: () => [element], body: { dataset: {} }, title: '' };
+    const window = { InboxoraNativeI18n: { normalize: normalizeLanguage, text }, inboxoraNative: { getLanguage: () => request } };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname,'setup-i18n.js'),'utf8'), {
+      window, document, navigator: { language: 'en' }, setTimeout: (callback,ms) => { assert.equal(ms,1500); timeout = callback; },
+    });
+    assert.equal(element.value, catalog.en.changeHost);
+    if (late) { timeout(); await window.nativeLanguageReady; assert.equal(document.documentElement.lang,'en'); }
+    resolveNative({ language:'pl', theme:{color:'#101113',symbolColor:'#f4f5f7'} });
+    await request; await new Promise(resolve => setImmediate(resolve));
+    await window.nativeLanguageReady;
+    assert.equal(document.documentElement.lang, 'pl');
+    assert.equal(element.value, 'Zmień serwer');
+    assert.equal(applied, 2);
+    assert.equal(styles.get('--native-background'), '#101113');
+    assert.equal(styles.get('--native-foreground'), '#f4f5f7');
+    assert.equal(styles.get('--native-input'), '#101113');
+    timeout(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(applied, 2);
+  });
+}
+
+test('macOS host-change menu is labelled for its real action', () => {
+  const main = fs.readFileSync(path.join(__dirname,'../electron/main.cjs'),'utf8');
+  assert.match(main, /label: nt\('changeHost'\),[\s\S]{0,180}changeInboxoraHost/);
+  assert.doesNotMatch(main, /label: nt\('preferences'\),[\s\S]{0,180}changeInboxoraHost/);
+});

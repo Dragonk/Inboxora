@@ -66,6 +66,7 @@ test('resource editors are inline, keyboard reachable and use row deletion',asyn
     await actions.getByRole('button').first().click();
     const editor=panel.locator('.au-inline-editor');await expect(editor).toBeVisible();
     await expect(editor.getByRole('heading')).toBeFocused();
+    await expect(editor.getByRole('heading')).toHaveCSS('outline-style','solid');
     await expect(editor.locator('input').first()).toBeVisible();
     await expect(panel.locator('.ui-dialog-body')).toHaveCount(0);
     await expect(panel.locator('.au-resource')).toHaveCount(0);
@@ -161,3 +162,19 @@ for(const language of ['en','pl','de','cs','fr','es','it','ru','zhCN']) for(cons
     await page.screenshot({path:testInfo.outputPath(`calendar-${language}-${theme}.png`)});
   });
 }
+
+
+test('a contact source settings link filters resources to that source',async({page,fixtureApi})=>{
+  await fixtureApi;await setupV3(page);page.__languageOverride='en';
+  const books=[{id:'local-book',name:'Local contacts',source:'local',visible:true},
+    {id:'remote-book',name:'Private DAV contacts',source:'carddav',dav_source_id:'dav-source',source_label:'Private DAV',visible:true}];
+  await page.route('**/api/contacts/address-books{,?*}',route=>route.fulfill({json:{addressBooks:books}}));
+  await page.goto('/');await navigateModule(page,'contacts');
+  await page.getByTestId((page.viewportSize()?.width||1280)<768?'contacts-address-books':'contacts-books-trigger').click();
+  const group=page.locator('[data-source-id="carddav:source:dav-source"]');await expect(group).toBeVisible();
+  await group.locator('.au-source-heading .au-icon-button').click();
+  await page.getByRole('button',{name:'Account settings',exact:true}).click();
+  const manager=page.getByTestId('contacts-books-manager');await expect(manager).toBeVisible();
+  await expect(manager.locator('[data-resource-id="remote-book"]')).toBeVisible();
+  await expect(manager.locator('[data-resource-id="local-book"]')).toHaveCount(0);
+});

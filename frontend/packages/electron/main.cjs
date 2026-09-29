@@ -1648,7 +1648,7 @@ function buildDarwinMenuTemplate() {
         { label: nt('about', { name }), role: 'about' },
         { type: 'separator' },
         {
-          label: nt('preferences'),
+          label: nt('changeHost'),
           accelerator: 'Command+,',
           click: changeInboxoraHost,
         },

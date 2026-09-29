@@ -958,7 +958,7 @@ test('scheduled confirmation toast opens its exact item outside the first page w
   let enqueues = 0; let summaryReads = 0;
   const sideEffects: string[] = [];
   page.on('request', request => {
-    if (request.method() !== 'GET' && /\/api\/mail\/(?:scheduled\/[^/]+\/(?:edit|cancel|dismiss|reschedule)|send)$/.test(new URL(request.url()).pathname)) sideEffects.push(request.url());
+    if (request.method() !== 'GET' && /\/api\/mail\/(?:scheduled\/[^/]+(?:\/(?:edit|cancel|dismiss|reschedule))?|send)$/.test(new URL(request.url()).pathname)) sideEffects.push(request.url());
   });
   await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
     if (route.request().method() === 'GET') return route.fulfill({ json: new URL(route.request().url()).searchParams.has('page') ? { items: [], nextCursor: null } : rows });
@@ -986,7 +986,7 @@ test('scheduled confirmation toast opens its exact item outside the first page w
   await toast.click();
   await expect(page.getByTestId('scheduled-view')).toBeVisible();
   await expect(page.getByTestId('scheduled-edit-toast-target')).toBeVisible();
-  await expect(page.getByTestId('scheduled-preview')).toContainText('Queued fixture');
+  await expect(page.getByTestId('scheduled-preview').locator('[data-message-detail-body] iframe').contentFrame().locator('body')).toContainText('Frozen queued body');
   await expect.poll(() => summaryReads).toBeGreaterThan(0);
   expect(enqueues).toBe(1); expect(sideEffects).toEqual([]);
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
