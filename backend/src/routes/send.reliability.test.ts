@@ -197,13 +197,8 @@ describe('send failure semantics', () => {
     expect(redisClient.del).not.toHaveBeenCalled();
   });
 
-  // Blind recipients are a privacy boundary, not a formatting detail: the address must
-  // reach the transport's envelope and must never appear in a visible field. This case is
-  // written against what the route controls today (the options it hands over) so that it
-  // still holds when the message is composed once and passed as `raw` — at which point the
-  // envelope becomes explicit and this assertion can be extended to it. The suite's other
-  // BCC case asserts only that `bcc` was passed, which a `raw` send would keep true while
-  // dropping the recipient entirely.
+  // Blind recipients must reach the SMTP envelope but not the rendered headers.
+  // Inspect the exact raw bytes handed to sendMail, not just the composer options.
   it('never places a blind recipient in a visible field', async () => {
     const response = await post({
       accountId: 'a1',
@@ -221,6 +216,12 @@ describe('send failure semantics', () => {
     // And nowhere a recipient or a relay could read it from the headers.
     expect(JSON.stringify(mailOptions.to ?? [])).not.toContain('blind@');
     expect(JSON.stringify(mailOptions.cc ?? [])).not.toContain('blind@');
+    expect(Buffer.isBuffer(mailOptions.raw)).toBe(true);
+    const rawHeaders = parseRawHeaders(mailOptions.raw);
+    expect(rawHeaders).not.toHaveProperty('bcc');
+    expect(rawHeaders.to).toBe('visible@example.com');
+    expect(rawHeaders.cc).toBe('copy@example.com');
+    expect(JSON.stringify(rawHeaders)).not.toContain('blind@example.com');
     expect(mailOptions).not.toHaveProperty('headers');
     // The envelope is where the blind recipient does belong, and it is now stated rather
     // than left for nodemailer to derive — so the guarantee survives the message being
@@ -241,6 +242,13 @@ describe('send failure semantics', () => {
     const [mailOptions] = sendMail.mock.calls[0];
     expect(mailOptions).toMatchObject({ bcc: [{ address: 'blind@example.com', name: '' }] });
     expect(mailOptions).not.toHaveProperty('to');
+    expect(Buffer.isBuffer(mailOptions.raw)).toBe(true);
+    const rawHeaders = parseRawHeaders(mailOptions.raw);
+    expect(rawHeaders).not.toHaveProperty('bcc');
+    expect(rawHeaders).not.toHaveProperty('to');
+    expect(rawHeaders).not.toHaveProperty('cc');
+    expect(JSON.stringify(rawHeaders)).not.toContain('blind@example.com');
+    expect(mailOptions.envelope).toEqual({ from: 'me@example.com', to: ['blind@example.com'] });
   });
 
   it('renders an SMTP reply with the authoritative RFC chain (THR-08)', async () => {
