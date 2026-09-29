@@ -264,12 +264,12 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     ]);
 
     await expect(syncGoogleContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl }))
-      .rejects.toMatchObject({ code: 'invalid_grant' });
+      .rejects.toMatchObject({ code: 'PROVIDER_AUTH_REQUIRED', providerReason: 'invalid_grant', cause: expect.objectContaining({ code: 'invalid_grant' }) });
 
     const state = await autocommit(client => client.query<{ last_error_code: string | null }>(
       'SELECT last_error_code FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'contacts'],
     ));
-    expect(state.rows[0]?.last_error_code).toBe('invalid_grant');
+    expect(state.rows[0]?.last_error_code).toBe('PROVIDER_AUTH_REQUIRED');
   });
 
   it('removes a person the provider reports as deleted, keeping the link as a tombstone', async () => {

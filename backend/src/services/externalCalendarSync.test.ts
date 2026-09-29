@@ -9,8 +9,14 @@ type QueryMock = (text: string, params?: unknown[]) => Promise<DbQueryResult<DbR
 type SafeFetchMock = (url: string, options: RequestInit, policy: SafeFetchOptions) => Promise<Response>;
 type ConnectionPolicyMock = () => ReturnType<typeof ConnectionPolicyModule.getConnectionPolicy>;
 
-const { query, safeFetch, getConnectionPolicy } = vi.hoisted(() => ({
+const { query, safeFetch, getConnectionPolicy, captureDavSourceFence, withDavSourceProjection, isDavCollectionBlocked, retireDavCalendarSource, inspectDavCollection, discoverDavWriteAccess } = vi.hoisted(() => ({
   query: vi.fn<QueryMock>(),
+  captureDavSourceFence: vi.fn(),
+  withDavSourceProjection: vi.fn(),
+  isDavCollectionBlocked: vi.fn(),
+  retireDavCalendarSource: vi.fn(),
+  inspectDavCollection: vi.fn(),
+  discoverDavWriteAccess: vi.fn(),
   safeFetch: vi.fn<SafeFetchMock>(),
   getConnectionPolicy: vi.fn<ConnectionPolicyMock>(),
 }));
@@ -39,6 +45,9 @@ function lastQueryCall(): [string, unknown[]] {
   return [sql, params];
 }
 vi.mock('./db.js', () => ({ query }));
+vi.mock('./davCollectionLifecycle.js', () => ({ captureDavSourceFence, withDavSourceProjection, isDavCollectionBlocked, retireDavCalendarSource }));
+vi.mock('./davCollectionClient.js', async importOriginal => ({ ...await importOriginal<typeof import('./davCollectionClient.js')>(), inspectDavCollection, davCollectionRequest: (input: { url: string; allowPrivate?: boolean }, options: RequestInit) => safeFetch(input.url, options, { allowPrivate: input.allowPrivate }) }));
+vi.mock('./carddavClient.js', () => ({ discoverDavWriteAccess }));
 vi.mock('./safeFetch.js', () => ({ safeFetch }));
 vi.mock('./connectionPolicy.js', () => ({ getConnectionPolicy }));
 vi.mock('./encryption.js', () => ({ decrypt: (value: string) => value.startsWith('enc:v1:') ? value.slice('enc:v1:'.length) : value, encrypt: (value: string) => `enc:v1:${value}` }));
@@ -51,6 +60,26 @@ const source = {
 };
 const ical = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nDTSTART:20260901T090000Z\r\nDTEND:20260901T100000Z\r\nSUMMARY:Planning\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n';
 
+function configureQuery(currentSource = source, existingCalendar: string | null = null): void {
+  query.mockImplementation(async sql => {
+    if (sql.includes('FROM calendar_import_sources')) return { rows: [currentSource] };
+    if (sql.includes('FROM calendars')) return { rows: existingCalendar ? [{ id: existingCalendar }] : [] };
+    if (sql.includes('INSERT INTO calendars')) return { rows: [{ id: 'calendar-1' }] };
+    if (sql.includes('INSERT INTO source_connections')) return { rows: [{ id: 'source-conn-1' }] };
+    if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-1' }] };
+    return { rows: [] };
+  });
+}
+
+beforeEach(() => {
+  captureDavSourceFence.mockReset().mockResolvedValue('generation-1');
+  withDavSourceProjection.mockReset().mockImplementation(async (_userId: string, _kind: string, _sourceId: string, _generation: string, callback: (client: { query: QueryMock }) => Promise<unknown>) => callback({ query }));
+  isDavCollectionBlocked.mockReset().mockResolvedValue(false);
+  retireDavCalendarSource.mockReset().mockResolvedValue(undefined);
+  inspectDavCollection.mockReset().mockResolvedValue('present');
+  discoverDavWriteAccess.mockReset().mockResolvedValue('read_only');
+});
+
 describe('external calendar imports', () => {
   beforeEach(() => {
     query.mockReset(); safeFetch.mockReset(); getConnectionPolicy.mockReset();
@@ -58,13 +87,7 @@ describe('external calendar imports', () => {
   });
 
   it('pulls an ICS source into a read-only calendar and removes stale imported events', async () => {
-    query
-      .mockResolvedValueOnce({ rows: [source] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    configureQuery();
     safeFetch.mockResolvedValue(successfulResponse(ical));
 
     const result = await syncCalendarSource('user-1', 'source-1');
@@ -106,7 +129,7 @@ describe('external calendar imports', () => {
   });
 
   it('synchronizes Exchange timezone events without replacing calendar appearance', async () => {
-    query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-work' }] });
+    configureQuery(source, 'calendar-work');
     safeFetch.mockResolvedValue(successfulResponse(outlookCalendar()));
     expect(await syncCalendarSource('user-1', 'source-1')).toEqual({ ok: true, eventCount: 1 });
     const inserted = queryCallContaining('INSERT INTO calendar_events');
@@ -118,13 +141,7 @@ describe('external calendar imports', () => {
   });
   it('imports a recurring VEVENT without discarding its VCALENDAR context or non-event siblings', async () => {
     const richIcal = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTIMEZONE\r\nTZID:Europe/Berlin\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:weekly-planning\r\nDTSTART;TZID=Europe/Berlin:20260901T090000\r\nDURATION:PT1H\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nATTENDEE;CN=Sam:mailto:sam@example.test\r\nATTENDEE;CN=Taylor:mailto:taylor@example.test\r\nX-INBOXORA-EXAMPLE:kept\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Reminder\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VTODO\r\nUID:todo-1\r\nSUMMARY:Not an event projection\r\nEND:VTODO\r\nBEGIN:VJOURNAL\r\nUID:journal-1\r\nEND:VJOURNAL\r\nBEGIN:VFREEBUSY\r\nUID:freebusy-1\r\nEND:VFREEBUSY\r\nEND:VCALENDAR\r\n';
-    query
-      .mockResolvedValueOnce({ rows: [source] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    configureQuery();
     safeFetch.mockResolvedValue(successfulResponse(richIcal));
 
     const result = await syncCalendarSource('user-1', 'source-1');
@@ -141,18 +158,12 @@ describe('external calendar imports', () => {
     const storedDocument = queryCallContaining('calendar_import_documents');
     expect(storedDocument[1]).toEqual(['source-1', richIcal]);
     expect(lastQueryCall()[0]).toContain('last_error = NULL');
-    expect(lastQueryCall()[1]).toEqual(['source-1']);
+    expect(lastQueryCall()[1]).toEqual(['source-1', 'user-1']);
   });
 
   it('imports a valid legacy ICS feed that uses bare CR line endings', async () => {
     const crOnly = 'BEGIN:VCALENDAR\rVERSION:2.0\rBEGIN:VEVENT\rUID:cr-only\rDTSTART:20260901T090000Z\rDTEND:20260901T100000Z\rEND:VEVENT\rEND:VCALENDAR\r';
-    query
-      .mockResolvedValueOnce({ rows: [source] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    configureQuery();
     safeFetch.mockResolvedValue(successfulResponse(crOnly));
 
     const result = await syncCalendarSource('user-1', 'source-1');
@@ -164,7 +175,7 @@ describe('external calendar imports', () => {
 
   it('imports an all-day DATE event without DTEND as a one-day event', async () => {
     const fixture = await readFile(new URL('./fixtures/remote-calendar-all-day-no-end.ics', import.meta.url), 'utf8');
-    query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    configureQuery();
     safeFetch.mockResolvedValue(successfulResponse(fixture));
     const result = await syncCalendarSource('user-1', 'source-1');
     expect(result).toEqual({ ok: true, eventCount: 1 });
@@ -196,7 +207,7 @@ describe('external calendar imports', () => {
 
   it('imports valid events while retaining skipped UIDs and reporting a warning', async () => {
     const mixedIcal = [ical, 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:broken-event\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n'].join('');
-    query.mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    configureQuery();
     safeFetch.mockResolvedValue(successfulResponse(mixedIcal));
     const result = await syncCalendarSource('user-1', 'source-1');
     expect(result).toEqual({ ok: true, eventCount: 1, skipped: [{ uid: 'broken-event', reason: 'unsupported or malformed VEVENT' }] });
@@ -216,19 +227,13 @@ describe('external calendar imports', () => {
 
     expect(result).toEqual({ ok: false, error: 'request failed for [redacted] ([redacted])' });
     expect(query.mock.calls[1][0]).toContain('last_error');
-    expect(query.mock.calls[1][1]).toEqual(['source-1', 'request failed for [redacted] ([redacted])']);
+    expect(query.mock.calls[1][1]).toEqual(['source-1', 'request failed for [redacted] ([redacted])', 'user-1']);
   });
 
   it('does not retain a removal tombstone for a nonexistent source', async () => {
     await stopCalendarSource('missing-source');
     const replacement = { ...source, id: 'missing-source' };
-    query
-      .mockResolvedValueOnce({ rows: [replacement] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    configureQuery(replacement);
     safeFetch.mockResolvedValue(successfulResponse(ical));
 
     await expect(syncCalendarSource('user-1', replacement.id)).resolves.toEqual({ ok: true, eventCount: 1 });
@@ -236,7 +241,7 @@ describe('external calendar imports', () => {
 
 
 it('persists the full visible metadata on external synchronization', async () => {
-  query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [source] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-work' }] });
+  configureQuery(source, 'calendar-work');
   safeFetch.mockResolvedValue(successfulResponse(outlookCalendar('09', 'DESCRIPTION:Agenda\r\nLOCATION:Office\r\nURL:https://example.test/join\r\nORGANIZER:mailto:team@example.test\r\nATTENDEE:mailto:jane@example.test\r\n')));
   expect((await syncCalendarSource('user-1', 'source-1')).ok).toBe(true);
   const insert = queryCallContaining('INSERT INTO calendar_events');
@@ -269,9 +274,9 @@ it('persists the full visible metadata on external synchronization', async () =>
 
 it.each(['ical_url', 'caldav'])('removes the previous projection for a validated empty %s collection', async kind => {
   const credentials = kind === 'caldav' ? { username: 'calendar-user', password: 'enc:v1:calendar-password' } : {};
-  query.mockReset(); query.mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [{ ...source, ...credentials, id: `empty-${kind}`, kind }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-1' }] });
+  query.mockReset(); configureQuery({ ...source, ...credentials, id: `empty-${kind}`, kind }, 'calendar-1');
   getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
-  safeFetch.mockImplementation(async () => successfulResponse(kind === 'caldav' ? '<D:multistatus xmlns:D="DAV:"/>' : 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n'));
+  safeFetch.mockImplementation(async () => kind === 'caldav' ? new Response('<D:multistatus xmlns:D="DAV:"/>', { status: 207 }) : successfulResponse('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n'));
   expect(await syncCalendarSource('user-1', `empty-${kind}`)).toEqual({ ok: true, eventCount: 0 });
   expect(queryCallContaining('DELETE FROM calendar_events')[1]).toEqual(['calendar-1', ['']]);
 });
@@ -282,4 +287,90 @@ it('does not treat an HTML error page as an empty calendar', async () => {
   safeFetch.mockResolvedValue(successfulResponse('<html>Service unavailable</html>'));
   expect(await syncCalendarSource('user-1', 'html-source')).toMatchObject({ ok: false });
   expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM calendar_events'))).toBe(false);
+});
+
+describe('CalDAV collection lifecycle', () => {
+  const davSource = { ...source, id: 'dav-source', kind: 'caldav', username: 'synthetic', password: 'enc:v1:synthetic-password' };
+  beforeEach(() => {
+    query.mockReset(); safeFetch.mockReset();
+    configureQuery(davSource, 'calendar-1');
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: false, allowInsecureTls: false, allowNonstandardPorts: false });
+  });
+
+  it.each([404, 410])('retires only verified missing collections after REPORT %s', async status => {
+    safeFetch.mockResolvedValue(new Response(null, { status }));
+    inspectDavCollection.mockResolvedValue('missing');
+    expect(await syncCalendarSource('user-1', 'dav-source')).toEqual({ ok: true, removed: true, eventCount: 0 });
+    expect(retireDavCalendarSource).toHaveBeenCalledWith('user-1', 'dav-source', 'generation-1');
+    expect(query.mock.calls.some(([sql]) => sql.includes('INSERT INTO calendar'))).toBe(false);
+  });
+
+  it.each(['present', 'unknown'])('preserves local data when missing REPORT readback is %s', async presence => {
+    safeFetch.mockResolvedValue(new Response(null, { status: 404 }));
+    inspectDavCollection.mockResolvedValue(presence);
+    expect((await syncCalendarSource('user-1', 'dav-source')).ok).toBe(false);
+    expect(retireDavCalendarSource).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM'))).toBe(false);
+  });
+
+  it.each([200, 202, 401, 403, 500])('preserves collections on HTTP %s', async status => {
+    safeFetch.mockResolvedValue(new Response(null, { status }));
+    expect((await syncCalendarSource('user-1', 'dav-source')).ok).toBe(false);
+    expect(inspectDavCollection).not.toHaveBeenCalled();
+    expect(retireDavCalendarSource).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM'))).toBe(false);
+  });
+
+  it.each(['HTTP/1.1 401 Unauthorized', 'HTTP/1.1 403 Forbidden', 'HTTP/1.1 404 Not Found', 'HTTP/1.1 429 Too Many Requests', ''])('rejects incomplete resource status %s without replacing events', async status => {
+    safeFetch.mockResolvedValue(new Response(`<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/events.ics/event.ics</d:href><d:propstat><d:prop><c:calendar-data>${ical}</c:calendar-data></d:prop>${status ? `<d:status>${status}</d:status>` : ''}</d:propstat></d:response></d:multistatus>`, { status: 207 }));
+    expect((await syncCalendarSource('user-1', 'dav-source')).ok).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM') || sql.includes('INSERT INTO calendar_events'))).toBe(false);
+  });
+
+  it('rejects a successful resource response with absent calendar-data', async () => {
+    safeFetch.mockResolvedValue(new Response('<d:multistatus xmlns:d="DAV:"><d:response><d:href>/events.ics/event.ics</d:href><d:propstat><d:prop><d:getetag>etag</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>', { status: 207 }));
+    expect((await syncCalendarSource('user-1', 'dav-source')).ok).toBe(false);
+    expect(query.mock.calls.some(([sql]) => sql.includes('DELETE FROM'))).toBe(false);
+  });
+
+  it('imports a complete calendar resource with unknown write privileges as read-only', async () => {
+    discoverDavWriteAccess.mockResolvedValue(null);
+    safeFetch.mockResolvedValue(new Response(`<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/events.ics/event.ics</d:href><d:propstat><d:prop><c:calendar-data>${ical}</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, { status: 207 }));
+    expect(await syncCalendarSource('user-1', 'dav-source')).toEqual({ ok: true, eventCount: 1 });
+    expect(queryCallContaining('INSERT INTO integration_collections')[1].at(-1)).toBe('read_only');
+  });
+
+  it.each(['https://other.example/events.ics/event.ics', '/another-home/event.ics'])('rejects calendar resources outside their source: %s', async href => {
+    safeFetch.mockResolvedValue(new Response(`<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>${href}</d:href><d:propstat><d:prop><c:calendar-data>${ical}</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, { status: 207 }));
+    expect((await syncCalendarSource('user-1', 'dav-source')).ok).toBe(false);
+    expect(query.mock.calls.some(([sql]) => /INSERT|DELETE/.test(sql))).toBe(false);
+  });
+
+  it('does not fetch or write stale scheduled configuration after source retirement', async () => {
+    safeFetch.mockResolvedValue(new Response(null, { status: 404 }));
+    inspectDavCollection.mockResolvedValue('missing');
+    expect(await syncCalendarSource('user-1', 'dav-source')).toEqual({ ok: true, removed: true, eventCount: 0 });
+    query.mockClear(); safeFetch.mockClear();
+    captureDavSourceFence.mockRejectedValue(new Error('DAV source was removed or disabled'));
+    expect(await syncCalendarSource('user-1', 'dav-source')).toEqual({ ok: false, error: 'DAV source was removed or disabled' });
+    expect(safeFetch).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refuses projection after its source generation has changed', async () => {
+    safeFetch.mockResolvedValue(new Response('<d:multistatus xmlns:d="DAV:"/>', { status: 207 }));
+    withDavSourceProjection.mockRejectedValue(new Error('DAV source generation changed'));
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await syncCalendarSource('user-1', 'dav-source')).toEqual({ ok: false, error: 'DAV source generation changed' });
+      expect(query.mock.calls.some(([sql]) => /INSERT|UPDATE|DELETE/.test(sql))).toBe(false);
+    } finally { warning.mockRestore(); }
+  });
+
+  it('refuses to recreate a collection with a pending deletion journal', async () => {
+    safeFetch.mockResolvedValue(new Response('<d:multistatus xmlns:d="DAV:"/>', { status: 207 }));
+    isDavCollectionBlocked.mockResolvedValue(true);
+    expect(await syncCalendarSource('user-1', 'dav-source')).toEqual({ ok: false, error: 'Calendar collection deletion is pending' });
+    expect(query.mock.calls.some(([sql]) => /INSERT|DELETE/.test(sql))).toBe(false);
+  });
 });

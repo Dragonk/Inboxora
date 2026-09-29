@@ -6,7 +6,7 @@
 //   DB_HOST=localhost DB_PORT=5432 DB_NAME=mailflow_test DB_USER=… DB_PASSWORD=… \
 //     npx vitest run src/services/providers/microsoft/graphContactsSync.integration.test.ts
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../db.js';
@@ -17,7 +17,9 @@ import {
   upsertProviderConnection,
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
-import { syncGraphContacts } from './graphContactsSync.js';
+import * as collectionFence from '../../addressBookCollectionFence.js';
+import { deleteProviderAddressBook, describeAddressBookDeletion } from '../../addressBookCollectionManagement.js';
+import { ensureGraphAddressBook, syncGraphContacts } from './graphContactsSync.js';
 import { DEFAULT_GRAPH_CONTACTS_TARGET, type GraphContact } from './graphContacts.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
@@ -115,10 +117,10 @@ async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise
   }
 }
 
-async function seedConnection(): Promise<string> {
+async function seedConnection(subject = 'ms-sub-contacts'): Promise<string> {
   return inTransaction(async client => {
     const connectionId = await upsertProviderConnection(client, {
-      userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject: 'ms-sub-contacts',
+      userId: USER_ID, provider: 'microsoft', issuer: MICROSOFT_ISSUER, subject,
     });
     await storeOAuthGrant(client, {
       connectionId,
@@ -157,6 +159,7 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
 
   beforeEach(async () => {
     await autocommit(async client => {
+      await client.query('DELETE FROM email_accounts WHERE user_id = $1', [USER_ID]);
       await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
       await client.query('DELETE FROM address_books WHERE user_id = $1', [USER_ID]);
     });
@@ -506,6 +509,231 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     await expect(run()).resolves.toMatchObject({ incomplete: false, errors: [] });
     await expect(run()).resolves.toMatchObject({ incomplete: false, errors: [] });
     expect(await snapshot()).toEqual(before);
+  });
+
+  it('retires a missing folder and its contacts, fences a late ensure, and permits a new provider identity', async () => {
+    const connectionId = await seedConnection();
+    const first = fakeProvider([() => json({ value: [contact('gone', 'Gone', 'gone@test.invalid')] })]);
+    const before = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: first.fetchImpl });
+    const missing = fakeProvider([], []);
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: missing.fetchImpl });
+    expect((await pool.query('SELECT 1 FROM address_books WHERE id=$1', [before.books[1].addressBookId])).rows).toHaveLength(0);
+    expect(await storedContacts()).toHaveLength(0);
+    await expect(inTransaction(client => ensureGraphAddressBook(client, { userId: USER_ID, connectionId, folderId: FOLDER_ID }))).rejects.toThrow('confirmed deletion fence');
+    const replacement = fakeProvider([() => json({ value: [contact('new', 'New', 'new@test.invalid')] })], [{ id: 'replacement-id', displayName: 'Contacts', parentFolderId: null }]);
+    expect((await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: replacement.fetchImpl })).created).toBe(1);
+  });
+
+  it.each(['malformed', 'page-cap', 'forbidden', 'timeout'])('does not retire folders after %s discovery', async failure => {
+    const connectionId = await seedConnection();
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([() => json({ value: [contact('safe', 'Safe', 'safe@test.invalid')] })]).fetchImpl });
+    const fetchImpl = async (url: string): Promise<Response> => {
+      if (url.includes('/me/contacts?')) return json({ value: [] });
+      if (failure === 'malformed') return json({ value: [{ displayName: 'No identity' }] });
+      if (failure === 'forbidden') return json({ error: { code: 'ErrorAccessDenied' } }, 403);
+      if (failure === 'timeout') throw new Error('synthetic timeout');
+      return json({ value: [], '@odata.nextLink': 'https://graph.microsoft.com/v1.0/me/contactFolders?$skiptoken=loop' });
+    };
+    const result = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl });
+    expect(result.incomplete).toBe(true);
+    expect((await storedContacts()).map(row => row.display_name)).toEqual(['Safe']);
+    expect((await pool.query('SELECT 1 FROM address_book_collection_tombstones WHERE user_id=$1 AND connection_id=$2', [USER_ID, connectionId])).rows).toHaveLength(0);
+  });
+
+  async function managedFixture(deleteStatus = 204, timeout = false) {
+    const connectionId = await seedConnection();
+    const account = (await pool.query<{ id: string }>(`INSERT INTO email_accounts(user_id,name,email_address,imap_host,imap_port,smtp_host,smtp_port,auth_user,auth_pass,provider_connection_id)
+      VALUES($1,'Synthetic Contacts','contacts@example.test','example.test',993,'example.test',587,'user','unused',$2) RETURNING id`, [USER_ID, connectionId])).rows[0];
+    await pool.query("INSERT INTO account_provider_feature_settings(account_id,feature,enabled) VALUES($1,'contacts',true)", [account.id]);
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([() => json({ value: [contact('managed', 'Managed', 'managed@test.invalid')] })]).fetchImpl });
+    const book = (await pool.query<{ id: string; name: string }>(`SELECT ab.id,ab.name FROM address_books ab JOIN integration_collections ic ON ic.local_address_book_id=ab.id WHERE ic.connection_id=$1 AND ic.remote_id=$2`, [connectionId, FOLDER_ID])).rows[0];
+    await pool.query("UPDATE integration_collections SET user_access='read_write' WHERE connection_id=$1", [connectionId]);
+    let deletes = 0;
+    const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
+      if (init?.method === 'DELETE') {
+        deletes++;
+        if (timeout) throw new Error('lost provider response');
+        return json(deleteStatus === 204 ? null : { error: { code: 'ErrorAccessDenied' } }, deleteStatus);
+      }
+      if (url.includes('/me/contacts?')) return json({ value: [{ parentFolderId: 'stable-default-folder' }] });
+      return json({ id: FOLDER_ID });
+    };
+    return { book, connectionId, options: { graphApi: { config: CONFIG, fetchImpl } }, deleteCount: () => deletes };
+  }
+
+  it('deletes the provider folder, projects only a confirmed 204, and replays after local cleanup', async () => {
+    const fixture = await managedFixture();
+    expect(await describeAddressBookDeletion(USER_ID, fixture.book.id, fixture.options)).toEqual({ supported: true });
+    const input = { userId: USER_ID, addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() };
+    const result = await deleteProviderAddressBook(input, fixture.options);
+    expect(result.status).toBe('confirmed');
+    expect(await storedContacts()).toHaveLength(0);
+    expect((await pool.query('SELECT 1 FROM address_books WHERE id=$1', [fixture.book.id])).rows).toHaveLength(0);
+    expect(await deleteProviderAddressBook(input, fixture.options)).toMatchObject({ status: 'confirmed', replayed: true, operationId: result.operationId });
+    expect(fixture.deleteCount()).toBe(1);
+  });
+
+  it.each([{ status: 403, timeout: false, outcome: 'permanent' }, { status: 202, timeout: false, outcome: 'outcome_unknown' }, { status: 204, timeout: true, outcome: 'outcome_unknown' }])('retains projection for unconfirmed provider result $outcome ($status)', async failure => {
+    const fixture = await managedFixture(failure.status, failure.timeout);
+    const input = { userId: USER_ID, addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() };
+    expect((await deleteProviderAddressBook(input, fixture.options)).status).toBe(failure.outcome);
+    expect((await deleteProviderAddressBook(input, fixture.options)).status).toBe(failure.outcome);
+    expect(fixture.deleteCount()).toBe(1);
+    expect(await storedContacts()).toHaveLength(1);
+    expect((await pool.query('SELECT 1 FROM address_books WHERE id=$1', [fixture.book.id])).rows).toHaveLength(1);
+  });
+
+  it('protects the stable default folder despite its localized display name and refuses foreign ownership', async () => {
+    const fixture = await managedFixture();
+    const options = { graphApi: { config: CONFIG, fetchImpl: async (): Promise<Response> => json({ value: [{ parentFolderId: FOLDER_ID }] }) } };
+    expect(await describeAddressBookDeletion(USER_ID, fixture.book.id, options)).toMatchObject({ supported: false, reason: expect.stringContaining('default') });
+    await expect(deleteProviderAddressBook({ userId: crypto.randomUUID(), addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() }, fixture.options)).rejects.toMatchObject({ status: 404 });
+    expect(fixture.deleteCount()).toBe(0);
+  });
+
+  it('restores a re-observed contact folder but preserves confirmed deletion fences', async () => {
+    const connectionId = await seedConnection();
+    const present = () => fakeProvider([() => json({ value: [contact('returning', 'Returned', 'returned@test.invalid')] })]).fetchImpl;
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: present() });
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([], []).fetchImpl });
+    expect(await storedContacts()).toHaveLength(0);
+    expect((await pool.query('SELECT retirement_reason FROM address_book_collection_tombstones WHERE connection_id=$1', [connectionId])).rows)
+      .toEqual([{ retirement_reason: 'complete_discovery' }]);
+    const restored = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: present() });
+    expect(restored.errors).toEqual([]); expect(await storedContacts()).toHaveLength(1);
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([], []).fetchImpl });
+    await pool.query("UPDATE address_book_collection_tombstones SET retirement_reason='confirmed_delete' WHERE connection_id=$1", [connectionId]);
+    expect((await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: present() })).incomplete).toBe(true);
+    expect(await storedContacts()).toHaveLength(0);
+  });
+
+  it('limits discovery retirement to the exact connection and preserves user-local books', async () => {
+    const one = await seedConnection('first');
+    const two = await seedConnection('second');
+    for (const connectionId of [one, two]) await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([() => json({ value: [contact('shared-remote-id', 'Kept', 'kept@test.invalid')] })]).fetchImpl });
+    const local = await pool.query<{ id: string }>("INSERT INTO address_books(user_id,name,source) VALUES($1,'User Local','local') RETURNING id", [USER_ID]);
+    await syncGraphContacts({ userId: USER_ID, connectionId: one, config: CONFIG, fetchImpl: fakeProvider([], []).fetchImpl });
+    expect((await pool.query('SELECT 1 FROM integration_collections WHERE connection_id=$1 AND remote_id=$2', [two, FOLDER_ID])).rows).toHaveLength(1);
+    expect(await storedContacts()).toHaveLength(1);
+    expect((await pool.query('SELECT 1 FROM address_books WHERE id=$1', [local.rows[0].id])).rows).toHaveLength(1);
+  });
+
+  it('checks complete discovery after an unknown delete without sending another DELETE', async () => {
+    const fixture = await managedFixture(204, true);
+    const input = { userId: USER_ID, addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() };
+    expect((await deleteProviderAddressBook(input, fixture.options)).status).toBe('outcome_unknown');
+    const options = { graphApi: { config: CONFIG, fetchImpl: async (url: string, init?: RequestInit): Promise<Response> => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      expect(url).toContain('/me/contactFolders');
+      return json({ value: [] });
+    } } };
+    expect((await deleteProviderAddressBook(input, options)).status).toBe('confirmed');
+    expect(fixture.deleteCount()).toBe(1);
+    expect(await storedContacts()).toHaveLength(0);
+  });
+
+  it('does not offer Google primary deletion or guess the default Microsoft identity from an empty folder', async () => {
+    const fixture = await managedFixture();
+    const options = { graphApi: { config: CONFIG, fetchImpl: async (): Promise<Response> => json({ value: [] }) } };
+    expect(await describeAddressBookDeletion(USER_ID, fixture.book.id, options)).toMatchObject({ supported: false, reason: expect.stringContaining('empty') });
+    const google = (await pool.query<{ id: string }>("INSERT INTO address_books(user_id,name,source) VALUES($1,'Primary Google','google') RETURNING id", [USER_ID])).rows[0];
+    expect(await describeAddressBookDeletion(USER_ID, google.id, fixture.options)).toMatchObject({ supported: false, reason: expect.stringContaining('primary') });
+    expect(fixture.deleteCount()).toBe(0);
+  });
+
+  it('preserves a contact that has an active membership in another owned collection', async () => {
+    const fixture = await managedFixture();
+    const other = await inTransaction(client => ensureGraphAddressBook(client, { userId: USER_ID, connectionId: fixture.connectionId, folderId: 'surviving-folder', label: 'Surviving' }));
+    const person = (await pool.query<{ id: string }>('SELECT id FROM contacts WHERE address_book_id=$1', [fixture.book.id])).rows[0];
+    await pool.query(`INSERT INTO remote_object_links(user_id,connection_id,collection_id,object_type,local_id,collection_remote_id,object_remote_id,status)
+      VALUES($1,$2,$3,'contact',$4,'surviving-folder','shared','active')`, [USER_ID, fixture.connectionId, other.collectionId, person.id]);
+    expect((await deleteProviderAddressBook({ userId: USER_ID, addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() }, fixture.options)).status).toBe('confirmed');
+    expect((await pool.query('SELECT address_book_id FROM contacts WHERE id=$1', [person.id])).rows).toEqual([{ address_book_id: other.addressBookId }]);
+    expect((await pool.query('SELECT 1 FROM remote_object_links WHERE collection_id=$1 AND local_id=$2', [other.collectionId, person.id])).rows).toHaveLength(1);
+  });
+
+  it('replays a confirmed provider deletion after local cleanup fails without another DELETE', async () => {
+    const fixture = await managedFixture();
+    const input = { userId: USER_ID, addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() };
+    const failure = vi.spyOn(collectionFence, 'retireAddressBookCollection').mockRejectedValueOnce(new Error('synthetic transaction failure'));
+    try {
+      expect(await deleteProviderAddressBook(input, fixture.options)).toMatchObject({ status: 'pending', code: 'PROJECTION_PENDING' });
+      expect(await storedContacts()).toHaveLength(1);
+      await expect(inTransaction(client => ensureGraphAddressBook(client, { userId: USER_ID, connectionId: fixture.connectionId, folderId: FOLDER_ID }))).rejects.toThrow('confirmed deletion fence');
+      expect((await deleteProviderAddressBook(input, fixture.options)).status).toBe('confirmed');
+      expect(await storedContacts()).toHaveLength(0);
+      expect(fixture.deleteCount()).toBe(1);
+    } finally { failure.mockRestore(); }
+  });
+
+  it('rejects a page started before confirmed deletion so it cannot recreate contacts', async () => {
+    const fixture = await managedFixture();
+    let releasePage: (() => void) | undefined;
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    const suspended = new Promise<void>(resolve => { releasePage = resolve; });
+    const slow = fakeProvider([async () => {
+      markStarted!();
+      await suspended;
+      return json({ value: [contact('stale', 'Stale', 'stale@test.invalid')] });
+    }]);
+    const pendingSync = syncGraphContacts({ userId: USER_ID, connectionId: fixture.connectionId, config: CONFIG, fetchImpl: slow.fetchImpl });
+    await started;
+    try {
+      expect((await deleteProviderAddressBook({ userId: USER_ID, addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() }, fixture.options)).status).toBe('confirmed');
+    } finally { releasePage!(); }
+    expect((await pendingSync).incomplete).toBe(true);
+    expect(await storedContacts()).toHaveLength(0);
+  });
+
+  it('retains projection if consent is revoked while discovery is in flight', async () => {
+    const fixture = await managedFixture();
+    const fetchImpl = async (): Promise<Response> => {
+      await pool.query("UPDATE oauth_grants SET status='revoked' WHERE connection_id=$1", [fixture.connectionId]);
+      return json({ value: [] });
+    };
+    await expect(syncGraphContacts({ userId: USER_ID, connectionId: fixture.connectionId, config: CONFIG, fetchImpl })).rejects.toThrow();
+    expect(await storedContacts()).toHaveLength(1);
+    expect((await pool.query('SELECT 1 FROM address_book_collection_tombstones WHERE connection_id=$1', [fixture.connectionId])).rows).toHaveLength(0);
+  });
+
+  it('does not retire books when contacts are disabled during discovery', async () => {
+    const fixture = await managedFixture();
+    const fetchImpl = async (): Promise<Response> => {
+      await pool.query(`UPDATE account_provider_feature_settings SET enabled=false
+        WHERE feature='contacts' AND account_id IN (SELECT id FROM email_accounts WHERE user_id=$1)`, [USER_ID]);
+      return json({ value: [] });
+    };
+    const outcome = await syncGraphContacts({ userId: USER_ID, connectionId: fixture.connectionId, config: CONFIG, fetchImpl });
+    expect(outcome.incomplete).toBe(true);
+    expect(await storedContacts()).toHaveLength(1);
+    expect((await pool.query('SELECT 1 FROM address_book_collection_tombstones WHERE connection_id=$1', [fixture.connectionId])).rowCount).toBe(0);
+  });
+
+  it('retains a local projection created after the discovery snapshot started', async () => {
+    const connectionId = await seedConnection();
+    let created: { addressBookId: string; collectionId: string } | undefined;
+    const fetchImpl = async (url: string): Promise<Response> => {
+      if (url.includes('/me/contactFolders?')) {
+        created = await inTransaction(client => ensureGraphAddressBook(client, { userId: USER_ID, connectionId, folderId: 'new-during-discovery', label: 'Created During Discovery' }));
+      }
+      return json({ value: [] });
+    };
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl });
+    expect(created).toBeDefined();
+    expect((await pool.query('SELECT 1 FROM address_books WHERE id=$1', [created!.addressBookId])).rows).toHaveLength(1);
+    expect((await pool.query('SELECT 1 FROM address_book_collection_tombstones WHERE connection_id=$1', [connectionId])).rows).toHaveLength(0);
+  });
+
+  it.each(['feature-disabled', 'scope-reduced', 'grant-revoked'])('refuses collection deletion after current authorization changes: %s', async changed => {
+    const fixture = await managedFixture();
+    if (changed === 'feature-disabled') await pool.query(`UPDATE account_provider_feature_settings SET enabled=false WHERE account_id IN (SELECT id FROM email_accounts WHERE user_id=$1)`, [USER_ID]);
+    if (changed === 'scope-reduced') await pool.query("UPDATE oauth_grants SET current_scopes=ARRAY['Contacts.Read'] WHERE connection_id=$1", [fixture.connectionId]);
+    if (changed === 'grant-revoked') await pool.query("UPDATE oauth_grants SET status='revoked' WHERE connection_id=$1", [fixture.connectionId]);
+    expect(await describeAddressBookDeletion(USER_ID, fixture.book.id, fixture.options)).toMatchObject({ supported: false });
+    await expect(deleteProviderAddressBook({ userId: USER_ID, addressBookId: fixture.book.id, confirmName: fixture.book.name, idempotencyKey: crypto.randomUUID() }, fixture.options)).rejects.toMatchObject({ status: 403 });
+    expect(fixture.deleteCount()).toBe(0);
+    expect(await storedContacts()).toHaveLength(1);
   });
 
 });

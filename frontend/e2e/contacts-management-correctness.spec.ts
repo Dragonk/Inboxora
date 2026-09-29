@@ -2,7 +2,7 @@ import { test, expect } from './fixtures.ts';
 import { setupV3, navigateModule } from './v3-fixtures.ts';
 
 async function openBooks(page: any) {
-  await page.route('**/api/contacts/address-books', route => route.fulfill({ json: { addressBooks: [
+  await page.route('**/api/contacts/address-books{,?*}', route => route.fulfill({ json: { addressBooks: [
     { id: 'book-work', name: 'Firmowa', source: 'local', visible: true, read_only: false },
     { id: 'book-private', name: 'Prywatna', source: 'local', visible: true, read_only: false },
   ] } }));

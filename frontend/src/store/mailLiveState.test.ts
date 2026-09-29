@@ -212,3 +212,111 @@ test('reading a known child in an incomplete expansion preserves unobserved unre
   assert.equal(useStore.getState().messages[0].unread_count, 1);
   assert.equal(useStore.getState().messages[0].is_read, false);
 });
+
+test('list load, pagination and restoration preserve physical copies sharing RFC headers', () => {
+  useStore.setState({ threadedView: false, threadMessages: {}, searchResults: [], searchQuery: '' });
+  const rows = [{ id: 'read', account_id: 'a', message_id: '<same>', is_read: true }, { id: 'unread', account_id: 'a', message_id: '<same>', is_read: false }];
+  useStore.getState().setMessages(rows);
+  assert.deepEqual(useStore.getState().messages.map(row => row.id), ['read', 'unread']);
+  useStore.getState().appendMessages([...rows, { ...rows[0], id: 'third' }]);
+  assert.deepEqual(useStore.getState().messages.map(row => row.id), ['read', 'unread', 'third']);
+  useStore.getState().removeMessage('unread');
+  useStore.getState().restoreMessages([rows[1]]);
+  assert.equal(useStore.getState().messages.some(row => row.id === 'unread'), true);
+});
+
+test('pending physical flags survive list, thread cache and account-scoped realtime refresh', async () => {
+  const { queueReadStateMutation, resetReadStateMutationsForTest } = await import('../utils/readStateMutation.ts');
+  resetReadStateMutationsForTest();
+  seed();
+  await queueReadStateMutation('older', true, async () => ({ pending: ['older'] })).promise;
+  const children = [{ id: 'newest', account_id: 'a', folder: 'INBOX', is_read: false }, { id: 'older', account_id: 'a', folder: 'INBOX', is_read: false }];
+  useStore.getState().setThreadMessages('a:thread', children);
+  useStore.getState().setMessages([{ id: 'newest', account_id: 'a', folder: 'INBOX', thread_id: 'a:thread', message_count: 2, unread_count: 2, is_read: false }]);
+  assert.equal(useStore.getState().messages[0].unread_count, 1);
+  useStore.getState().updateMessage('older', { is_read: false }, 'a');
+  assert.equal(useStore.getState().threadMessages['a:thread'][1].is_read, true);
+  assert.equal(useStore.getState().messages[0].unread_count, 1);
+  resetReadStateMutationsForTest();
+});
+
+test('pending unread and star survive search and restore snapshots', async () => {
+  const { queueReadStateMutation, resetReadStateMutationsForTest } = await import('../utils/readStateMutation.ts');
+  const { queueStarStateMutation } = await import('../utils/starStateMutation.ts');
+  resetReadStateMutationsForTest();
+  useStore.setState({ messages: [], searchResults: [], searchQuery: 'fixture', threadMessages: {} });
+  await queueReadStateMutation('search-copy', false, async () => ({ pending: ['search-copy'] })).promise;
+  await queueStarStateMutation('search-copy', true, async () => ({ pending: ['search-copy'] })).promise;
+  const old = { id: 'search-copy', account_id: 'a', is_read: true, is_starred: false };
+  useStore.getState().setSearchResults([old]);
+  useStore.getState().restoreMessages([old]);
+  for (const row of [useStore.getState().messages[0], useStore.getState().searchResults[0]]) {
+    assert.equal(row.is_read, false);
+    assert.equal(row.is_starred, true);
+  }
+  resetReadStateMutationsForTest();
+});
+
+test('a cached Sent child cannot alter an INBOX thread unread badge', () => {
+  seed();
+  useStore.setState({ messages: [{ id: 'newest', account_id: 'a', folder: 'INBOX', thread_id: 'a:thread', message_count: 2, unread_count: 1, is_read: false }],
+    threadMessages: { 'a:thread': [{ id: 'newest', account_id: 'a', folder: 'INBOX', is_read: false }, { id: 'older', account_id: 'a', folder: 'Sent', is_read: true }] } });
+  useStore.getState().updateMessage('older', { is_read: false });
+  assert.equal(useStore.getState().messages[0].unread_count, 1);
+  useStore.getState().updateMessage('newest', { is_read: true });
+  assert.equal(useStore.getState().messages[0].unread_count, 0);
+  assert.equal(useStore.getState().messages[0].is_read, true);
+});
+
+test('thread aggregate updates preserve the separate physical head flag', () => {
+  seed();
+  useStore.setState({ messages: [{ id: 'newest', account_id: 'a', thread_id: 'a:thread', message_count: 2, unread_count: 2, is_read: false, physical_is_read: false }] });
+  useStore.getState().updateMessage('newest', { is_read: true });
+  assert.equal(useStore.getState().messages[0].physical_is_read, true);
+  assert.equal(useStore.getState().messages[0].is_read, false);
+});
+
+test('mixed thread aggregate never overwrites its successful physical head', () => {
+  seed();
+  useStore.setState({ messages: [{ id: 'newest', account_id: 'a', thread_id: 'a:thread', message_count: 2, unread_count: 0, is_read: true, physical_is_read: true }],
+    threadMessages: { 'a:thread': [{ id: 'newest', account_id: 'a', is_read: true }, { id: 'older', account_id: 'a', is_read: false }] } });
+  useStore.getState().updateMessage('newest', { is_read: false, unread_count: 1 });
+  assert.equal(useStore.getState().messages[0].is_read, false);
+  assert.equal(useStore.getState().messages[0].physical_is_read, true);
+  assert.equal(useStore.getState().threadMessages['a:thread'][0].is_read, true);
+});
+
+
+test('a late mailbox response or rollback cannot insert other-account mail in the selected tab', () => {
+  seed();
+  useStore.getState().setSelectedAccount('gmail', 'INBOX');
+  const other = { id: 'reply', account_id: 'ovh', folder: 'INBOX', is_read: false };
+  const gmail = { id: 'gmail-mail', account_id: 'gmail', folder: 'INBOX', is_read: false };
+  useStore.getState().setMessages([other, gmail]);
+  useStore.getState().appendMessages([other]);
+  useStore.getState().restoreMessages([other]);
+  assert.deepEqual(useStore.getState().messages.map(row => row.id), ['gmail-mail']);
+  assert.equal(useStore.getState().messages[0].is_read, false);
+});
+
+test('late rollback respects folder, multi-label inbox membership and virtual archive', () => {
+  seed(); useStore.getState().setSelectedAccount('gmail', 'INBOX');
+  useStore.getState().restoreMessages([
+    { id: 'sent', account_id: 'gmail', folder: 'Sent' },
+    { id: 'work', account_id: 'gmail', folder: 'Work', folder_paths: ['INBOX','Work'] },
+    { id: 'archived', account_id: 'gmail', folder: 'INBOX', is_archived: true },
+  ]);
+  assert.deepEqual(useStore.getState().messages.map(row => row.id), ['work']);
+});
+
+
+test('a late rollback cannot add another account to an all-folders account search', () => {
+  seed(); useStore.getState().setSelectedAccount('gmail', 'INBOX');
+  useStore.setState({ searchQuery: 'invoice', searchAllFolders: true, searchResults: [] });
+  useStore.getState().restoreMessages([
+    { id: 'other', account_id: 'ovh', folder: 'INBOX' },
+    { id: 'gmail-sent', account_id: 'gmail', folder: 'Sent' },
+  ]);
+  assert.deepEqual(useStore.getState().messages, []);
+  assert.deepEqual(useStore.getState().searchResults.map(row => row.id), ['gmail-sent']);
+});

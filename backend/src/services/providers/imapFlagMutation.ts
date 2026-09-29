@@ -8,8 +8,8 @@ import type { ProviderAdapterOutcome, ProviderMutationAdapter } from '../provide
  *
  * It exists to prove the layer carries a real write path, and it is deliberately a
  * small one. Setting `\Seen` or `\Flagged` to a value **converges**: applying it
- * twice leaves the same state, so the adapter declares itself `idempotent` and a
- * recovered claim may re-run it. That is the opposite of the send case, and the
+ * twice leaves the same state only while that intent is current. Recovered claims
+ * require readback because a later remote or local edit may have superseded them. That is the opposite of the send case, and the
  * layer keys its recovery decision on exactly this declaration.
  */
 
@@ -38,6 +38,8 @@ export type ImapFlagWriter = (
  */
 export function classifyImapFlagFailure(error: unknown): ProviderAdapterOutcome<void> {
   const failure = toAppError(error);
+  if (failure.code === 'MAIL_FLAG_NOT_DISPATCHED') return { status: 'retryable', code: failure.code };
+  if (failure.code === 'MAIL_IDENTITY_CHANGED' || failure.code === 'RESOURCE_NOT_FOUND') return { status: 'permanent', code: failure.code };
   const text = `${failure.code ?? ''} ${failure.message ?? ''}`;
   if (/auth|credential|login|AUTHENTICATIONFAILED|Invalid credentials/i.test(text)) {
     return { status: 'permanent', code: 'PROVIDER_AUTH_REQUIRED' };
@@ -55,9 +57,8 @@ export function imapFlagMutationAdapter(options: {
 }): ProviderMutationAdapter<void, void> {
   return {
     resourceType: 'message',
-    // Re-applying a flag converges on the same state, so a recovered claim is safe
-    // to run again.
-    idempotent: true,
+    // A lost response is reconciled from current truth, never replayed over a later edit.
+    idempotent: false,
     async perform() {
       try {
         await options.setFlag(options.account, options.write.uid, options.write.folder, options.write.flag, options.write.value);

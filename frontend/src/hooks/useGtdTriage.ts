@@ -3,8 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import type { StoreMessageRow } from '../store/index.ts';
 import { api } from '../utils/api.ts';
+import { queueReadStateMutation, currentReadStateMutationVersion, readStateMutationRevision } from '../utils/readStateMutation.ts';
+import { queueStarStateMutation, pendingStarState, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
+import { mailMutationStatus, mailMutationFailure, mutationNotice, type MailMutationStatus } from '../utils/mailMutationOutcome.ts';
+import { onAuthEpochChange } from '../utils/authEpoch.ts';
+import { requestMailRefresh } from '../utils/mailRefresh.ts';
 import {
-  openDeepLinkMessage, collectThreadReadIds, openGtdThreadWithAutoRead,
+  openDeepLinkMessage, openGtdThreadWithAutoRead,
   classifyThread, unclassifyThread,
 } from '../utils/gtd.ts';
 import type { GtdThread } from '../utils/gtd.ts';
@@ -12,6 +17,10 @@ import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFr
 import { resolveContextMenuMessage } from '../utils/contextMenuPolicy.ts';
 import { doneGtdRow } from '../utils/gtdDone.ts';
 import { toAppError } from '../utils/errors.ts';
+
+const gtdReadIntents = new Map<string, number>();
+let gtdReadSequence = 0;
+onAuthEpochChange(() => gtdReadIntents.clear());
 
 // One pending delayed auto-read across ALL GTD surfaces (module scope, not per hook
 // instance): the sidebar and the tab browse list are mounted together in desktop row
@@ -157,23 +166,50 @@ export function useGtdTriage() {
   // marking UNREAD needs only the head copy. On failure, flip back.
   const setRead = async (thread: GtdThread, read: boolean) => {
     if (!isGtdTriageThread(thread)) return;
-    // Explicit mark-unread wins over a pending auto-read: cancel the timer before the no-op
-    // guard so it can't later flip this just-opened thread back to read.
     if (!read) cancelAutoMarkReadFor(thread);
-    if (!!thread.is_read === read) return;
     const identity = thread.message_id || thread.id;
-    markGtdThreadRead(identity, read);
+    const threadKey = typeof thread.thread_key === 'string' ? thread.thread_key : null;
+    const key = `${thread.account_id}:${threadKey || identity}`;
+    const version = ++gtdReadSequence;
+    gtdReadIntents.set(key, version);
+    const epoch = useStore.getState().authEpoch;
+    const initialReadRevision = readStateMutationRevision();
+    const current = () => mountedRef.current && !useStore.getState().isLocked
+      && useStore.getState().authEpoch === epoch && gtdReadIntents.get(key) === version;
+    const before = Boolean(thread.is_read);
+    markGtdThreadRead(identity, read, thread.account_id);
+    const statuses: MailMutationStatus[] = [];
     try {
-      const getAccountThread = (threadKey: string) => api.getThread(threadKey, '', false, thread.account_id);
-      const readIds = (await collectThreadReadIds(thread, read, getAccountThread))
-        .filter((id): id is string => typeof id === 'string');
-      await api.bulkRead(readIds, read);
-      // Belt-and-braces under the WS read fan-out: reconcile the sidebar counts (the
-      // debounce coalesces this with any gtd_sections_updated the mark triggers).
-      scheduleGtdSectionsFetch();
-    } catch (err) {
-      console.error('GTD read toggle failed:', toAppError(err).message);
-      markGtdThreadRead(identity, !read);
+      const members = read && threadKey
+        ? (await api.getThread(threadKey, '', false, thread.account_id)).messages
+        : [thread];
+      if (!current()) return;
+      const ids = [...new Set(members.filter(member => member.account_id === thread.account_id)
+        .map(member => member.id).filter((id): id is string => typeof id === 'string'))];
+      if (!ids.length) throw new Error('No owned physical messages found for this thread');
+      for (let index = 0; index < ids.length && current(); index += 3) {
+        const batch = ids.slice(index, index + 3).filter(id => (currentReadStateMutationVersion(id) ?? 0) <= initialReadRevision);
+        const results = await Promise.all(batch.map(async id => {
+          const mutation = queueReadStateMutation(id, read, value => api.bulkRead([id], value, [thread.account_id]));
+          try { return mailMutationStatus(await mutation.promise, id); }
+          catch (error) { return mailMutationFailure(error); }
+        }));
+        statuses.push(...results);
+      }
+      if (!current()) return;
+      if (statuses.length && statuses.every(status => status === 'failed')) markGtdThreadRead(identity, before, thread.account_id);
+      if (statuses.includes('failed')) addNotification(mutationNotice('failed'));
+      if (statuses.includes('pending')) addNotification(mutationNotice('pending'));
+    } catch (error) {
+      if (!current()) return;
+      console.error('GTD read toggle failed:', toAppError(error).message);
+      markGtdThreadRead(identity, before, thread.account_id);
+      addNotification(mutationNotice('failed'));
+    } finally {
+      if (current()) {
+        scheduleGtdSectionsFetch();
+        requestMailRefresh(thread.account_id);
+      }
     }
   };
 
@@ -224,14 +260,20 @@ export function useGtdTriage() {
   const toggleStar = async (thread: GtdThread) => {
     if (!isGtdTriageThread(thread)) return;
     const identity = thread.message_id || thread.id;
-    const next = !thread.is_starred;
-    markGtdThreadStarred(identity, next);
-    try {
-      await api.markStarred(thread.id, next);
-    } catch (err) {
-      console.error('GTD star toggle failed:', toAppError(err).message);
-      markGtdThreadStarred(identity, !next);
-    }
+    const before = pendingStarState(thread.id) ?? Boolean(thread.is_starred);
+    const next = !before;
+    const epoch = useStore.getState().authEpoch;
+    markGtdThreadStarred(identity, next, thread.account_id);
+    const mutation = queueStarStateMutation(thread.id, next, value => api.markStarred(thread.id, value));
+    let status: MailMutationStatus;
+    try { status = mailMutationStatus(await mutation.promise, thread.id); }
+    catch (error) { status = mailMutationFailure(error); }
+    if (!mountedRef.current || useStore.getState().isLocked || useStore.getState().authEpoch !== epoch
+      || !isLatestStarStateMutation(thread.id, mutation.version)) return;
+    if (status === 'failed') markGtdThreadStarred(identity, before, thread.account_id);
+    if (status !== 'confirmed') addNotification(mutationNotice(status));
+    scheduleGtdSectionsFetch();
+    requestMailRefresh(thread.account_id);
   };
 
   // Delete this row's copy (the label-folder message). Optimistically drop the row from

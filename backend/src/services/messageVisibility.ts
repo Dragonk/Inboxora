@@ -19,3 +19,12 @@ export const visiblePhysicalMessageSql = `NOT EXISTS (
       OR vb.evidence->>'kind' = 'confirmed_provider_move'
       OR vb.evidence->>'physical_move_confirmed' = 'true')
 )`;
+
+/** Exclude envelope placeholders consistently from lists, counts and expansion. */
+export const populatedMessageSql = `NOT (NULLIF(btrim(m.provider_message_id), '') IS NULL AND m.message_id IS NULL AND (m.subject IS NULL OR m.subject = '(no subject)') AND COALESCE(m.snippet, '') = '')`;
+
+/** The same projection for explicitly named internal query aliases. */
+export function visiblePhysicalMessageForAlias(alias: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias)) throw new Error('Invalid internal message query alias');
+  return visiblePhysicalMessageSql.replace(/\bm\./g, `${alias}.`);
+}

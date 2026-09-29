@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import { api } from '../utils/api.ts';
+import { queueStarStateMutation, isLatestStarStateMutation } from '../utils/starStateMutation.ts';
+import { mailMutationStatus, mailMutationFailure, mutationNotice } from '../utils/mailMutationOutcome.ts';
+import { requestMailRefresh } from '../utils/mailRefresh.ts';
 import { installCapacitorNativeBridge } from '../utils/capacitorNativeBridge.ts';
 import { createBoundedActionIdTracker, isTrustedNativeMessage } from '../utils/nativeActionSecurity.ts';
 import type { StoreMessageRow, StoreState } from '../store/index.ts';
@@ -360,8 +363,16 @@ export default function ElectronNotificationBridge() {
           const { messageId } = payload;
           if (!messageId) return;
 
-          await api.markStarred(messageId, true);
-          useStore.getState().updateMessage(messageId, { is_starred: true });
+          const epoch = useStore.getState().authEpoch;
+          const mutation = queueStarStateMutation(messageId, true, value => api.markStarred(messageId, value));
+          let status;
+          try { status = mailMutationStatus(await mutation.promise, messageId); }
+          catch (error) { status = mailMutationFailure(error); }
+          const current = useStore.getState();
+          if (current.authEpoch !== epoch || current.isLocked || !isLatestStarStateMutation(messageId, mutation.version)) return;
+          if (status === 'confirmed') current.updateMessage(messageId, { is_starred: true });
+          else current.addNotification(mutationNotice(status));
+          requestMailRefresh(payload.accountId);
           return;
         }
 

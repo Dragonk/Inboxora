@@ -159,11 +159,13 @@ export async function fetchGraphCalendarsPage(api: GraphApiOptions, input: { lin
       $select: GRAPH_CALENDAR_SELECT,
       $top: Number.isFinite(input.pageSize) && Number(input.pageSize) > 0 ? Math.min(250, Math.floor(Number(input.pageSize))) : 100,
     });
-  const body = await graphGet<{ value?: GraphCalendar[] | null; '@odata.nextLink'?: string | null }>(api, path);
-  return {
-    calendars: (Array.isArray(body.value) ? body.value : []).filter(calendar => Boolean(calendar?.id)),
-    nextLink: body['@odata.nextLink'] ?? null,
-  };
+  const body = await graphGet<{ value?: GraphCalendar[]; '@odata.nextLink'?: string }>(api, path);
+  if (!body || !Array.isArray(body.value)
+    || body.value.some(calendar => !calendar || typeof calendar.id !== 'string' || !calendar.id.trim())
+    || (body['@odata.nextLink'] !== undefined && (typeof body['@odata.nextLink'] !== 'string' || !body['@odata.nextLink']?.trim()))) {
+    throw new GraphApiError({ code: 'UPSTREAM_UNAVAILABLE', message: 'Malformed Microsoft calendar list', status: 502 });
+  }
+  return { calendars: body.value, nextLink: body['@odata.nextLink'] ?? null };
 }
 
 /** The mailbox's own calendar, which Graph exposes separately from the calendar list. */

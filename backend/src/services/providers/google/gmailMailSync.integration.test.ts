@@ -13,6 +13,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../db.js';
+import { drainMailFlagReadbacks, enqueueMailFlagIntent } from '../../mailFlagState.js';
 import {
   GOOGLE_GRANT_AUDIENCE,
   GOOGLE_ISSUER,
@@ -23,6 +24,8 @@ import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
 import { listMessages } from '../../messageService.js';
 import { labelMembershipReport } from '../../providerLabelMembership.js';
 import {
+  applyGmailThread,
+  reconcileGmailMailVisibility,
   gmailLabelIdForPath,
   syncGmailMailLabels,
   syncGmailMailLabelsForAccount,
@@ -299,12 +302,17 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     expect(result[0]).toMatchObject({ deleted: 1, relocatedMessages: 2 });
 
     const rows = await storedMessages();
-    // `Work` is gone: the message that still had Private moved there, the archived
-    // one left the local view, and the row with no label set was not guessed at.
+    // `Work` is gone, but its mail was not deleted. Keep the labelless copy in
+    // the virtual Archive and leave uncertain legacy ownership unchanged.
     expect(rows.map(row => [row.provider_message_id, row.folder])).toEqual([
       ['m1', 'Private'],
+      ['m2', 'Work'],
       ['m3', 'Work'],
     ]);
+    const archived = await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID, folder: 'Archive' });
+    expect(archived.messages.map(row => row.subject)).toContain('Archived now');
+    expect((await pool.query("SELECT is_deleted,is_archived,provider_labels FROM messages WHERE account_id=$1 AND provider_message_id='m2'", [ACCOUNT_ID])).rows)
+      .toEqual([{ is_deleted: false, is_archived: true, provider_labels: ['STARRED'] }]);
     expect((await storedFolders()).map(row => row.path)).toEqual(['Drafts', 'INBOX', 'Private', 'Sent', 'Spam', 'Trash']);
     const links = await autocommit(client => client.query(
       `SELECT remote_id FROM integration_collections WHERE connection_id = $1 AND kind = 'mail_label'`, [connectionId]));
@@ -335,6 +343,177 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
       expect(wrongOwner).toEqual([]);
       expect((await storedMessages()).find(row => row.provider_message_id === 'pr14-gmail')).toMatchObject({ folder: 'INBOX', is_read: false });
     } finally { stop(); stopOther(); }
+  });
+
+
+
+  it.each([false, true])('persists suppressed Gmail flags across empty history (durable intent=%s)', async durable => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    const applied = await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['UNREAD', 'INBOX'])] }));
+    const rowId = applied.rowIds[0];
+    if (durable) for (const flag of ['\\Seen', '\\Flagged']) {
+      await enqueueMailFlagIntent({ userId: USER_ID, accountId: ACCOUNT_ID, messageId: rowId, flag, value: true });
+    }
+    await autocommit(client => client.query(
+      `UPDATE messages SET is_read=true,is_starred=true,read_changed_at=NOW()-make_interval(secs=>$2),star_changed_at=NOW()-make_interval(secs=>$2) WHERE id=$1`,
+      [rowId, durable ? 60 : 0],
+    ));
+    const syncStateId = await inTransaction(client => ensureSyncState(client, { userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail', coverage: 'history' }));
+    await autocommit(client => client.query("UPDATE sync_states SET cursor='1000' WHERE id=$1", [syncStateId]));
+    const changed = fakeGmail([
+      { match: /\/history$/, handle: () => json({ historyId: '1001', history: [{ id: '1001', labelsAdded: [{ message: { id: 'm1', threadId: 't1' }, labelIds: ['UNREAD'] }] }] }) },
+      { match: /\/threads\/t1$/, handle: () => json({ id: 't1', messages: [message('m1', 't1', ['UNREAD', 'INBOX'])] }) },
+    ]);
+    await syncGmailMailMessagesForAccount({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: changed.fetchImpl });
+    expect((await storedMessages())[0]).toMatchObject({ is_read: true, is_starred: true });
+    expect((await autocommit(client => client.query('SELECT * FROM mail_flag_readbacks WHERE message_id=$1', [rowId]))).rows).toHaveLength(1);
+    if (durable) return; // An active intent must stay protected until its worker settles it.
+    await autocommit(client => client.query("UPDATE messages SET read_changed_at=NOW()-interval '1 minute',star_changed_at=NOW()-interval '1 minute' WHERE id=$1", [rowId]));
+    await syncGmailMailMessagesForAccount({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/history$/, handle: () => json({ historyId: '1002', history: [] }) }]).fetchImpl,
+    });
+    await autocommit(client => client.query('UPDATE mail_flag_readbacks SET next_attempt_at=NOW() WHERE message_id=$1', [rowId]));
+    let reads = 0;
+    await drainMailFlagReadbacks({
+      manager: { setFlag: async () => {}, _resolveFlagPush() {}, _enqueueFlagPush() {}, readMessageFlags: async () => null },
+      read: async () => { reads += 1; return { isRead: false, isStarred: false }; },
+    }, 25, ACCOUNT_ID);
+    expect(reads).toBe(1);
+    expect((await storedMessages())[0]).toMatchObject({ is_read: false, is_starred: false });
+    expect((await autocommit(client => client.query('SELECT * FROM mail_flag_readbacks WHERE message_id=$1', [rowId]))).rows).toEqual([]);
+  });
+
+
+  it.each([false, true])('does not let a stale thread resurrect archived Gmail mail (move journal=%s)', async newerMove => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    const applied = await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', [])] }));
+    const rowId = applied.rowIds[0];
+    if (newerMove) await autocommit(client => client.query(
+      `INSERT INTO provider_operations (user_id,account_id,resource_type,resource_id,operation,status,payload)
+       VALUES ($1,$2,'message',$3,'update','committed',$4::jsonb)`,
+      [USER_ID, ACCOUNT_ID, rowId, JSON.stringify({ providerMessageId: 'm1', addLabelIds: [], removeLabelIds: ['INBOX'] })],
+    ));
+    // This thread response began before the archive. Applying it must leave both
+    // visibility and label membership alone until an independent current read.
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX'])] }));
+    const stale = await autocommit(client => client.query('SELECT is_archived,provider_labels FROM messages WHERE id=$1', [rowId]));
+    expect(stale.rows[0]).toEqual({ is_archived: true, provider_labels: [] });
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: () => json(message('m1', 't1', ['INBOX'])) }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(newerMove ? 0 : 1);
+    const current = await autocommit(client => client.query('SELECT is_archived FROM messages WHERE id=$1', [rowId]));
+    expect(current.rows[0]?.is_archived).toBe(newerMove);
+    expect(provider.urls).toHaveLength(newerMove ? 0 : 1);
+  });
+
+  it('recovers a hidden Gmail row from a current physical read and keeps true archive state', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX'])] }));
+    await autocommit(client => client.query('UPDATE messages SET is_deleted = true WHERE account_id = $1', [ACCOUNT_ID]));
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: () => json(message('m1', 't1', ['STARRED'])) }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(1);
+    const current = await autocommit(client => client.query('SELECT is_deleted, is_archived, is_read, is_starred FROM messages WHERE account_id = $1', [ACCOUNT_ID]));
+    expect(current.rows).toEqual([{ is_deleted: false, is_archived: true, is_read: true, is_starred: true }]);
+    expect(provider.urls).toHaveLength(1);
+  });
+
+  it('recovers a present Gmail message whose empty label set is omitted', async () => {
+    const connectionId = await seedConnection();
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX'])] }));
+    await pool.query('UPDATE messages SET is_deleted=true WHERE account_id=$1', [ACCOUNT_ID]);
+    const remote = message('m1', 't1', []);
+    const { labelIds: _omitted, ...withoutLabels } = remote;
+    expect(_omitted).toEqual([]);
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: () => json(withoutLabels) }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(1);
+    expect((await pool.query('SELECT is_deleted,is_archived,is_read,is_starred FROM messages WHERE account_id=$1', [ACCOUNT_ID])).rows)
+      .toEqual([{ is_deleted: false, is_archived: true, is_read: true, is_starred: false }]);
+  });
+
+  it('backs off an invalid visibility candidate without starving a later valid message', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX']), message('m2', 't1', ['INBOX'])] }));
+    await pool.query('UPDATE messages SET is_deleted=true WHERE account_id=$1', [ACCOUNT_ID]);
+    const provider = fakeGmail([{ match: /\/messages\/m[12]$/, handle: url => url.pathname.endsWith('/m1')
+      ? json({ id: 'm1', labelIds: null }) : json(message('m2', 't1', ['INBOX', 'UNREAD'])) }]);
+    const input = { userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl };
+    expect(await reconcileGmailMailVisibility(input)).toBe(1);
+    const result = await pool.query('SELECT provider_message_id,is_deleted,provider_visibility_checked_at IS NOT NULL AS checked FROM messages WHERE account_id=$1 ORDER BY provider_message_id', [ACCOUNT_ID]);
+    expect(result.rows).toEqual([{ provider_message_id: 'm1', is_deleted: true, checked: true }, { provider_message_id: 'm2', is_deleted: false, checked: true }]);
+    expect(provider.urls).toHaveLength(2);
+    expect(await reconcileGmailMailVisibility(input)).toBe(0);
+    expect(provider.urls).toHaveLength(2);
+  });
+
+  it.each(['local-change', 'delete-journal', 'connection-change', 'missing'] as const)('rejects a Gmail visibility read after %s', async kind => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    await inTransaction(client => applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) }, {
+      id: 't1', messages: [message('m1', 't1', ['INBOX'])],
+    }));
+    await autocommit(client => client.query('UPDATE messages SET is_deleted = true WHERE account_id = $1', [ACCOUNT_ID]));
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: async () => {
+      if (kind === 'local-change') await autocommit(client => client.query("UPDATE messages SET folder = 'Trash' WHERE account_id = $1", [ACCOUNT_ID]));
+      if (kind === 'connection-change') await autocommit(client => client.query('UPDATE email_accounts SET provider_connection_id = NULL WHERE id = $1', [ACCOUNT_ID]));
+      if (kind === 'delete-journal') await autocommit(client => client.query(
+        `INSERT INTO provider_operations (user_id, account_id, resource_type, resource_id, operation, status)
+         SELECT $1, account_id, 'message', id, 'delete', 'in_flight' FROM messages WHERE account_id = $2`, [USER_ID, ACCOUNT_ID],
+      ));
+      return kind === 'missing' ? json({ error: { code: 404, message: 'not found' } }, 404)
+        : json(message('m1', 't1', ['INBOX']));
+    } }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(0);
+    const current = await autocommit(client => client.query('SELECT is_deleted, folder FROM messages WHERE account_id = $1', [ACCOUNT_ID]));
+    expect(current.rows[0]).toEqual({ is_deleted: true, folder: kind === 'local-change' ? 'Trash' : 'INBOX' });
+  });
+
+
+  it('waits for an uncommitted move journal and preserves hidden Gmail visibility', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    await inTransaction(client => applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) }, {
+      id: 't1', messages: [message('m1', 't1', ['INBOX'])],
+    }));
+    await autocommit(client => client.query('UPDATE messages SET is_deleted=true WHERE account_id=$1', [ACCOUNT_ID]));
+    const journal = await pool.connect();
+    let releaseStarted = () => {};
+    const started = new Promise<void>(resolve => { releaseStarted = resolve; });
+    let repair: Promise<number> | undefined;
+    try {
+      await journal.query('BEGIN');
+      const pid = (await journal.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: async () => {
+        await journal.query(`INSERT INTO provider_operations(user_id,account_id,resource_type,resource_id,operation,status,payload)
+          SELECT $1,account_id,'message',id,'update','in_flight',$3::jsonb FROM messages WHERE account_id=$2`,
+        [USER_ID, ACCOUNT_ID, JSON.stringify({ addLabelIds: ['TRASH'], removeLabelIds: ['INBOX'] })]);
+        releaseStarted();
+        return json(message('m1', 't1', ['INBOX']));
+      } }]);
+      repair = reconcileGmailMailVisibility({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+      await Promise.race([started, repair.then(() => { throw new Error('Recovery completed before journal insert'); })]);
+      await vi.waitFor(async () => {
+        const blocked = await pool.query<{ waiting: boolean }>(
+          'SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))) AS waiting', [pid],
+        );
+        expect(blocked.rows[0].waiting).toBe(true);
+      }, { timeout: 5000, interval: 20 });
+      await journal.query('COMMIT');
+      expect(await repair).toBe(0);
+      const row = await autocommit(client => client.query('SELECT is_deleted FROM messages WHERE account_id=$1', [ACCOUNT_ID]));
+      expect(row.rows[0]?.is_deleted).toBe(true);
+    } finally {
+      await journal.query('ROLLBACK');
+      journal.release();
+      if (repair) await repair;
+    }
   });
 
   it('builds a baseline from the message list and stores the mailbox history cursor', async () => {
@@ -498,6 +677,149 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
       [message.rows[0]!.id, ACCOUNT_ID],
     ));
     expect(await labelMembershipReport(ACCOUNT_ID)).toMatchObject({ rows: 3, missingRows: 0, extraRows: 1 });
+  });
+
+  it('a deleted Gmail thread cannot block six unread messages or the history checkpoint', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    await inTransaction(async client => {
+      const id = await ensureSyncState(client, { userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail', coverage: 'history' });
+      await client.query("UPDATE sync_states SET cursor='1000',last_error_code='RESOURCE_NOT_FOUND' WHERE id=$1", [id]);
+      await applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX','INBOX']]) }, {
+        id: 'gone', messages: [message('deleted', 'gone', ['INBOX'])],
+      });
+      await applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX','INBOX']]) }, {
+        id: 'live', messages: Array.from({ length: 6 }, (_, i) => message(`unread-${i}`, 'live', ['INBOX'])),
+      });
+    });
+    const provider = fakeGmail([
+      { match: /\/history$/, handle: () => json({ historyId: '1002', history: [
+        { id: '1001', messagesDeleted: [{ message: { id: 'deleted', threadId: 'gone' } }] },
+        { id: '1002', labelsAdded: [{ message: { id: 'unread-0', threadId: 'live' }, labelIds: ['UNREAD'] }] },
+      ] }) },
+      { match: /\/threads\/gone$/, handle: () => json({ error: { code: 404, message: 'Not found' } }, 404) },
+      { match: /\/threads\/live$/, handle: () => json({ id: 'live', messages:
+        Array.from({ length: 6 }, (_, i) => message(`unread-${i}`, 'live', ['INBOX','UNREAD'])) }) },
+    ]);
+    const result = await syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+    expect(result).toMatchObject({ mode: 'incremental', incomplete: false, deleted: 1, cursor: '1002' });
+    const list = await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID, unreadOnly: true });
+    expect(list.total).toBe(6);
+    expect((await pool.query("SELECT total_count,unread_count FROM folders WHERE account_id=$1 AND path='INBOX'", [ACCOUNT_ID])).rows)
+      .toEqual([{ total_count: 6, unread_count: 6 }]);
+    // Real labels.list omits count fields. Discovery must not reset a healthy badge to zero.
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json({ labels: LABELS.labels.map(label => ({ id: label.id, name: label.name, type: label.type })) }) }]).fetchImpl });
+    expect((await pool.query("SELECT unread_count FROM folders WHERE account_id=$1 AND path='INBOX'", [ACCOUNT_ID])).rows).toEqual([{ unread_count: 6 }]);
+    expect(list.messages.every(row => row.account_id === ACCOUNT_ID && row.is_read === false)).toBe(true);
+    expect((await pool.query("SELECT cursor,last_error_code,last_success_at IS NOT NULL AS success FROM sync_states WHERE account_id=$1 AND coverage='history'", [ACCOUNT_ID])).rows)
+      .toEqual([{ cursor: '1002', last_error_code: null, success: true }]);
+  });
+
+  it('continues a baseline when a listed thread disappears before its GET', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const provider = fakeGmail([
+      { match: /\/profile$/, handle: () => json({ historyId: '2000' }) },
+      { match: /\/messages$/, handle: url => json(url.searchParams.get('labelIds') === 'INBOX'
+        ? { messages: [{ id: 'gone', threadId: 'gone' }, { id: 'fresh', threadId: 'live' }] } : { messages: [] }) },
+      { match: /\/threads\/gone$/, handle: () => json({ error: { code: 404 } }, 404) },
+      { match: /\/threads\/live$/, handle: () => json({ id: 'live', messages: [message('fresh','live',['INBOX','UNREAD'])] }) },
+    ]);
+    expect(await syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl }))
+      .toMatchObject({ mode: 'baseline', incomplete: false, cursor: '2000', created: 1 });
+    expect((await storedMessages()).map(row => [row.provider_message_id,row.is_read])).toEqual([['fresh',false]]);
+  });
+
+  it('an unavailable thread without a history deletion cannot erase its local copy', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    await inTransaction(async client => {
+      const id = await ensureSyncState(client, { userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail', coverage: 'history' });
+      await client.query("UPDATE sync_states SET cursor='1000' WHERE id=$1", [id]);
+      await applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX','INBOX']]) }, {
+        id: 'unavailable', messages: [message('local-copy', 'unavailable', ['INBOX','UNREAD'])],
+      });
+    });
+    const provider = fakeGmail([
+      { match: /\/history$/, handle: () => json({ historyId: '1002', history: [
+        { id: '1001', labelsAdded: [{ message: { id: 'local-copy', threadId: 'unavailable' }, labelIds: ['STARRED'] }] },
+      ] }) },
+      { match: /\/threads\/unavailable$/, handle: () => json({ error: { code: 404 } }, 404) },
+    ]);
+    expect(await syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl }))
+      .toMatchObject({ deleted: 0, cursor: '1002' });
+    expect((await storedMessages()).map(row => [row.provider_message_id,row.is_read])).toEqual([['local-copy',false]]);
+  });
+
+  it('a superseded Gmail history worker cannot apply deletion evidence after its last thread read', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const syncStateId = await inTransaction(async client => {
+      const id = await ensureSyncState(client, { userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail', coverage: 'history' });
+      await client.query("UPDATE sync_states SET cursor='1000' WHERE id=$1", [id]);
+      await applyGmailThread(client, { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX','INBOX']]) }, {
+        id: 'gone', messages: [message('keep-after-takeover', 'gone', ['INBOX','UNREAD'])],
+      });
+      return id;
+    });
+    const provider = fakeGmail([
+      { match: /\/history$/, handle: () => json({ historyId: '1002', history: [
+        { id: '1001', messagesDeleted: [{ message: { id: 'keep-after-takeover', threadId: 'gone' } }] },
+      ] }) },
+      { match: /\/threads\/gone$/, handle: async () => {
+        await pool.query("UPDATE sync_states SET running_generation=running_generation+1,cursor='3000',last_error_code=NULL WHERE id=$1", [syncStateId]);
+        return json({ error: { code: 404 } }, 404);
+      } },
+    ]);
+    await expect(syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl }))
+      .rejects.toMatchObject({ code: 'SYNC_LEASE_LOST' });
+    expect((await storedMessages()).map(row => row.provider_message_id)).toEqual(['keep-after-takeover']);
+    expect((await pool.query('SELECT cursor,last_error_code FROM sync_states WHERE id=$1', [syncStateId])).rows)
+      .toEqual([{ cursor: '3000', last_error_code: null }]);
+  });
+
+  it('Gmail UNREAD import does not inherit a read state from another account with the same RFC ID', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG,
+      fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const other = crypto.randomUUID();
+    await pool.query(`INSERT INTO email_accounts(id,user_id,name,email_address,imap_host)
+      VALUES($1,$2,'Other mailbox','other@example.test','imap.example.test')`, [other,USER_ID]);
+    await pool.query("INSERT INTO messages(account_id,uid,folder,message_id,subject,is_read) VALUES($1,1,'INBOX','<shared@example.test>','Shared subject',true)", [other]);
+    await inTransaction(async client => {
+      const id = await ensureSyncState(client, { userId: USER_ID, connectionId, accountId: ACCOUNT_ID, feature: 'mail', coverage: 'history' });
+      await client.query("UPDATE sync_states SET cursor='1000' WHERE id=$1", [id]);
+    });
+    const provider = fakeGmail([
+      { match: /\/history$/, handle: () => json({ historyId: '1002', history: [
+        { id: '1001', messagesAdded: [{ message: { id: 'shared', threadId: 'new-thread' } }] },
+      ] }) },
+      { match: /\/threads\/new-thread$/, handle: () => json({ id: 'new-thread', messages: [message('shared','new-thread',['INBOX','UNREAD'])] }) },
+    ]);
+    await syncGmailMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+    const gmail = await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID, unreadOnly: true });
+    expect(gmail.messages).toHaveLength(1);
+    expect(gmail.messages[0]).toMatchObject({ account_id: ACCOUNT_ID, message_id: '<shared@example.test>', is_read: false });
+    const others = await listMessages({ userId: USER_ID, accountId: other });
+    expect(others.messages).toHaveLength(1);
+    expect(others.messages[0]).toMatchObject({ account_id: other, is_read: true });
+    expect((await pool.query('SELECT COUNT(*)::int AS count FROM mail_flag_intents WHERE account_id=$1', [ACCOUNT_ID])).rows).toEqual([{ count: 0 }]);
+  });
+
+  it('never substitutes other inboxes when the requested Gmail account is disabled', async () => {
+    await seedConnection();
+    const other = crypto.randomUUID();
+    await pool.query(`INSERT INTO email_accounts(id,user_id,name,email_address,imap_host)
+      VALUES($1,$2,'Other mailbox','other@example.test','imap.example.test')`, [other,USER_ID]);
+    await pool.query("INSERT INTO messages(account_id,uid,folder,subject,message_id,is_read) VALUES($1,1,'INBOX','Other account reply','<other@example.test>',false)", [other]);
+    await pool.query('UPDATE email_accounts SET enabled=false WHERE id=$1', [ACCOUNT_ID]);
+    expect(await listMessages({ userId: USER_ID, accountId: ACCOUNT_ID })).toEqual({ messages: [], total: 0 });
+    expect((await listMessages({ userId: USER_ID })).total).toBe(1);
   });
 
   it('applies an incremental run from the history cursor: a mailbox move and a deletion', async () => {

@@ -27,6 +27,8 @@ vi.mock('../services/providerAuthService.js', async importOriginal => ({
 }));
 
 import { pool } from '../services/db.js';
+import { drainMailFlagIntents } from '../services/mailFlagState.js';
+import { imapManager } from '../index.js';
 import { MICROSOFT_GRANT_AUDIENCE, MICROSOFT_ISSUER, storeOAuthGrant, upsertProviderConnection } from '../services/providerAuthService.js';
 import { applyGraphMailMessagesPage } from '../services/providers/microsoft/graphMailSync.js';
 import { bindVerifiedLegacyGraphMessage } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
@@ -345,15 +347,18 @@ describeOrSkip('LIVE-01 legacy Graph identity route (PostgreSQL)', { timeout: 30
       return new Response(null, { status: 204 });
     }) as typeof fetch);
     try {
-      for (const [index, read] of [true, false, true].entries()) {
+      for (const read of [true, false, true]) {
         writes.length = 0;
         const response = await nativeFetch(`${base}/api/mail/messages/bulk-read`, {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: canonical, read }),
         });
         expect(response.status).toBe(200);
-        const result = await readJson<{ updated: string[] }>(response);
-        const expectedIds = index === 0 ? canonical.slice(0, 4) : canonical;
-        expect([...result.updated].sort()).toEqual([...expectedIds].sort());
+        const result = await readJson<{ updated: string[]; pending: string[]; failed: string[] }>(response);
+        // Same-state actions reassert provider truth, including previously unresolved writes.
+        const expectedIds = canonical;
+        expect([...result.updated, ...result.pending].sort()).toEqual([...expectedIds].sort());
+        expect(result.failed).toEqual([]);
+        if (result.pending.length) await drainMailFlagIntents({ manager: imapManager }, 25, ACCOUNT_ID);
         expect(writes).toHaveLength(expectedIds.length);
         expect(writes.map(write => write.providerId).sort()).toEqual(
           expectedIds.map(id => `graph-read-alias-${canonical.indexOf(id)}`).sort(),
@@ -372,6 +377,24 @@ describeOrSkip('LIVE-01 legacy Graph identity route (PostgreSQL)', { timeout: 30
     } finally { vi.unstubAllGlobals(); }
   });
 
+
+  it('aligns category and Inbox counts for Gmail labels, archive state and real empty provider items', async () => {
+    await pool.query(`INSERT INTO email_accounts(id,user_id,name,email_address,protocol,mail_transport)
+      VALUES($1,$2,'Synthetic label counts','labels@example.test','imap','gmail_api')`, [ACCOUNT_ID,USER_ID]);
+    const labelled=crypto.randomUUID(); const emptyNative=crypto.randomUUID();
+    await pool.query(`INSERT INTO messages(id,account_id,uid,folder,subject,provider_message_id,category,is_read,is_archived)
+      VALUES($1,$3,1,'Work','Labelled','labelled','social',false,false),
+            ($2,$3,2,'INBOX',NULL,'empty-provider','automated',false,false),
+            (gen_random_uuid(),$3,3,'INBOX','Archived','archived','newsletter',false,true),
+            (gen_random_uuid(),$3,4,'INBOX',NULL,NULL,'promotion',false,false)`, [labelled,emptyNative,ACCOUNT_ID]);
+    await pool.query(`INSERT INTO message_labels(message_id,account_id,label_id,folder_path) VALUES($1,$2,'INBOX','INBOX')`, [labelled,ACCOUNT_ID]);
+    const categories=await nativeFetch(`${base}/api/mail/category-counts?accountId=${ACCOUNT_ID}`).then(readJson<{counts:Record<string,number>}>);
+    expect(categories.counts).toEqual({social:1,automated:1});
+    const counts=await nativeFetch(`${base}/api/mail/unread-counts`).then(readJson<UnreadReply>);
+    expect(counts.total).toBe(2);
+    const list=await nativeFetch(`${base}/api/mail/messages?accountId=${ACCOUNT_ID}&unreadOnly=true`).then(readJson<MailReadReply>);
+    expect(list.messages.map(row=>row.id).sort()).toEqual([labelled,emptyNative].sort());
+  });
 
   it('never substitutes a bound canonical row from a different account', async () => {
     const { canonical, legacy, connectionId } = await seedReadAliases(0, true);

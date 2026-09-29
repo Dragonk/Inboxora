@@ -124,3 +124,29 @@ describe('the external collection link', () => {
     expect(query.mock.calls[3][1]?.[6]).toBe('read_only');
   });
 });
+
+it('keeps source and collection linking on the supplied projection transaction', async () => {
+  const transactionQuery = vi.fn().mockImplementation(async (sql: string) => {
+    if (sql.includes('INSERT INTO source_connections')) return { rows: [{ id: 'source-transaction' }] };
+    if (sql.includes('INSERT INTO integration_collections')) return { rows: [{ id: 'collection-transaction' }] };
+    return { rows: [] };
+  });
+  query.mockReset();
+  expect(await ensureExternalCollectionLink({ userId: 'user-1', kind: 'caldav', url: 'https://dav.example/book/', remoteId: 'source:calendar-1', localCalendarId: 'calendar-1' }, { query: transactionQuery })).toBe('collection-transaction');
+  expect(query).not.toHaveBeenCalled();
+  expect(transactionQuery.mock.calls.filter(([sql]) => sql.includes('INSERT')).every(([sql]) => sql.includes('ON CONFLICT DO NOTHING'))).toBe(true);
+});
+
+it('reuses a legacy remote URL link by its owned local projection without rewriting remote identity', async () => {
+  query.mockReset();
+  query.mockResolvedValueOnce({ rows: [{ id: 'source-legacy' }] })
+    .mockResolvedValueOnce({ rows: [] })
+    .mockResolvedValueOnce({ rows: [{ id: 'collection-legacy', local_calendar_id: null, local_address_book_id: 'book-legacy' }] })
+    .mockResolvedValueOnce({ rows: [] });
+  expect(await ensureExternalCollectionLink({ userId: 'user-1', kind: 'carddav', url: 'https://dav.example/book/', remoteId: 'https://dav.example/book/', localAddressBookId: 'book-legacy', integrationId: 'integration-legacy' })).toBe('collection-legacy');
+  const lookup = query.mock.calls[2];
+  expect(lookup[0]).toContain('user_id = $1 AND source_connection_id = $2 AND kind = $3');
+  expect(lookup[0]).toContain('local_address_book_id = $6');
+  expect(lookup[1]).toEqual(['user-1', 'source-legacy', 'address_book', 'https://dav.example/book/', null, 'book-legacy']);
+  expect(query.mock.calls.some(([sql]) => /INSERT INTO integration_collections|SET remote_id/.test(String(sql)))).toBe(false);
+});

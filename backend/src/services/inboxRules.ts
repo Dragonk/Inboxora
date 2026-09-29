@@ -1,5 +1,6 @@
 import { hydrateRequiredImapRuleBody } from './imapRuleBody.js';
 import { query } from './db.js';
+import { pushProviderMessageFlag } from './providerMailFlagWrite.js';
 import { resolveArchiveFolder, isAllMailFolder, resolveTrashFolder, resolveAllTrashPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import type { FolderMappings } from '../utils/mailUtils.js';
 import { toAppError } from '../utils/errors.js';
@@ -322,7 +323,7 @@ export async function applyInboxRules<T extends RuleMessage>(
         if (isDest && acted) removedIds.add(msg.id);
         // mark_read: add to mutedIds so caller suppresses sound/push.
         // star: intentionally NOT muted — a star-only rule should still alert.
-        if (action.type === 'mark_read') mutedIds.add(msg.id);
+        if (action.type === 'mark_read' && acted) mutedIds.add(msg.id);
       } catch (caught) {
         const err = toAppError(caught);
         console.error(`inboxRules: action ${action.type} failed for msg ${msg.id}:`, err.message);
@@ -535,38 +536,26 @@ async function applyAction(action: RuleAction, msg: RuleMessage, account: RuleAc
     }
 
     case 'mark_read': {
-      await query(
-        'UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE id = $1',
-        [msg.id]
-      );
-      mailActions.setFlag(account, msg.uid, msg.folder, '\\Seen', true).catch(err => {
-        console.error('inboxRules: setFlag \\Seen failed:', err.message);
-        // Durable retry so a later flag-sync pull can't silently revert the rule's effect.
-        mailActions._enqueueFlagPush(account.id, msg.id, '\\Seen', true);
+      const result = await pushProviderMessageFlag({
+        manager: mailActions, userId: account.user_id, accountId: account.id,
+        account, messageId: msg.id, uid: msg.uid, folder: msg.folder,
+        flag: '\\Seen', value: true,
       });
-      // msg.isRead (camelCase from parseMessage) and msg.is_read (snake_case in test
-      // fixtures) both represent the pre-action read state; use whichever is present.
-      const wasUnread = !(msg.isRead ?? msg.is_read);
-      if (wasUnread) adjustFolderCounts(account.id, msg.folder, 0, -1);
-      // Update in-memory state so subsequent actions in later rules (e.g. a move rule
-      // at lower priority) see the correct read state and don't double-decrement the
-      // unread count.
+      if (result.status !== 'confirmed') return false;
+      // The durable writer owns local flags and folder recounting. Mirror only a
+      // confirmed result in this rule batch so a later move uses the right counts.
       msg.isRead = true;
       msg.is_read = true;
-      break;
+      return true;
     }
 
     case 'star': {
-      await query(
-        'UPDATE messages SET is_starred = true, star_changed_at = NOW() WHERE id = $1',
-        [msg.id]
-      );
-      mailActions.setFlag(account, msg.uid, msg.folder, '\\Flagged', true).catch(err => {
-        console.error('inboxRules: setFlag \\Flagged failed:', err.message);
-        // Durable retry so a later flag-sync pull can't silently revert the rule's effect.
-        mailActions._enqueueFlagPush(account.id, msg.id, '\\Flagged', true);
+      const result = await pushProviderMessageFlag({
+        manager: mailActions, userId: account.user_id, accountId: account.id,
+        account, messageId: msg.id, uid: msg.uid, folder: msg.folder,
+        flag: '\\Flagged', value: true,
       });
-      break;
+      return result.status === 'confirmed';
     }
 
     case 'move': {

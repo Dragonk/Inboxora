@@ -160,3 +160,61 @@ for (const trigger of ['offscreen-flag', 'wake', 'two-minute-read']) {
     } finally { release(); }
   });
 }
+
+
+test('a foreign-account response cannot be shown or cached under Gmail, and recovery keeps mail unread', async ({ page, fixtureApi }) => {
+  const { state, navigate, send } = await mailbox(page, fixtureApi);
+  let broken = true;
+  let reads = 0;
+  const gmailRows = Array.from({ length: 6 }, (_, index) => ({ id: `gmail-new-${index}`, account_id: 'account-gmail', folder: 'INBOX',
+    is_read: false, subject: `Unread Gmail ${index}`, from_email: 'sender@example.test', date: '2026-09-29T08:00:00Z' }));
+  await page.route(url => url.pathname === '/api/mail/messages' && url.searchParams.get('accountId') === 'account-gmail', route => {
+    reads++;
+    const rows = broken ? [{ ...gmailRows[0], id: 'ovh-reply', account_id: 'account-fastmail', subject: 'OVH reply' }] : gmailRows;
+    return route.fulfill({ json: { messages: rows, total: rows.length } });
+  });
+  await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: {
+    total: broken ? 0 : 6, byAccount: { 'account-gmail': broken ? 0 : 6 },
+  } }));
+  const writes = [];
+  await page.route('**/api/mail/messages/bulk-read', route => {
+    writes.push(route.request().postDataJSON()); return route.fulfill({ json: { ok: true } });
+  });
+  await navigate('Gmail fixture');
+  await expect.poll(() => reads).toBeGreaterThan(0);
+  await expect(page.locator('[data-msgid]')).toHaveCount(0);
+  // A different account's live event must not install its reply in Gmail.
+  send({ type: 'new_messages', accountId: 'account-fastmail', folder: 'INBOX', messages: [], count: 1 });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(page.locator('[data-msgid="ovh-reply"]')).toHaveCount(0);
+  broken = false;
+  send({ type: 'mail_state_changed', accountId: 'account-gmail', folders: ['INBOX'] });
+  await expect(page.locator('[data-msgid]')).toHaveCount(6);
+  await expect(page.locator('[data-msgid="gmail-new-0"]')).toContainText('Unread Gmail 0');
+  await expect(page.locator('[data-msgid] .unread-dot')).toHaveCount(6);
+  await expect(page.locator('[data-account-id="account-gmail"]')).toHaveAttribute('data-unread-count', '6');
+  // Filter remains evidence of the physical unread flags; no opening or mark-read occurred.
+  const unreadOnly = page.getByRole('button', { name: 'Unread only', exact: true });
+  if (await unreadOnly.isVisible()) await unreadOnly.click();
+  await expect(page.locator('[data-msgid]')).toHaveCount(6);
+  expect(writes).toEqual([]);
+  expect(state.requests.includes('unified')).toBe(true);
+});
+
+test('a late old-account refresh cannot replace a newly selected Gmail list', async ({ page, fixtureApi }) => {
+  const { state, navigate, release, send } = await mailbox(page, fixtureApi);
+  await navigate('Outlook fixture');
+  await expect(page.locator('[data-msgid="nav-account-outlook"]')).toBeVisible();
+  const before = state.requests.length;
+  state.held = true;
+  try {
+    send({ type: 'mail_state_changed', accountId: 'account-outlook', folders: ['INBOX'] });
+    await expect.poll(() => state.requests.length).toBeGreaterThan(before);
+    await navigate('Gmail fixture');
+    await expect.poll(() => state.requests.at(-1)).toBe('account-gmail');
+    await expect(page.locator('[data-msgid="nav-account-outlook"]')).toHaveCount(0);
+  } finally { release(); }
+  await expect(page.locator('[data-msgid]')).toHaveCount(1);
+  await expect(page.locator('[data-msgid="nav-account-gmail"]')).toBeVisible();
+  await expect(page.locator('[data-msgid="nav-account-outlook"]')).toHaveCount(0);
+});

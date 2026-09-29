@@ -1,3 +1,4 @@
+import { mailFlagReadbackTicket, projectMailFlagIntents } from './mailFlagIntents.ts';
 import { mailListCache, invalidateMailListCacheForAccounts, type MailListSnapshot } from './mailListCache.ts';
 import type { StoreMessageRow } from '../store/index.ts';
 import type { GtdFolderMap } from './gtd.ts';
@@ -12,6 +13,24 @@ const BASE = '/api';
 export const CSRF_HEADER = 'X-Requested-With';
 export const CSRF_VALUE = 'MailFlow';
 const messageBodyRequests = new Map();
+
+export interface CollectionDeletionResponse {
+  state: 'confirmed' | 'pending' | 'retryable' | 'outcome_unknown' | 'conflict' | 'failed';
+  operationId?: string;
+  code?: string;
+}
+
+/** An empty or malformed remote response cannot confirm provider absence. */
+export function normalizeCollectionDeletionResponse(value: unknown): CollectionDeletionResponse {
+  if (!value || typeof value !== 'object') return { state: 'outcome_unknown' };
+  const row = value as Record<string, unknown>;
+  const state = row.state;
+  return {
+    state: state === 'confirmed' || state === 'pending' || state === 'retryable' || state === 'conflict' || state === 'failed' ? state : 'outcome_unknown',
+    ...(typeof row.operationId === 'string' ? { operationId: row.operationId } : {}),
+    ...(typeof row.code === 'string' ? { code: row.code } : {}),
+  };
+}
 
 /** Query-string parameters as callers pass them. */
 /** A folder as GET /accounts/:id/folders returns it. */
@@ -310,10 +329,19 @@ export const api = {
   getMessages: async (params: QueryParams, options: { signal?: AbortSignal } = {}): Promise<MailListSnapshot> => {
     const epoch = getAuthEpoch();
     const ticket = mailListCache.begin(params, epoch);
+    const flagTicket = mailFlagReadbackTicket();
     try {
       const data: MailListSnapshot = await request('GET', `/mail/messages?${toSearchParams(params)}`, undefined, undefined, options);
-      if (isCurrentAuthEpoch(epoch) && !options.signal?.aborted) mailListCache.finish(ticket, data);
-      return data;
+      // A stale/mis-scoped backend response must never be cached or acknowledge
+      // another account's pending flags under the requested mailbox tab.
+      if (params.accountId && data.messages.some(row => row.account_id !== params.accountId)) {
+        throw new Error('Mail response does not match the requested account');
+      }
+      const projected = isCurrentAuthEpoch(epoch) ? { ...data, messages: projectMailFlagIntents(data.messages, flagTicket).map(row => Number(row.message_count) > 1 ? ({
+        ...row, _mailReadbackSequence: flagTicket.sequence, _mailProjectionScope: { folder: params.accountId ? params.folder || 'INBOX' : 'INBOX', category: params.category },
+      }) : row) } : data;
+      if (isCurrentAuthEpoch(epoch) && !options.signal?.aborted) mailListCache.finish(ticket, projected);
+      return projected;
     } finally {
       mailListCache.finish(ticket);
     }
@@ -327,13 +355,16 @@ export const api = {
     return request('GET', `/mail/resolve-message?${qs}`);
   },
   getMessageBody,
-  getThread: (threadId: string, folder: string, unified = false, accountId: string | null = null): Promise<ThreadResponse> =>{
+  getThread: async (threadId: string, folder: string, unified = false, accountId: string | null = null): Promise<ThreadResponse> =>{
     const qs = new URLSearchParams();
     if (folder) qs.set('folder', folder);
     if (unified) qs.set('unified', 'true');
     if (accountId) qs.set('accountId', accountId);
     const query = qs.size ? `?${qs}` : '';
-    return request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
+    const epoch = getAuthEpoch();
+    const flagTicket = mailFlagReadbackTicket();
+    const data: ThreadResponse = await request('GET', `/mail/thread/${encodeURIComponent(threadId)}${query}`);
+    return isCurrentAuthEpoch(epoch) ? { ...data, messages: projectMailFlagIntents(data.messages, flagTicket) } : data;
   },
   bulkRead: (ids: string[], read: boolean, accountIds?: readonly unknown[]) =>
     request('POST', '/mail/messages/bulk-read', { ids, read }, undefined, {}, accountIds),
@@ -394,7 +425,7 @@ export const api = {
   // default/shared-calendar protection and journal replay; clients send only an intent key.
   createAccountProviderCalendar: (accountId: string, body: { name: string; idempotencyKey: string }) =>
     request('POST', `/accounts/${encodeURIComponent(accountId)}/provider-calendars`, body),
-  deleteAccountProviderCalendar: (accountId: string, collectionId: string, body: { idempotencyKey: string }) =>
+  deleteAccountProviderCalendar: (accountId: string, collectionId: string, body: { idempotencyKey: string; confirmName?: string }) =>
     request('DELETE', `/accounts/${encodeURIComponent(accountId)}/provider-calendars/${encodeURIComponent(collectionId)}`, body),
   setAccountProviderFeature: (accountId: string, feature: 'calendars' | 'contacts', enabled: boolean) =>
     request('PATCH', `/accounts/${encodeURIComponent(accountId)}/provider-features/${feature}`, { enabled }),
@@ -467,13 +498,20 @@ export const api = {
   emptyFolder: (accountId: string, path: string) => request('POST', '/mail/folders/empty', { accountId, path }),
 
   // Search
-  search: (q: string, accountId?: string | undefined, { offset = 0, limit, folder }: { offset?: number; limit?: string | number; folder?: string } = {}) =>{
+  search: async (q: string, accountId?: string | undefined, { offset = 0, limit, folder }: { offset?: number; limit?: string | number; folder?: string } = {}) =>{
     const params = new URLSearchParams({ q });
     if (accountId) params.set('accountId', accountId);
     if (limit) params.set('limit', String(limit));
     if (folder) params.set('folder', folder);
     if (offset) params.set('offset', String(offset));
-    return request('GET', `/search?${params}`);
+    const epoch = getAuthEpoch();
+    const flagTicket = mailFlagReadbackTicket();
+    const data = await request('GET', `/search?${params}`);
+    if (accountId && Array.isArray(data?.messages) && data.messages.some((row: { account_id?: unknown }) => row.account_id !== accountId)) {
+      throw new Error('Search response does not match the requested account');
+    }
+    return isCurrentAuthEpoch(epoch) && Array.isArray(data?.messages)
+      ? { ...data, messages: projectMailFlagIntents(data.messages, flagTicket) } : data;
   },
   suggestContacts: (q: string) => request('GET', `/search/contacts?q=${encodeURIComponent(q)}`),
 
@@ -494,10 +532,13 @@ export const api = {
   updateContact: (id: string, data: unknown) => request('PATCH',  `/contacts/${id}`, data),
   deleteContact: (id: string)       => request('DELETE', `/contacts/${id}`),
   addressBooks: {
-    list: () => request('GET', '/contacts/address-books'),
+    list: ({ includeDeletionCapabilities = false }: { includeDeletionCapabilities?: boolean } = {}) => request('GET', `/contacts/address-books${includeDeletionCapabilities ? '?includeDeletionCapabilities=true' : ''}`),
     create: (name: string) => request('POST', '/contacts/address-books', { name }),
     update: (id: string, data: unknown) => request('PATCH', `/contacts/address-books/${encodeURIComponent(id)}`, data),
-    remove: (id: string) => request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`),
+    remove: async (id: string, confirmation?: { confirmName: string; idempotencyKey: string }): Promise<CollectionDeletionResponse | null> => {
+      const result: unknown = await request('DELETE', `/contacts/address-books/${encodeURIComponent(id)}`, confirmation);
+      return !confirmation && result === null ? null : normalizeCollectionDeletionResponse(result);
+    },
     importGoogleCsv: (id: string, csv: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/google-csv`, { csv }),
     // A .vcf file, keyed by the vCard UID so a re-import updates instead of duplicating.
     importVCard: (id: string, vcard: string) => request('POST', `/contacts/address-books/${encodeURIComponent(id)}/import/vcard`, { vcard }),
@@ -538,10 +579,13 @@ export const api = {
     getInvitation: (id: string) => request('GET', `/calendar/invitations/${encodeURIComponent(id)}`),
     addInvitation: (id: string, calendarId: string) => request('POST', `/calendar/invitations/${encodeURIComponent(id)}`, { calendarId }),
     removeInvitation: (id: string) => request('DELETE', `/calendar/invitations/${encodeURIComponent(id)}`),
-    listCalendars: ({ signal }: { signal?: AbortSignal } = {}) => request('GET', '/calendar/calendars', undefined, undefined, { signal }),
+    listCalendars: ({ signal, includeDeletionCapabilities = false }: { signal?: AbortSignal; includeDeletionCapabilities?: boolean } = {}) => request('GET', `/calendar/calendars${includeDeletionCapabilities ? '?includeDeletionCapabilities=true' : ''}`, undefined, undefined, { signal }),
     createCalendar: (data: { name: string; color: string; displayVisible: boolean }) => request('POST', '/calendar/calendars', data),
     updateCalendar: (id: string, data: unknown) => request('PATCH', `/calendar/calendars/${encodeURIComponent(id)}`, data),
-    deleteCalendar: (id: string, confirmName: string) => request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, { confirmName }),
+    deleteCalendar: async (id: string, confirmation: string | { confirmName: string; idempotencyKey: string }): Promise<CollectionDeletionResponse | null> => {
+      const result: unknown = await request('DELETE', `/calendar/calendars/${encodeURIComponent(id)}`, typeof confirmation === 'string' ? { confirmName: confirmation } : confirmation);
+      return typeof confirmation === 'string' && result === null ? null : normalizeCollectionDeletionResponse(result);
+    },
     // Reads accept an AbortSignal so a superseded range or an unmounting page can
     // cancel work the user no longer needs. `calendarIds` narrows the expansion
     // server-side; `null` means every calendar, `[]` means none.

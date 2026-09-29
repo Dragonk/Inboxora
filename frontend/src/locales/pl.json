@@ -2521,6 +2521,7 @@
     "operationPending": "Operacja zdalna nie została jeszcze potwierdzona. Nie ponawiaj jej z nowym identyfikatorem żądania.",
     "targetUnavailable": "To konto lub zasób nie jest już dostępny. Wróć do listy i odśwież ją.",
     "deleteLocalWarning": "Spowoduje to usunięcie zasobu i jego zawartości z Inboxora. Tej operacji nie można cofnąć.",
+    "providerDeletionUnavailable": "Usunięcie tej kolekcji u dostawcy jest niedostępne. Nie można tu usuwać kolekcji domyślnych, systemowych ani tylko do odczytu.",
     "deleteRemoteWarning": "Spowoduje to usunięcie zasobu u dostawcy wraz z jego zawartością. To nie jest ukrycie ani odłączenie.",
     "removeAccountHint": "Wszystkie zsynchronizowane wiadomości tego konta zostaną usunięte z Inboxora. Nie usuwa to skrzynki u dostawcy.",
     "intervalMinutes_zero": "Minuty: {{count}}",
@@ -2627,5 +2628,11 @@
     "recipientsUnavailable": "Dane odbiorców są niedostępne",
     "editingNotice": "Wysyłka jest wstrzymana podczas edycji. Zapis nie wznawia wysyłki; gdy skończysz, wybierz Wyślij lub Zaplanuj wysłanie.",
     "resumeFromEditor": "Dokończ edycję w otwartym oknie, a następnie wyślij lub zaplanuj zmienioną wiadomość."
+  },
+  "mailStateChange": {
+    "pendingTitle": "Zmiana statusu oczekuje na potwierdzenie",
+    "pendingBody": "Dostawca poczty jeszcze nie potwierdził tej zmiany. Aktualny stan skrzynki zostanie ponownie sprawdzony.",
+    "failedTitle": "Nie udało się zmienić statusu",
+    "failedBody": "Dostawca poczty nie mógł zastosować tej zmiany. Przywrócono poprzedni stan."
   }
 }

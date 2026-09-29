@@ -26,7 +26,7 @@ export async function lockCalendarCollection(client: PoolClient, identity: Calen
 /** Read under lockCalendarCollection when this check guards a subsequent write. */
 export async function isCalendarCollectionDeleted(client: PoolClient, identity: CalendarCollectionIdentity): Promise<boolean> {
   const result = await client.query('SELECT 1 FROM calendar_collection_tombstones WHERE user_id = $1 AND connection_id = $2 AND remote_calendar_id = $3', [identity.userId, identity.connectionId, identity.remoteCalendarId]);
-  return result.rows.length > 0;
+  return result.rows.length > 0 || await findCommittedCalendarDeletion(client, identity) !== null;
 }
 
 export async function assertCalendarCollectionPresent(client: PoolClient, identity: CalendarCollectionIdentity): Promise<void> {
@@ -45,15 +45,14 @@ export async function withCalendarCollectionSyncFence<T>(identity: CalendarColle
   });
 }
 
-/** Only a committed, matching remote delete may fence discovery. No projection is deleted here. */
-export async function recordCalendarDeletionFence(client: PoolClient, input: CalendarCollectionIdentity & { operationId: string }): Promise<void> {
-  await lockCalendarCollection(client, input);
+/** Read the durable provider result even if a crash prevented local projection/tombstoning. */
+export async function findCommittedCalendarDeletion(client: PoolClient, input: CalendarCollectionIdentity & { operationId?: string }): Promise<string | null> {
   // runProviderMutation stores adapter outcome.value directly in result (not {value: ...}).
   // Keep row ownership/identity predicates in SQL; a guessed 404 or pending intent is not evidence.
-  const operation = await client.query(`
+  const operation = await client.query<{ id: string }>(`
     SELECT op.id FROM provider_operations op
     JOIN provider_connections pc ON pc.id = op.connection_id AND pc.user_id = op.user_id
-    WHERE op.id = $1 AND op.user_id = $2 AND op.connection_id = $3
+    WHERE ($1::uuid IS NULL OR op.id = $1) AND op.user_id = $2 AND op.connection_id = $3
       AND op.resource_type = 'calendar_collection' AND op.operation = 'delete' AND op.status = 'committed'
       AND jsonb_typeof(op.payload) = 'object' AND jsonb_typeof(op.result) = 'object'
       AND op.payload->'version' = '1'::jsonb
@@ -64,9 +63,17 @@ export async function recordCalendarDeletionFence(client: PoolClient, input: Cal
       AND jsonb_typeof(op.result->'remoteCalendarId') = 'string'
       AND op.payload->>'remoteCalendarId' = $4 AND op.result->>'remoteCalendarId' = $4
       AND op.payload->>'provider' = pc.provider AND op.result->>'provider' = pc.provider
-    FOR SHARE OF op`, [input.operationId, input.userId, input.connectionId, input.remoteCalendarId]);
-  if (!operation.rows.length) throw new Error('Calendar deletion fence requires a matching committed provider operation');
+    ORDER BY op.created_at ASC LIMIT 1 FOR SHARE OF op`, [input.operationId ?? null, input.userId, input.connectionId, input.remoteCalendarId]);
+  return operation.rows[0]?.id ?? null;
+}
+
+/** Only a committed, matching remote delete may fence discovery. No projection is deleted here. */
+export async function recordCalendarDeletionFence(client: PoolClient, input: CalendarCollectionIdentity & { operationId: string }): Promise<void> {
+  await lockCalendarCollection(client, input);
+  if (!await findCommittedCalendarDeletion(client, input)) throw new Error('Calendar deletion fence requires a matching committed provider operation');
   await client.query(`INSERT INTO calendar_collection_tombstones (user_id, connection_id, remote_calendar_id, operation_id)
-    VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, connection_id, remote_calendar_id) DO NOTHING`,
+    VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, connection_id, remote_calendar_id) DO UPDATE
+    SET operation_id=EXCLUDED.operation_id,retirement_reason='confirmed_delete',discovery_generation=NULL
+    WHERE calendar_collection_tombstones.retirement_reason='complete_discovery'`,
   [input.userId, input.connectionId, input.remoteCalendarId, input.operationId]);
 }

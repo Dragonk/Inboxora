@@ -1,4 +1,6 @@
-import { visiblePhysicalMessageSql } from '../services/messageVisibility.js';
+import { messageFolderMembershipSql } from '../services/messageFolderMembership.js';
+import { listThreadMessages, ThreadAccountNotFoundError } from '../services/mailThreadService.js';
+import { populatedMessageSql, visiblePhysicalMessageSql } from '../services/messageVisibility.js';
 import { readUnreadInboxCounts } from '../services/unreadInboxCounts.js';
 import { Router } from 'express';
 import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
@@ -9,11 +11,7 @@ import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { imapManager } from '../index.js';
 import { runProviderMutation } from '../services/providerMutationService.js';
-import { pushGmailMessageFlag, pushProviderMessageFlag } from '../services/providerMailFlagWrite.js';
-import {
-  graphFlagIntent,
-  graphFlagMutationAdapter,
-} from '../services/providers/microsoft/graphMailMutations.js';
+import { mailFlagResponse, pushProviderMessageFlag, pushProviderMessageFlags } from '../services/providerMailFlagWrite.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from '../services/providerAuthService.js';
 import { resolveMailTransportForSync } from '../services/mailTransportTarget.js';
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
@@ -102,7 +100,7 @@ interface ReadMessageRow {
 
 import { sanitizeEmail, stripEmailHead, hasRemoteImages, blockRemoteImages, rewriteEbayImageserUrls, rewriteAnchorHrefs, shouldBlockRemoteImages, type RemoteImagePreferences } from '../services/emailSanitizer.js';
 import { snippetFromBody, decodeMimeWords, parseRawHeaders, buildHeadersFromMessage, buildSnippetFromHtml } from '../services/messageParser.js';
-import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts, fanOutReadToSiblings, fanOutStarToSiblings, fanOutBulkReadToSiblings } from '../utils/mailUtils.js';
+import { resolveTrashFolder, resolveAllTrashPaths, resolveAllDraftsPaths, resolveArchiveFolder, isAllMailFolder, resolveSpamFolder, resolveAllSpamPaths, getDeleteStrategy, adjustFolderCounts } from '../utils/mailUtils.js';
 import { pluginRegistry } from '../plugins/registry.js';
 import { listMessages } from '../services/messageService.js';
 import { recordSyncSignal } from '../services/diagnosticsRing.js';
@@ -116,15 +114,6 @@ import { recordManualFeedback } from '../services/spamModelStore.js';
 
 const router = Router();
 router.use(requireAuth);
-
-// Whether an account-scoped plugin that maintains label sibling rows (currently GTD) is active for
-// this account — the modern replacement for the former email_accounts.gtd_enabled gate on the
-// read/star sibling fan-out. Core stays plugin-agnostic: it asks the registry, never GTD directly.
-// Folds plugin activation in (strictly safer than the old raw column — a deactivated plugin no
-// longer triggers fan-out). The fan-out itself is still additionally gated on the message actually
-// having siblings, so a non-plugin account stays byte-identical to pre-GTD.
-const accountMaintainsLabelSiblings = (accountId: string) =>
-  pluginRegistry.hasActiveAsync('inboxIngest', { account: { id: accountId } });
 
 // Validate a folder name / path component: no control chars, max 255 chars.
 function isValidFolderName(name: string) {
@@ -146,18 +135,6 @@ function areValidUUIDs(ids: unknown[]): boolean {
 function sanitizeDbText(value: unknown): string {
   if (typeof value !== 'string') return String(value ?? '');
   return value.replace(/\0/g, '');
-}
-
-// Process IMAP operations in bounded batches so a 500-message bulk action
-// does not spawn hundreds of parallel temporary IMAP connections.
-async function runInBatches<T>(items: T[], concurrency: number, fn: (item: T) => Promise<unknown>): Promise<Array<PromiseSettledResult<unknown>>> {
-  const results = [];
-  for (let i = 0; i < items.length; i += concurrency) {
-    const batch = items.slice(i, i + concurrency);
-    const batchResults = await Promise.allSettled(batch.map(fn));
-    results.push(...batchResults);
-  }
-  return results;
 }
 
 import { RELOCATE_INSERT_COLS, RELOCATE_SELECT_COLS } from '../utils/relocateColumns.js';
@@ -359,68 +336,20 @@ router.get('/resolve-message', async (req, res) => {
 });
 
 
-// Get all messages belonging to a thread (for threaded view expansion)
+// Get every visible physical message in the owned native thread.
 router.get('/thread/:threadId', async (req, res) => {
   const { threadId } = req.params;
   if (!threadId) return res.status(400).json({ error: 'threadId required' });
-
   try {
-    const requestedAccountId = req.query.accountId || null;
-    const accountsResult = await query<UnifiedInboxAccount>(
-      'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
-      [req.session.userId]
-    );
-    const accessibleAccounts = accountsResult.rows;
-    let accountIds;
-    if (requestedAccountId) {
-      const ownsRequestedAccount = accessibleAccounts.some(row => String(row.id) === String(requestedAccountId));
-      if (!ownsRequestedAccount) return res.status(404).json({ error: 'Account not found' });
-      accountIds = [requestedAccountId];
-    } else if (req.query.unified === 'true') {
-      accountIds = resolveAccountScope(accessibleAccounts).accountIds;
-    } else {
-      accountIds = accessibleAccounts.map(row => row.id);
-    }
-    if (!accountIds.length) return res.json({ messages: [] });
-
-    // Show all non-deleted messages in the thread regardless of folder. This includes
-    // Sent replies (which have distinct message_ids) alongside received messages.
-    // The normalized identity is shared semantically with messageService.thread_totals:
-    // valid RFC Message-ID (trimmed) deduplicates folder copies; NULL/empty values use
-    // the physical row ID so otherwise unidentifiable messages remain visible. Include
-    // account_id in DISTINCT ON so a unified request can never dedupe across accounts.
-    const effectiveThreadExpr = `m.thread_key`;
-    const threadIdentityExpr = requestedAccountId
-      ? effectiveThreadExpr
-      : `(m.account_id::text || ':' || ${effectiveThreadExpr})`;
-    const result = await query(`
-      WITH deduped AS (
-        SELECT DISTINCT ON (m.account_id,
-                            COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text))
-               m.id, m.uid, m.folder, m.message_id, m.thread_id, m.thread_key, m.subject,
-               m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
-               m.reply_to, m.in_reply_to, m.thread_references,
-               m.date, m.snippet, m.is_read, m.is_starred,
-               m.has_attachments, m.account_id, m.category,
-               m.spam_verdict, m.spam_score_ml, m.spam_score_blended,
-               m.list_unsubscribe, m.list_unsubscribe_post, m.unsubscribed_at, m.delivery_addresses,
-               a.name AS account_name, a.email_address AS account_email, a.color AS account_color
-        FROM messages m
-        JOIN email_accounts a ON m.account_id = a.id
-        WHERE m.is_deleted = false
-          AND ${visiblePhysicalMessageSql}
-          AND m.account_id = ANY($1)
-          AND ${threadIdentityExpr} = $2
-        ORDER BY m.account_id,
-                 COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text),
-                 CASE WHEN m.folder = 'INBOX' THEN 0 ELSE 1 END,
-                 m.date ASC
-      )
-      SELECT * FROM deduped ORDER BY date ASC
-    `, [accountIds, threadId]);
-
-    res.json({ messages: result.rows });
+    const messages = await listThreadMessages({
+      userId: req.session.userId,
+      threadId,
+      accountId: queryString(req.query.accountId) || null,
+      unified: req.query.unified === 'true',
+    });
+    res.json(messages);
   } catch (err) {
+    if (err instanceof ThreadAccountNotFoundError) return res.status(404).json({ error: 'Account not found' });
     console.error('Thread fetch error:', err);
     res.status(500).json({ error: 'Failed to load thread' });
   }
@@ -1244,45 +1173,6 @@ function folderManagementRefusal(account: EmailAccountRow): { error: string; cod
 }
 
 /**
- * Set `\Seen` on every unread Microsoft Graph message of a folder.
- *
- * One mutation per message, through the same journal-backed flag write the single
- * read/unread route uses, so an ambiguous outcome is parked rather than retried as
- * if it were safe. The local rows are already updated by the caller, and the local
- * `*_changed_at` window keeps a sync that read the provider earlier from reverting
- * them before these land.
- *
- * Bounded and honest: it reports how many the provider confirmed, and a failure is
- * logged rather than disguised as success.
- */
-async function markAllReadOverGraph(
-  userId: string,
-  account: EmailAccountRow,
-  messages: ReadonlyArray<{ id: string; provider_message_id: string | null }>,
-): Promise<{ confirmed: number; failed: number }> {
-  if (!account.provider_connection_id) return { confirmed: 0, failed: messages.length };
-  const api = { userId, connectionId: account.provider_connection_id, config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id) };
-  let confirmed = 0;
-  let failed = 0;
-  for (const message of messages) {
-    if (!message.provider_message_id) { failed += 1; continue; }
-    const payload = { providerMessageId: message.provider_message_id, flag: '\\Seen', value: true, intentAt: new Date().toISOString() };
-    const result = await runProviderMutation(
-      {
-        userId, channel: 'web', operation: 'update', accountId: account.id, resourceId: message.id,
-        ...graphFlagIntent({ messageId: message.id, write: payload }), payload,
-        retry: { delaySeconds: 300 },
-      },
-      graphFlagMutationAdapter({ api }),
-    );
-    if (result.status === 'confirmed' || result.status === 'accepted') confirmed += 1;
-    else failed += 1;
-  }
-  if (failed > 0) console.warn(`mark-all-read: Microsoft Graph confirmed ${confirmed} of ${messages.length} messages`);
-  return { confirmed, failed };
-}
-
-/**
  * Make sure the account has the folder snooze needs, on whichever transport it uses.
  *
  * A Microsoft account only has the folders it has discovered, so `Snoozed` has to be
@@ -1853,179 +1743,30 @@ async function respondWithGmailBody(
   }
 }
 
-/**
- * Set `\Seen` on every unread Gmail API message of a folder.
- *
- * One mutation per message through the same journal-backed flag write the single
- * read/unread route uses, bounded and honest: it reports how many Gmail confirmed
- * and logs a failure rather than disguising it as success. The local rows are
- * already updated by the caller, and the local `*_changed_at` window keeps a sync
- * that read Gmail earlier from reverting them before these land.
- */
-async function markAllReadOverGmail(
-  userId: string,
-  account: EmailAccountRow,
-  messages: ReadonlyArray<{ id: string; provider_message_id: string | null }>,
-): Promise<{ confirmed: number; failed: number }> {
-  if (!account.provider_connection_id) return { confirmed: 0, failed: messages.length };
-  let confirmed = 0;
-  let failed = 0;
-  for (const message of messages) {
-    if (!message.provider_message_id) { failed += 1; continue; }
-    const outcome = await pushGmailMessageFlag({
-      userId,
-      account,
-      accountId: account.id,
-      messageId: message.id,
-      providerMessageId: message.provider_message_id,
-      flag: '\\Seen',
-      value: true,
-    });
-    if (outcome.status === 'confirmed' || outcome.status === 'accepted') confirmed += 1;
-    else failed += 1;
-  }
-  if (failed > 0) console.warn(`mark-all-read: Gmail confirmed ${confirmed} of ${messages.length} messages`);
-  return { confirmed, failed };
+// Flag responses distinguish confirmed provider writes from durable pending work.
+for (const [path, field, flag] of [
+  ['/messages/:id/read', 'read', '\\Seen'],
+  ['/messages/:id/star', 'starred', '\\Flagged'],
+] as const) {
+  router.patch(path, async (req, res) => {
+    const { id } = req.params;
+    const value: unknown = req.body[field];
+    if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
+    if (typeof value !== 'boolean') return res.status(400).json({ error: `${field} must be a boolean` });
+    const message = (await query<ReadMessageRow>(`SELECT m.* FROM messages m
+      JOIN email_accounts a ON a.id=m.account_id WHERE m.id=$1 AND a.user_id=$2`, [id, sessionUserId(req)])).rows[0];
+    if (!message) return res.status(404).json({ error: 'Message not found' });
+    const account = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2', [message.account_id, sessionUserId(req)])).rows[0];
+    const outcome = await pushProviderMessageFlag({ manager: imapManager, userId: sessionUserId(req), account,
+      accountId: message.account_id, messageId: id, providerMessageId: message.provider_message_id,
+      uid: message.uid, folder: message.folder, flag, value });
+    if (outcome.status === 'confirmed') {
+      notifyMailMutation([message], sessionUserId(req));
+    }
+    const body = mailFlagResponse([{ id, ...outcome }]);
+    res.json({ ...body, ...(outcome.status === 'confirmed' ? { [field === 'read' ? 'is_read' : 'is_starred']: value } : {}) });
+  });
 }
-
-// Mark read/unread
-router.patch('/messages/:id/read', async (req, res) => {
-  const { id } = req.params;
-  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-  const { read } = req.body;
-
-  const result = await query<ReadMessageRow>(`
-    SELECT m.*, a.user_id,
-           CASE WHEN m.message_id IS NULL THEN 1
-                ELSE (SELECT COUNT(*) FROM messages s
-                       WHERE s.account_id = m.account_id AND s.message_id = m.message_id)
-           END AS sibling_count
-    FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
-
-  if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-  const message = result.rows[0];
-
-  // Run DB update and account fetch concurrently — no dependency between them.
-  // read_changed_at tells the IMAP sync not to overwrite this change for 30 s,
-  // preventing a race where a concurrent sync fetch sees the old IMAP flag.
-  const [, accountResult] = await Promise.all([
-    query('UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = $2', [read, id]),
-    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
-  ]);
-
-  // The provider write runs before any local side effect is emitted, so a
-  // *permanent* refusal can be undone without having already told the user, the
-  // other sessions and the folder counters that the change happened.
-  const mutation = await pushProviderMessageFlag({
-    manager: imapManager,
-    userId: sessionUserId(req),
-    account: accountResult.rows[0],
-    accountId: message.account_id,
-    messageId: id,
-    providerMessageId: message.provider_message_id,
-    uid: message.uid,
-    folder: message.folder,
-    flag: '\\Seen',
-    value: read,
-  });
-  if (mutation.status === 'permanent') {
-    // The provider rejected the change for good: leave the row as the user found it
-    // rather than keeping a local state the mailbox does not have.
-    await query('UPDATE messages SET is_read = $1, read_changed_at = NULL WHERE id = $2', [message.is_read, id]);
-    return res.status(409).json({ error: 'The mail provider refused this change', code: mutation.code ?? 'OPERATION_FORBIDDEN' });
-  }
-
-  // Keep the cached folder unread_count in sync so pagination totals stay accurate.
-  if (!!message.is_read !== !!read) {
-    adjustFolderCounts(message.account_id, message.folder, 0, read ? -1 : 1);
-    // Notify the user's OTHER sessions so a read/unread on one device reflects on the rest
-    // in place, without a full folder refetch (the originating device already applied it).
-    imapManager.broadcast({ type: 'message_flags', accountId: message.account_id, changes: [{ id, is_read: read }] }, req.session.userId);
-  }
-
-  // GTD: a labeled message owns a sibling row per folder. Fan the read change out to
-  // those rows (and their folder unread counts) so label views don't go stale. Gated on
-  // gtd_enabled (so a non-GTD account is byte-identical to pre-GTD behaviour) AND on the
-  // message actually having siblings — a plain single-folder message keeps the PK-only
-  // fast path. The provider flag is written to the acted folder only: Gmail propagates
-  // \Seen message-wide server-side, and per-copy writes to N folders would multiply
-  // round-trips — an asymmetry accepted in the GTD design.
-  if (Number(message.sibling_count) > 1 && await accountMaintainsLabelSiblings(message.account_id)) {
-    await fanOutReadToSiblings(message.account_id, message.message_id, read);
-  }
-
-  // Refresh GTD section data if this message's thread carries a GTD label (its head shows read state).
-  notifyMailMutation([message], sessionUserId(req));
-
-  res.json({ ok: true, is_read: read });
-});
-
-// Star/unstar
-router.patch('/messages/:id/star', async (req, res) => {
-  const { id } = req.params;
-  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
-  const { starred } = req.body;
-
-  const result = await query<ReadMessageRow>(`
-    SELECT m.*, a.user_id,
-           CASE WHEN m.message_id IS NULL THEN 1
-                ELSE (SELECT COUNT(*) FROM messages s
-                       WHERE s.account_id = m.account_id AND s.message_id = m.message_id)
-           END AS sibling_count
-    FROM messages m
-    JOIN email_accounts a ON m.account_id = a.id
-    WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
-
-  if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
-  const message = result.rows[0];
-
-  // Run DB update and account fetch concurrently — no dependency between them.
-  // star_changed_at tells the IMAP sync not to overwrite this change for 30 s.
-  const [, accountResult] = await Promise.all([
-    query('UPDATE messages SET is_starred = $1, star_changed_at = NOW() WHERE id = $2', [starred, id]),
-    query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [message.account_id]),
-  ]);
-
-  // The provider write runs first, so a permanent refusal can undo the optimistic
-  // local change before anything has told the user it happened (see the read route).
-  const mutation = await pushProviderMessageFlag({
-    manager: imapManager,
-    userId: sessionUserId(req),
-    account: accountResult.rows[0],
-    accountId: message.account_id,
-    messageId: id,
-    providerMessageId: message.provider_message_id,
-    uid: message.uid,
-    folder: message.folder,
-    flag: '\\Flagged',
-    value: starred,
-  });
-  if (mutation.status === 'permanent') {
-    await query('UPDATE messages SET is_starred = $1, star_changed_at = NULL WHERE id = $2', [message.is_starred, id]);
-    return res.status(409).json({ error: 'The mail provider refused this change', code: mutation.code ?? 'OPERATION_FORBIDDEN' });
-  }
-
-  // GTD: fan the star change out to the message's sibling label rows (see the read
-  // handler). Gated on gtd_enabled to keep a non-GTD account byte-identical to pre-GTD.
-  // Stars don't affect folder unread counts, so no count adjustment. The provider
-  // \Flagged write stays on the acted folder only.
-  if (Number(message.sibling_count) > 1 && await accountMaintainsLabelSiblings(message.account_id)) {
-    await fanOutStarToSiblings(message.account_id, message.message_id, starred);
-  }
-
-  // Refresh GTD section data if this message's thread carries a GTD label (its head shows star state).
-  notifyMailMutation([message], sessionUserId(req));
-  // Reflect the star change on the user's other sessions in place (no full refetch).
-  if (!!message.is_starred !== !!starred) {
-    imapManager.broadcast({ type: 'message_flags', accountId: message.account_id, changes: [{ id, is_starred: starred }] }, req.session.userId);
-  }
-
-  res.json({ ok: true, is_starred: starred });
-});
 
 // Manual sync (INBOX)
 router.post('/sync', async (req, res) => {
@@ -2159,39 +1900,19 @@ router.post('/mark-all-read', async (req, res) => {
   const { accountId, folder = 'INBOX' } = req.body;
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'Invalid account id' });
   if (!isValidFolderName(folder)) return res.status(400).json({ error: 'Invalid folder name' });
-  const check = await query<EmailAccountRow>(
-    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
-  );
-  if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
-  const account = check.rows[0];
-  // The provider write addresses the messages that are unread *now*, so the list has
-  // to be taken before the local update below flips them.
-  const unread = account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api'
-    ? (await query<{ id: string; provider_message_id: string | null }>(
-        'SELECT id, provider_message_id FROM messages WHERE account_id = $1 AND folder = $2 AND is_read = false AND provider_message_id IS NOT NULL',
-        [accountId, folder],
-      )).rows
-    : [];
-  await query('UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND folder = $2', [accountId, folder]);
-  await query('UPDATE folders SET unread_count = 0 WHERE account_id = $1 AND path = $2', [accountId, folder])
-    .catch(err => console.error('Folder count update failed:', err.message));
-  // Also update the provider so the change survives the next sync (non-fatal if it fails).
-  if (account.mail_transport === 'microsoft_graph') {
-    void markAllReadOverGraph(sessionUserId(req), account, unread).catch(err =>
-      console.warn('markAllReadOverGraph failed:', err.message)
-    );
-  } else if (account.mail_transport === 'gmail_api') {
-    void markAllReadOverGmail(sessionUserId(req), account, unread).catch(err =>
-      console.warn('markAllReadOverGmail failed:', err.message)
-    );
-  } else {
-    imapManager.markAllReadImap(account, folder).catch(err =>
-      console.warn('markAllReadImap failed:', err.message)
-    );
-  }
-  imapManager.broadcast({ type: 'sync_complete', accountId }, check.rows[0].user_id);
-  res.json({ ok: true });
+  const account = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2', [accountId, sessionUserId(req)])).rows[0];
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  const rows = (await query<ReadMessageRow>(`SELECT m.* FROM messages m WHERE m.account_id=$1
+    AND (m.folder=$2 OR EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id=m.id AND ml.account_id=$1 AND ml.folder_path=$2))
+    AND m.is_deleted=false AND (m.is_archived=false OR $2<>'INBOX') AND ${visiblePhysicalMessageSql}
+    AND (m.is_read=false OR EXISTS (SELECT 1 FROM mail_flag_intents i WHERE i.message_id=m.id AND i.flag=$3 AND i.status IN ('pending','writing','readback','failed')))`,
+    [accountId, folder, '\\Seen'])).rows;
+  const outcomes = await pushProviderMessageFlags(rows.map(message => ({
+    userId: sessionUserId(req), accountId, messageId: message.id, flag: '\\Seen', value: true,
+  })), { manager: imapManager });
+  const confirmedIds = new Set(outcomes.filter(outcome => outcome.status === 'confirmed').map(outcome => outcome.id));
+  notifyMailMutation(rows.filter(row => confirmedIds.has(row.id)), sessionUserId(req));
+  res.json(mailFlagResponse(outcomes));
 });
 
 // Create folder
@@ -2418,129 +2139,28 @@ router.post('/folders/empty', async (req, res) => {
 });
 
 // Bulk mark read/unread
-router.post('/messages/bulk-read', async (req, res) => {
-  const { ids, read } = req.body;
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: 'ids array required' });
-  }
-  if (ids.length > 500) {
-    return res.status(400).json({ error: 'Too many ids — maximum 500 per request' });
-  }
-  if (!areValidUUIDs(ids)) {
-    return res.status(400).json({ error: 'Invalid message IDs' });
-  }
-  if (typeof read !== 'boolean') {
-    return res.status(400).json({ error: 'read must be a boolean' });
-  }
-
-  try {
-    const result = await query<ReadMessageRow>(
-      `SELECT m.id, m.uid, m.folder, m.is_read, m.account_id, m.message_id, m.provider_message_id FROM messages m
-       JOIN email_accounts a ON m.account_id = a.id
-       WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
-      [req.session.userId, ids]
-    );
-
-    const owned = result.rows;
-    if (!owned.length) return res.json({ ok: true, updated: [] });
-
-    // Skip messages whose state already matches — avoid spurious DB writes and IMAP round-trips.
-    const toUpdate = owned.filter(m => !!m.is_read !== !!read);
-    if (!toUpdate.length) return res.json({ ok: true, updated: [] });
-
-    await query(
-      'UPDATE messages SET is_read = $1, read_changed_at = NOW() WHERE id = ANY($2::uuid[])',
-      [read, toUpdate.map(m => m.id)]
-    );
-
-    // Adjust cached unread counts per account+folder.
-    const folderDeltas: Record<string, { accountId: string; folder: string; delta: number }> = {};
-    for (const msg of toUpdate) {
-      const key = `${msg.account_id}:${msg.folder}`;
-      if (!folderDeltas[key]) folderDeltas[key] = { accountId: msg.account_id, folder: msg.folder, delta: 0 };
-      folderDeltas[key].delta += read ? -1 : 1;
+for (const [path, field, flag] of [
+  ['/messages/bulk-read', 'read', '\\Seen'],
+  ['/messages/bulk-star', 'starred', '\\Flagged'],
+] as const) {
+  router.post(path, async (req, res) => {
+    const { ids } = req.body;
+    const value: unknown = req.body[field];
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !areValidUUIDs(ids)) return res.status(400).json({ error: '1–500 valid message IDs required' });
+    if (typeof value !== 'boolean') return res.status(400).json({ error: `${field} must be a boolean` });
+    const rows = (await query<ReadMessageRow>(`SELECT m.* FROM messages m JOIN email_accounts a ON a.id=m.account_id
+      WHERE m.id=ANY($1::uuid[]) AND a.user_id=$2`, [ids, sessionUserId(req)])).rows;
+    const outcomes = await pushProviderMessageFlags(rows.map(message => ({
+      userId: sessionUserId(req), accountId: message.account_id, messageId: message.id, flag, value,
+    })), { manager: imapManager });
+    for (const id of new Set<string>(ids)) {
+      if (!rows.some(row => row.id === id)) outcomes.push({ id, status: 'permanent' as const, code: 'RESOURCE_NOT_FOUND' });
     }
-    for (const { accountId, folder, delta } of Object.values(folderDeltas)) {
-      adjustFolderCounts(accountId, folder, 0, delta);
-    }
-
-    // GTD: fan the read change out to sibling label rows of every updated message that
-    // belongs to a gtd_enabled account, adjusting each sibling folder's unread count.
-    // Gating on gtd_enabled keeps a non-GTD account byte-identical to pre-GTD (no extra
-    // fan-out query); the fan-out itself is also self-limiting for messages without
-    // siblings. IMAP \Seen is still written per acted row only (below); Gmail propagates
-    // it message-wide server-side.
-    // gtdUpdatedIds is scoped to toUpdate (rows whose read-state actually changed), so a
-    // message already at the target state never triggers sibling fan-out here — unlike the
-    // single-message handler above, which fans out unconditionally regardless of whether the
-    // acted message's own state changed. That asymmetry is acceptable: nothing else in this
-    // path can push a sibling out of sync with its head, and the label-folder tick already
-    // self-heals any divergence on the next read.
-    const acctIds = [...new Set(toUpdate.map(m => m.account_id))];
-    const gtdAccts = new Set();
-    await Promise.all(acctIds.map(async (aid) => {
-      if (await accountMaintainsLabelSiblings(aid)) gtdAccts.add(aid);
-    }));
-    const gtdUpdatedIds = toUpdate.filter(m => gtdAccts.has(m.account_id)).map(m => m.id);
-    if (gtdUpdatedIds.length) await fanOutBulkReadToSiblings(gtdUpdatedIds, read);
-    // Group writes and live events by account; an unscoped echo otherwise
-    // invalidates every visited inbox, including in the originating browser.
-    const byAccount: Record<string, MailMessageRow[]> = {};
-    for (const msg of toUpdate) {
-      (byAccount[msg.account_id] = byAccount[msg.account_id] || []).push(msg);
-    }
-    for (const [accountId, msgs] of Object.entries(byAccount)) {
-      imapManager.broadcast({ type: 'message_flags', accountId, changes: msgs.map(m => ({ id: m.id, is_read: read })) }, req.session.userId);
-      const accountResult = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
-      const account = accountResult.rows[0];
-      // A native account has no IMAP session: the write goes to its provider through
-      // the same journal-backed flag adapter the single-message route uses. Before
-      // this branch existed, a bulk read/unread on a native account opened an IMAP
-      // connection for a mailbox that has none and reported success regardless.
-      if (account && (account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api')) {
-        for (const msg of msgs) {
-          const outcome = await pushProviderMessageFlag({
-    manager: imapManager,
-            userId: sessionUserId(req),
-            account,
-            accountId,
-            messageId: msg.id,
-            providerMessageId: msg.provider_message_id,
-            uid: msg.uid,
-            folder: msg.folder,
-            flag: '\\Seen',
-            value: read,
-          });
-          if (outcome.status !== 'confirmed' && outcome.status !== 'accepted') {
-            console.error(`bulk-read ${account.mail_transport} ${msg.id}: not confirmed (${outcome.status}${outcome.code ? `, ${outcome.code}` : ''})`);
-          }
-        }
-        continue;
-      }
-      const results = await runInBatches(
-        msgs, 3,
-        msg => imapManager.setFlag(account, msg.uid, msg.folder, '\\Seen', read)
-      );
-      results.forEach((r, i) => {
-        if (r.status === 'rejected') {
-          console.error(`bulk-read IMAP ${msgs[i].id}:`, r.reason.message);
-          // Durable retry so a later flag-sync pull can't revert this message to unread.
-          imapManager._enqueueFlagPush(accountId, msgs[i].id, '\\Seen', read);
-        } else {
-          imapManager._resolveFlagPush(accountId, msgs[i].id, '\\Seen'); // confirmed
-        }
-      });
-    }
-
-    // Refresh GTD section data for any updated thread that carries a GTD label.
-    notifyMailMutation(toUpdate, sessionUserId(req));
-
-    res.json({ ok: true, updated: toUpdate.map(m => m.id) });
-  } catch (err) {
-    console.error('bulk-read error:', err);
-    res.status(500).json({ error: 'Failed to update messages' });
-  }
-});
+    const confirmedIds = new Set(outcomes.filter(outcome => outcome.status === 'confirmed').map(outcome => outcome.id));
+    notifyMailMutation(rows.filter(row => confirmedIds.has(row.id)), sessionUserId(req));
+    res.json(mailFlagResponse(outcomes));
+  });
+}
 
 // Bulk delete (move to trash)
 router.post('/messages/bulk-delete', async (req, res) => {
@@ -3923,9 +3543,9 @@ router.get('/category-counts', async (req, res) => {
            COUNT(*) FILTER (WHERE m.is_read = false)::int AS unread_count
     FROM messages m
     WHERE m.account_id = ANY($1)
-      AND m.folder = 'INBOX'
-      AND m.is_deleted = false
-      AND ${visiblePhysicalMessageSql}
+      AND ${messageFolderMembershipSql({ accountIdsParam: 1 })}
+      AND m.is_deleted = false AND m.is_archived = false
+      AND ${visiblePhysicalMessageSql} AND ${populatedMessageSql}
     GROUP BY COALESCE(m.category, 'primary')
   `, [scopedIds]);
 

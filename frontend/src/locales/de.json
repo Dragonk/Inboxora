@@ -2521,6 +2521,7 @@
     "operationPending": "Der entfernte Vorgang ist noch nicht bestätigt. Nicht mit einer neuen Anfragekennung wiederholen.",
     "targetUnavailable": "Dieses Konto oder diese Ressource ist nicht mehr verfügbar. Zur Liste zurückkehren und sie aktualisieren.",
     "deleteLocalWarning": "Die Ressource und ihr Inhalt werden aus Inboxora gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.",
+    "providerDeletionUnavailable": "Diese Sammlung kann beim Anbieter nicht gelöscht werden. Standard-, System- und schreibgeschützte Sammlungen können hier nicht gelöscht werden.",
     "deleteRemoteWarning": "Die Ressource einschließlich ihres Inhalts wird beim Anbieter gelöscht. Dies ist nicht dasselbe wie Ausblenden oder Trennen.",
     "removeAccountHint": "Alle synchronisierten Nachrichten dieses Kontos werden aus Inboxora entfernt. Das Postfach beim Anbieter wird nicht gelöscht.",
     "intervalMinutes_zero": "Minuten: {{count}}",
@@ -2627,5 +2628,11 @@
     "recipientsUnavailable": "Empfängerdaten nicht verfügbar",
     "editingNotice": "Der Versand ist während der Bearbeitung pausiert. Speichern setzt ihn nicht fort. Wählen Sie anschließend Senden oder Versand planen.",
     "resumeFromEditor": "Beenden Sie die Bearbeitung im geöffneten Nachrichtenfenster und senden oder planen Sie dann die geänderte Nachricht."
+  },
+  "mailStateChange": {
+    "pendingTitle": "Änderung wartet auf Bestätigung",
+    "pendingBody": "Der E-Mail-Anbieter hat diese Änderung noch nicht bestätigt. Der aktuelle Postfachstatus wird erneut geprüft.",
+    "failedTitle": "Änderung fehlgeschlagen",
+    "failedBody": "Der E-Mail-Anbieter konnte diese Änderung nicht anwenden. Der vorherige Status wurde wiederhergestellt."
   }
 }

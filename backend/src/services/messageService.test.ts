@@ -4,6 +4,7 @@ vi.mock('./db.js', () => ({ query: vi.fn() }));
 
 const { query } = vi.mocked(await import('./db.js'));
 import { listMessages } from './messageService.js';
+import { populatedMessageSql } from './messageVisibility.js';
 
 beforeEach(() => {
   query.mockReset();
@@ -42,22 +43,11 @@ describe('listMessages — account scope', () => {
     expect(query).toHaveBeenCalledOnce();
   });
 
-  it('falls back to unified inbox when accountId is not owned by the user', async () => {
-    query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })           // accounts
-      .mockResolvedValueOnce({ rows: [{ n: 5 }] })                  // membership-aware count
-      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', folder: 'INBOX' }] }); // messages
-
+  it('returns no rows rather than another mailbox for an unavailable explicit account', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] });
     const result = await listMessages({ userId: 'user-1', accountId: 'acc-other' });
-
-    // Unified inbox returns the cached total from the folder sum query
-    expect(result.total).toBe(5);
-    expect(result.resolvedAccountId).toBeNull();
-
-    // The folder count query should have used total_count (not unread_count)
-    const countSql = query.mock.calls[1][0];
-    expect(countSql).toContain('COUNT(*)');
-    expect(countSql).toContain('message_labels');
+    expect(result).toEqual({ messages: [], total: 0 });
+    expect(query).toHaveBeenCalledOnce();
   });
 
   it('uses only opted-in accounts for the unified inbox', async () => {
@@ -222,7 +212,7 @@ describe('listMessages — threaded mode', () => {
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: true });
 
     // P1-C: thread_totals must count across ALL folders (Inbox + Sent + Archive) so the
-    // badge equals the number of unique children /mail/thread/:threadId expansion renders.
+    // badge equals the number of physical children /mail/thread/:threadId expansion renders.
     // Scoping to INBOX produced badge=2 while expansion showed 3 (Inbox+Sent+Inbox).
     const cteSql = query.mock.calls[1][0];
     expect(cteSql).not.toContain('AND folder = $2');
@@ -257,7 +247,7 @@ describe('listMessages — threaded mode', () => {
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
-  it('uses a physical fallback for NULL/empty Message-ID so badge count matches expansion children', async () => {
+  it('counts every physical copy, including equal and NULL/empty Message-IDs', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -266,10 +256,9 @@ describe('listMessages — threaded mode', () => {
     await listMessages({ userId: 'user-1', accountId: 'acc-1', folder: 'INBOX', threaded: true });
 
     const cteSql = query.mock.calls[1][0];
-    // M1=<a>, M2=NULL, M3=<c> must produce badge=3: valid IDs dedupe by
-    // normalized Message-ID; missing/whitespace IDs retain a deterministic physical row.
-    expect(cteSql).toContain("COALESCE(NULLIF(btrim(m.message_id), ''), '__physical__:' || m.id::text)");
-    expect(cteSql).toContain('COUNT(DISTINCT COALESCE(NULLIF(btrim(m.message_id), \'\'), \'__physical__:\' || m.id::text))::int AS message_count');
+    expect(cteSql).toContain('COUNT(*)::int AS message_count');
+    expect(cteSql).not.toContain('DISTINCT ON');
+    expect(cteSql).not.toContain('COUNT(DISTINCT');
     expect(cteSql).not.toContain('m.message_id IS NOT NULL');
   });
 
@@ -351,7 +340,7 @@ describe('listMessages — message shape', () => {
 
     const threadedSql = String(query.mock.calls[1][0]);
     // The verdict must survive to the FINAL projection from `ranked` — a
-    // field present only inside the `deduped` CTE never reaches the parent
+    // field present only inside the `physical_messages` CTE never reaches the parent
     // row the reader renders.
     const finalSelect = threadedSql.slice(threadedSql.lastIndexOf('FROM ranked'));
     const projection = threadedSql.slice(threadedSql.indexOf('SELECT id, uid, folder'), threadedSql.indexOf('FROM ranked'));
@@ -371,7 +360,7 @@ describe('listMessages — ghost row suppression (#407)', () => {
     await listMessages({ userId: 'user-1', accountId: 'acc-1' });
 
     const sql = query.mock.calls[2][0];
-    expect(sql).toContain('NOT (m.message_id IS NULL');
+    expect(sql).toContain(populatedMessageSql);
     expect(sql).toContain("m.subject = '(no subject)'");
   });
 
@@ -384,7 +373,7 @@ describe('listMessages — ghost row suppression (#407)', () => {
     await listMessages({ userId: 'user-1', accountId: 'acc-1', threaded: true });
 
     // CTE (call 1) and thread-count (call 2) both share `where`, so both exclude ghosts.
-    expect(query.mock.calls[1][0]).toContain('NOT (m.message_id IS NULL');
-    expect(query.mock.calls[2][0]).toContain('NOT (m.message_id IS NULL');
+    expect(query.mock.calls[1][0]).toContain(populatedMessageSql);
+    expect(query.mock.calls[2][0]).toContain(populatedMessageSql);
   });
 });

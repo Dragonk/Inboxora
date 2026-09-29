@@ -324,7 +324,7 @@ describe('forwardRuleMessage', () => {
 
       await expect(forwardRuleMessage(input)).resolves.toBe('sent');
       expect(smtpSender.sendMail).toHaveBeenCalledTimes(1);
-      expect(smtpSender.sendMail.mock.calls[0][0]).toMatchObject({ to: recipient });
+      expect(smtpSender.sendMail.mock.calls[0][0]).toMatchObject({ to: [{ address: recipient, name: '' }], envelope: { to: [recipient] } });
       expect(state.sentUpdates).toBe(1);
       expect(state.reservation).toBe('sent');
     });

@@ -167,6 +167,8 @@ function nativeCopy(copy: ConversationCopyLike, logical: LogicalMessageLike, con
     logical_message_id: logical.id,
     thread_id: conversationId,
     message_id: copy.messageId ?? copy.message_id ?? logical.canonicalMessageId ?? logical.canonical_message_id,
+    reply_to: copy.replyTo ?? copy.reply_to ?? [],
+    replyTo: copy.replyTo ?? copy.reply_to ?? [],
     in_reply_to: copy.inReplyTo ?? copy.in_reply_to ?? null,
     inReplyTo: copy.inReplyTo ?? copy.in_reply_to ?? null,
     thread_references: copy.references ?? copy.thread_references ?? null,
@@ -184,13 +186,12 @@ function nativeCopy(copy: ConversationCopyLike, logical: LogicalMessageLike, con
   };
 }
 
-export function conversationDetailToThreadMessages(detail: ConversationDetailLike | null | undefined, selectedFolder: string | null | undefined) {
+export function conversationDetailToThreadMessages(detail: ConversationDetailLike | null | undefined, _selectedFolder: string | null | undefined) {
   const conversationId = detail?.summary?.conversation_id ?? detail?.summary?.id;
   const accountId = detail?.summary?.account_id ?? detail?.summary?.accountId;
-  return (detail?.logicalMessages || []).map((logical: ConversationLogicalMessageLike) => {
-    const copy = preferredConversationCopy(logical.copies, accountId, selectedFolder);
-    return copy ? nativeCopy(copy, logical, conversationId, accountId) : null;
-  }).filter(Boolean);
+  return (detail?.logicalMessages || []).flatMap(logical =>
+    (logical.copies || []).filter(copy => copy.id && (!accountId || String(copy.accountId ?? copy.account_id) === String(accountId)))
+      .map(copy => nativeCopy(copy, logical, conversationId, accountId)));
 }
 
 export function conversationRowToThreadRow(row: ConversationRowLike) {
@@ -243,15 +244,14 @@ function isNativeThreadMessage(value: unknown): value is NativeThreadMessageLike
  * card. This is the fallback/primary source when CE graph is incomplete so the reader
  * never silently drops messages that the native thread list shows.
  *
- * Native thread children are already deduplicated by message_id by the backend
- * (DISTINCT ON), so one row here = one unique real message.
+ * Each row retains its physical identity even when RFC headers are identical.
  */
 export function nativeThreadToReaderMessages(threadMessages: unknown, accountId: string | null | undefined): ReaderMessageLike[] {
   const validMessages = Array.isArray(threadMessages)
     ? threadMessages.filter(isNativeThreadMessage)
     : [];
   return validMessages.map((msg: NativeThreadMessageLike, index: number) => ({
-    id: msg.message_id || msg.id,
+    id: msg.id,
     subject: msg.subject,
     canonicalMessageId: msg.message_id,
     canonical_message_id: msg.message_id,
@@ -270,6 +270,9 @@ export function nativeThreadToReaderMessages(threadMessages: unknown, accountId:
       thread_id: msg.thread_id,
       threadKey: msg.thread_key,
       folder: msg.folder,
+      category: msg.category,
+      is_archived: msg.is_archived,
+      folder_paths: msg.folder_paths,
       subject: msg.subject,
       fromName: msg.from_name,
       from_name: msg.from_name,
@@ -279,6 +282,8 @@ export function nativeThreadToReaderMessages(threadMessages: unknown, accountId:
       to_addresses: msg.to_addresses,
       cc: msg.cc_addresses,
       cc_addresses: msg.cc_addresses,
+      replyTo: msg.reply_to ?? [],
+      reply_to: msg.reply_to ?? [],
       inReplyTo: msg.in_reply_to,
       in_reply_to: msg.in_reply_to,
       references: msg.thread_references,
@@ -340,6 +345,15 @@ export function mergeThreadWithConversation(ceMessages: ConversationLogicalMessa
         .filter(([, value]) => value != null && value !== ''));
       return { ...ceCopy, ...definedNative };
     });
-    return { ...native, ...ce, copies, id: ce.id || native.id, _ceMatched: true };
+    return { ...native, ...ce, copies, id: native.id, logicalMessageId: ce.id, unread: native.unread, _ceMatched: true };
   });
+}
+
+/** A logical message can have several cards. Explicit physical selection always
+ * wins; ambiguous logical enrichment must not jump to another provider copy. */
+export function conversationTargetId(messages: readonly ConversationLogicalMessageLike[], logicalId: string | null, physicalId: string | null): string | undefined {
+  const physical = physicalId && messages.find(message => (message.copies || []).some(copy => copy.id === physicalId));
+  if (physical) return physical.id;
+  const logical = logicalId ? messages.filter(message => message.id === logicalId || message.logicalMessageId === logicalId) : [];
+  return logical.length === 1 ? logical[0].id : undefined;
 }

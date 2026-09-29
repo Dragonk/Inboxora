@@ -43,3 +43,25 @@ test('manager exposes local cleanup only for orphaned legacy CardDAV groups', ()
   assert.equal(isLegacyCardDavSource(current), false);
   assert.equal(isLegacyCardDavSource({ id: 'local', kind: 'local' }), false);
 });
+
+test('remote collection deletion is explicitly confirmed and never detaches the integration', async () => {
+  const source = await read('ContactsBooksManager.tsx');
+  assert.match(source, /remote=\{deleting.source !== 'local'\}/);
+  assert.match(source, /onConfirm=\{confirmDelete\}/);
+  assert.match(source, /api.addressBooks.remove\(item.id, \{ confirmName: item.name, idempotencyKey: item.idempotencyKey \}\)/);
+  assert.match(source, /collectionDeletionAllowed\(editing.book.deletion\)/);
+  assert.match(source, /editing.book.deletion\?\.reason/);
+  assert.match(source, /if \(current\(\) && confirmed\)/);
+  assert.match(source, /sendRemoteDelete\(\{ id: book.id, name: deleting.name,/);
+  assert.doesNotMatch(source, /sendRemoteDelete\(\{ id: book.id, name: book.name,/);
+});
+
+test('only the collection management view requests live deletion capabilities', async () => {
+  const contacts = await read('ContactsPage.tsx');
+  assert.match(contacts, /api.addressBooks.list\(\{ includeDeletionCapabilities: settingsOnly \|\| booksManagerOpen \}\)/);
+  const calendars = await read('CalendarSettingsManager.tsx');
+  assert.match(calendars, /api.calendar.listCalendars\(\{ includeDeletionCapabilities: true \}\)/);
+  assert.match(calendars, /intent.response.state === 'outcome_unknown'/);
+  const calendarPage = await read('CalendarPage.tsx');
+  assert.doesNotMatch(calendarPage, /includeDeletionCapabilities: true/);
+});

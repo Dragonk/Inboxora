@@ -68,6 +68,31 @@ describe('openReplyFromMessage reply target', () => {
   });
   });
 
+describe('provider-shaped reply addresses', () => {
+  it('uses Gmail Reply-To address fields rather than replying to a no-reply From', async () => {
+    for (const raw of [[{ name: 'OVH admin', address: 'admin@ovh.example.test' }],
+      JSON.stringify([{ name: 'OVH admin', email: ' ', address: 'admin@ovh.example.test' }])]) {
+      const h = harness();
+      await openReplyFromMessage({ id: 'gmail-copy', account_id: 'gmail', message_id: '<merge-copy@ovh.example.test>',
+        from_email: 'noreply@ovh.example.test', reply_to: raw,
+      }, { accounts: [{ id: 'gmail', email_address: 'owner@gmail.example.test' }], ...h });
+      assert.deepEqual(h.payload().to, [{ name: 'OVH admin', email: 'admin@ovh.example.test' }]);
+      assert.equal(h.payload().replyToMessageId, 'gmail-copy');
+      assert.equal(h.payload().inReplyTo, '<merge-copy@ovh.example.test>');
+    }
+  });
+  it('keeps explicit email precedence and excludes both own address shapes from reply-all', async () => {
+    const h = harness();
+    await openReplyFromMessage({ id: 'gmail-copy', account_id: 'gmail',
+      from_email: 'sender@example.test', reply_to: [{ email: 'reply@example.test', address: 'wrong@example.test' }],
+      to_addresses: [{ address: 'owner@gmail.example.test' }, { name: 'Team', address: 'team@example.test' }],
+      cc_addresses: [{ email: '', address: 'team@example.test' }, { address: 'alias@gmail.example.test' }],
+    }, { accounts: [{ id: 'gmail', email_address: 'owner@gmail.example.test', aliases: [{ id: 'alias', email: 'alias@gmail.example.test' }] }], ...h, replyAll: true });
+    assert.deepEqual(h.payload().to, [{ email: 'reply@example.test' }]);
+    assert.deepEqual(h.payload().cc, [{ name: 'Team', email: 'team@example.test' }]);
+  });
+});
+
 describe('openReplyFromMessage alias selection', () => {
   const account = {
     id: 'a',

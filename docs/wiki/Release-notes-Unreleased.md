@@ -2,6 +2,34 @@
 
 These changes are on the development branch for pre-merge testing. They are **not part of the published 4.1.2 release**; a release version has not been assigned.
 
+## Mail status and provider collection consistency
+
+Read/unread and star actions share a PostgreSQL-backed intent queue across Microsoft Graph, Gmail API and IMAP, including Gmail over IMAP. The latest explicit click owns its generation. Bulk requests persist every member before the first provider call; a bounded immediate slice runs while the worker owns the remainder. Responses distinguish confirmed, pending and failed IDs. The client requests fresh evidence after uncertainty instead of retaining an optimistic flag indefinitely, and old responses cannot overwrite another session or a newer click.
+
+Token-refresh contention and connection failures before dispatch can be retried safely. An IMAP STORE with a lost response is not blindly repeated: exact UIDVALIDITY and flag readback determine recovery. The queue survives restart and supports accounts without persistent IDLE connections. Historical unknown operations are observed, not replayed as old user commands or relabelled as historical successes.
+
+Flags skipped by recent-change protection create durable readback work before the sync checkpoint advances. These exact-message reads are independent of Graph delta, Gmail history and IMAP MODSEQ/recent-message windows. Confirmed and observed Gmail flags also update UNREAD/STARRED metadata while preserving other labels. Folder copies are read independently rather than assigned flags from RFC Message-ID alone.
+
+Thread expansion, conversation previews/readers and unread/category counts preserve distinct physical copies. Verified Graph compatibility aliases stay hidden with old links intact; uncertain bindings remain available for recovery. Conversation summary counts come from visible copies, not stale ingest counters. Genuine provider items with no subject, preview or RFC ID remain visible. Restoring local visibility requires current provider evidence and unchanged identity, without overriding deletion/move evidence.
+
+### Calendars and address books
+
+A complete validated listing can retire calendars and address books missing at their provider, along with their owned events/occurrences or contacts, collection links and relevant sync state. Memberships in another contact collection are preserved. CardDAV merge/skip policies do not send surviving contacts back into a book being retired; the same sync retains a local copy in a surviving book. Google calendar discovery includes hidden subscriptions. Microsoft contact folders and the primary contact endpoint retain separate identities. CardDAV cleanup is limited to the successfully enumerated home/source; a listed resource with an unexpected type is not considered absent. CalDAV verifies the exact missing collection before retiring its projection.
+
+Incomplete pagination, malformed responses, HTTP errors, revoked permissions and credential changes cannot authorize cleanup. Source and collection generations fence late pages after retirement or reconfiguration. Small tombstones and operation receipts remain as recovery metadata, not visible leftover collections or another content archive. Confirmed deletions remain fenced against stale rediscovery, even after their operation receipts are pruned. An absence recorded by complete discovery may be restored only by a newer complete, authorized listing, without re-enabling a collection disabled by the user.
+
+Collection settings offer remote deletion for supported secondary Microsoft books, owned secondary Microsoft/Google calendars and writable DAV collections. Exact-name confirmation and an acknowledgement of remote content removal are required. DAV checks the actual resource type, advertised DELETE support and parent unbind privileges. An uncertain result keeps the resource and a Check operation action; this reuses the same receipt and checks provider state rather than repeating an uncertain DELETE. Local disconnection is a separate operation. Opening settings from the mobile calendar closes its navigation panel.
+
+Primary books/calendars and shared or non-owned calendars are protected. Google People exposes the main contact collection, not a deletable address-book container: Inboxora does not substitute deleting all contacts or a contact group for deleting the book. Existing individual-contact synchronization remains available. Provider write permissions and enabled write-back are required; unverified or unsupported deletion capabilities remain disabled with an explanation.
+
+### Upgrade and validation
+
+Back up PostgreSQL and deploy matching backend/frontend revisions. After the existing chain through `0155_scheduled_mail_seen.sql`, apply `0156_mail_flag_state.sql`, `0158_native_collection_retirement.sql`, `0159_dav_collection_lifecycle.sql`, `0160_mail_flag_upgrade_readback.sql` and `0161_collection_rediscovery.sql` in filename order before the backend serves requests. No `0157` migration is introduced. Normal startup applies pending migrations. No new environment variables or release version are introduced; remote deletion uses the provider's existing write permissions.
+
+Upgrade readbacks are bounded background observations, not a mailbox reset or a mass mark-read operation. Existing changed-at rows and unresolved flag evidence are compared with current provider state, protecting newer local work. Provider outages defer recovery; large mailboxes can take multiple batches. Do not reset cursors or clear unread counters to accelerate it.
+
+Regression suites use real PostgreSQL transactions, separate worker processes, token-refresh leases, generation/identity races, mixed bulk outcomes, old IMAP UIDs and canonical alias visibility. Collection cases cover incomplete/forbidden discovery, changed credentials, late pages, uncertain deletion and recovery after local cleanup failure; DAV fixtures use localhost HTTP servers. Browser tests cover status readback, confirmation, protected resources and pending-operation recovery across navigation on desktop/mobile. These fixtures do not contact users' providers or send real mail.
+
 ## Sender addresses and automatic From selection (#9)
 
 In Settings → Accounts → the account menu → Aliases, the Sender addresses view always includes the primary mailbox address. It cannot be deleted from this view. The radio buttons select exactly one default sender for new messages, independently for each account. Existing aliases keep their display name, Reply-To and signature settings, and can still be edited or removed.
@@ -91,3 +119,38 @@ CC/BCC regression coverage additionally exercises API ownership and atomic valid
 Mail merge regression coverage checks deduplication and address validation, one-recipient queued payloads with empty Cc/Bcc, one-time forwarded attachment reads, sender changes during preparation, atomic rollback after preparation or insertion failure, zero-second due times, concurrent lost-ack replay and receipt replay after account deletion. Fake SMTP transport tests inspect each rendered message and envelope without sending mail. Browser cases cover menu focus, Escape, viewport placement, warning shortcuts, confirmation, retry keys and the four Undo Send choices, including a legacy intermediate value. The PostgreSQL cases use an isolated temporary schema and fake send preparation; no automated test sends real mail.
 
 For CC/BCC acceptance testing, save multiple defaults on two accounts, compose using primary and alias identities, remove a default, add manual recipients, switch accounts, and save/reopen a draft. Confirm the exact visible To/CC/BCC fields before sending a test message. Also test Reply/Reply All transitions and the mobile composer.
+
+
+## Provider reconciliation follow-up
+
+Apply `0161_collection_rediscovery.sql` after 0160 and before deploying this backend. It records discovery provenance for address-book retirement and preserves calendar enablement through a disappearing/reappearing subscription. A later complete, authorized discovery restores only an older discovery absence; confirmed provider deletions remain fenced. Restored calendars start a fresh event baseline. Legacy address-book tombstones without provenance remain conservative rather than guessing that a deletion was only a discovery absence.
+
+Gmail readbacks accept an omitted empty label list but reject malformed identities or label values. Graph visibility recovery backs off failed or malformed candidates while continuing other candidates and normal folder synchronization; authorization errors still stop the account, and throttling stops the recovery slice. Definitive DAV deletion responses must retain the requested collection identity. One failed optional visibility check is backed off without starving other messages or invalidating a completed mail delta. Ready frontend read intents use batches of at most 500 IDs with at most four concurrent requests; provider collection capability checks use four ordered workers.
+
+Conversation-only detail reads use the same session and physical-flag readback guards as native threads, including initial loads and live refreshes. A stale response cannot overwrite a later read/star click; a post-settlement readback can still correct an unknown outcome.
+
+The reader keeps the selected physical copy and its read state even when several copies share a logical message. Frame height measurements preserve outer layout so repeated measurements cannot clamp an already-scrolled reader. Tests cover mixed read outcomes, physical duplicates, same-sync CardDAV contact survival, subscription restoration, empty Gmail labels, invalid visibility candidates, and graceful migration-fixture shutdown. No additional provider scopes or environment settings are needed for this follow-up.
+
+
+## Gmail history recovery and mailbox isolation
+
+A Gmail history entry or message listing can refer to a thread that has since been deleted. A 404 from that exact thread read now skips the unavailable thread instead of aborting the mailbox on every retry. A 404 from the history endpoint still follows the separate expired-cursor baseline recovery. Authentication, throttling and server failures are not treated as empty threads. Local messages are removed only with explicit history deletion evidence or a completed account-wide baseline, and history deletion transactions are fenced to their worker generation.
+
+Gmail folder totals and unread badges are recomputed from visible physical rows and label memberships after sync/discovery. Missing count fields in a label listing no longer reset an existing badge to zero. Removing a label preserves a now-labelless message in the virtual Archive instead of deleting its physical row. Inboxora's inbox badge counts inbox messages; unread messages archived or filed outside the inbox are not silently added to that badge.
+
+An explicit disabled, removed or unowned account request returns no mail; it never falls back to the unified inbox. Browser list/search requests and delayed rollback paths also retain their account and navigation boundaries. A response that contains another account's rows is rejected before caching or flag readback. A late reader resolution cannot reopen an older selection.
+
+Native-account diagnostics show the mail pipeline's timestamp and status from the same snapshot as the detailed mail section. Opening that tab obtains current state; a recent successful calendar/contact sync or active push subscription does not conceal a failed mail run. No new migration, permission or environment setting is required beyond the chain through 0161 already documented above. Update both images; normal synchronization resumes from its stored checkpoint, without deleting the account, resetting cursors or marking messages read in bulk.
+
+Regressions use synthetic provider responses and isolated PostgreSQL. They reproduce a deleted thread blocking six unread messages, a disappearing thread during baseline import, stale-worker deletion, missing label counts, an unavailable account returning unrelated mail, delayed cross-account UI responses and coherent diagnostics. They do not access real Gmail accounts or prove the historical path of any specific production message.
+
+
+## Gmail list latency and reply addressing
+
+Folder membership is now evaluated as an account-scoped set instead of a correlated label lookup for each message. This removes the inflated planner costs that caused expensive PostgreSQL JIT compilation in Gmail and unified inbox lists. Lists, total counts, unread badges and category counts retain the same physical-copy, label, archive and account boundaries. Flat lists also select the requested page before loading full metadata and contact photos. No database-wide JIT setting, index or migration is changed. A PostgreSQL regression covers 40,000 multi-labelled messages and guards both results and query plans, including a low-memory join plan.
+
+Reply-To is retained when native thread messages are adapted to the Conversation Reader. Reply and Reply All accept both `email` and `address` fields from providers, with a non-empty email field taking precedence. MIME rendering passes structured addresses rather than reparsing display names; commas or address-like text in a name cannot replace the intended Gmail recipient. SMTP envelope recipients and BCC privacy remain unchanged.
+
+Synthetic tests cover the reader-to-composer recipient and the actual base64url MIME passed by the send pipeline to a mocked Gmail boundary, including a fresh Message-ID and the selected parent headers. An accepted send or a provider Sent copy is not a delivery receipt from the destination server. These fixes do not establish why a particular historical message was absent from both Inboxora and the destination webmail. Investigate that message using its actual To/Reply-To/Message-ID and any delivery-status notification, without automatically resending it.
+
+Update both dev images together. No additional migration, provider permission or environment setting is required beyond the earlier chain through 0161.

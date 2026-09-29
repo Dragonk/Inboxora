@@ -1,4 +1,4 @@
-import { collectOwnAddresses, parseAddressListField, pickReplyAlias } from './replyAlias.ts';
+import { collectOwnAddresses, pickReplyAlias } from './replyAlias.ts';
 import type { OwnAddressAccount, OwnAddressMessage } from './replyAlias.ts';
 
 /** The message fields the reply/forward builders read. */
@@ -84,14 +84,21 @@ export function buildReplyHeaders(message: ReplyMessageLike): { inReplyTo: strin
   return { inReplyTo, references };
 }
 
-/** Parse a stored address list (array or JSON string) into name/email entries. */
+/** Normalize provider email/address fields before choosing reply recipients. */
 function addressList(value: unknown): Array<{ name?: string; email?: string }> {
   let parsed: unknown = value;
   if (typeof value === 'string') {
     try { parsed = JSON.parse(value); } catch { return []; }
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter((entry): entry is { name?: string; email?: string } => !!entry && typeof entry === 'object');
+  return parsed.flatMap(entry => {
+    if (!entry || typeof entry !== 'object') return [];
+    const email = typeof entry.email === 'string' ? entry.email.trim() : '';
+    const address = typeof entry.address === 'string' ? entry.address.trim() : '';
+    const resolved = email || address;
+    if (!resolved) return [];
+    return [{ ...(typeof entry.name === 'string' ? { name: entry.name } : {}), email: resolved }];
+  });
 }
 
 function isAddressLike(value: unknown): value is { name?: unknown; email?: unknown } {
@@ -139,8 +146,8 @@ export async function openReplyFromMessage(message: ReplyMessageLike, { accounts
 
   const allRecipients = (() => {
     try {
-      const toArr = parseAddressListField(message.to_addresses);
-      const ccArr = parseAddressListField(message.cc_addresses);
+      const toArr = addressList(message.to_addresses);
+      const ccArr = addressList(message.cc_addresses);
       const seen = new Set();
       return [...toArr, ...ccArr].filter(t => {
         const email = t.email?.toLowerCase();

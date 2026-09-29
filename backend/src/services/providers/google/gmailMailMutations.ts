@@ -190,9 +190,9 @@ export function gmailLabelDeleteAdapter(options: {
  * is its label set, and `messages.modify` adds and removes labels. `UNREAD` is the
  * unread marker (so read means *removing* it), `STARRED` is the flag, `INBOX` is
  * inbox membership, `TRASH` is the trash, and a user label is a folder. That makes
- * every one of these an **idempotent** state set: adding a label a message already
- * has, or removing one it does not, converges, so a recovered claim may safely run it
- * again. That is the deliberate opposite of the delete adapter below.
+ * each individual write a state set. That does not make replay of old flag
+ * intents safe: a recovered flag claim requires read-back because a later user
+ * or provider edit may have superseded it.
  */
 export async function gmailModifyMessageLabels(
   api: GoogleApiOptions,
@@ -247,13 +247,14 @@ export function gmailFlagMutationAdapter(options: {
   const modify = options.modify ?? gmailModifyMessageLabels;
   return {
     resourceType: 'message',
-    // A state set, not a delta: re-applying it converges.
-    idempotent: true,
-    async perform(write) {
+    // A stale state set can overwrite a newer edit; recovery must read back.
+    idempotent: false,
+    async perform(write, context) {
       const change = gmailLabelChangeForFlag(write.flag, write.value);
       if (!change) return { status: 'permanent', code: 'OPERATION_FORBIDDEN' };
       try {
-        await modify(options.api, write.providerMessageId, change.add, change.remove);
+        const signal = options.api.signal ? AbortSignal.any([options.api.signal, context.signal]) : context.signal;
+        await modify({ ...options.api, signal }, write.providerMessageId, change.add, change.remove);
         return { status: 'committed' };
       } catch (error) {
         return classifyGmailMailMutationFailure(error);

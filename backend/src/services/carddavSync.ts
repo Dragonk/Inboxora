@@ -5,11 +5,13 @@
 
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
-import { query, withTransaction } from './db.js';
+import { query } from './db.js';
+import { captureDavSourceFence, withDavSourceProjection, isDavCollectionBlocked, canRetireDavCollection, retireDavAddressBook } from './davCollectionLifecycle.js';
+import { normalizeDavCollectionUrl } from './davCollectionClient.js';
 import { decrypt } from './encryption.js';
 import { parseVCard } from '../utils/vcard.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
-import { discoverAddressBooks, discoverDavWriteAccess, fetchAddressBookCards } from './carddavClient.js';
+import { discoverAddressBookSnapshot, discoverDavWriteAccess, fetchAddressBookCards } from './carddavClient.js';
 import { ensureExternalCollectionLink, ensureExternalSourceConnection } from './providers/externalCollectionLinks.js';
 import { toAppError } from '../utils/errors.js';
 
@@ -88,18 +90,20 @@ async function claimCardavSourceLease(userId: string, sourceId: string): Promise
   return generation === null ? null : { owner, generation };
 }
 
-async function saveCardavSyncStatus(userId: string, sourceId: string, lease: CardavSourceLease, patch: Record<string, unknown>): Promise<void> {
-  await query(
-    `UPDATE user_integrations source
-        SET config = source.config || $4::jsonb, updated_at = NOW()
-      WHERE source.id = $1 AND source.user_id = $2 AND source.provider = 'carddav'
-        AND EXISTS (
-          SELECT 1 FROM carddav_source_sync_leases lease
-           WHERE lease.integration_id = source.id AND lease.owner = $3
-             AND lease.generation = $5 AND lease.lease_expires_at > NOW()
-        )`,
-    [sourceId, userId, lease.owner, JSON.stringify(patch), lease.generation],
-  );
+async function saveCardavSyncStatus(userId: string, sourceId: string, lease: CardavSourceLease, patch: Record<string, unknown>, generation: string): Promise<void> {
+  await withDavSourceProjection(userId, 'addressbook', sourceId, generation, async client => {
+    await client.query(
+      `UPDATE user_integrations source
+          SET config = source.config || $4::jsonb, updated_at = NOW()
+        WHERE source.id = $1 AND source.user_id = $2 AND source.provider = 'carddav'
+          AND EXISTS (
+            SELECT 1 FROM carddav_source_sync_leases lease
+             WHERE lease.integration_id = source.id AND lease.owner = $3
+               AND lease.generation = $5 AND lease.lease_expires_at > NOW()
+          )`,
+      [sourceId, userId, lease.owner, JSON.stringify(patch), lease.generation],
+    );
+  });
 }
 
 async function releaseCardavSourceLease(sourceId: string, lease: CardavSourceLease): Promise<void> {
@@ -134,31 +138,31 @@ async function assertCardavSourceLease(
 // A remote URL alone is not an owner: two CardDAV credentials can legitimately expose
 // the same URL. The immutable source-connection identity is therefore part of the
 // projection key; unowned legacy URL-only rows are deliberately never adopted.
-async function ensureCardavBook(userId: string, sourceConnectionId: string, book: { url: string; displayName: string }) {
-  const existing = await query<{ id: string }>(
+async function ensureCardavBook(client: PoolClient, userId: string, sourceConnectionId: string, book: { url: string; displayName: string }) {
+  const existing = await client.query<{ id: string }>(
     `SELECT id FROM address_books
       WHERE user_id = $1 AND source = 'carddav'
         AND source_connection_id = $2 AND external_url = $3`,
     [userId, sourceConnectionId, book.url],
   );
   if (existing.rows.length) return existing.rows[0].id;
+  const legacy = await client.query<{ id: string; external_url: string }>(
+    `SELECT id, external_url FROM address_books WHERE user_id = $1 AND source = 'carddav'
+      AND source_connection_id = $2 AND external_url IS NOT NULL ORDER BY created_at, id`, [userId, sourceConnectionId]);
+  const canonical = normalizeDavCollectionUrl(book.url);
+  const matching = legacy.rows.find(row => normalizeDavCollectionUrl(row.external_url) === canonical);
+  if (matching) return matching.id;
 
   for (let attempt = 0; attempt < 20; attempt++) {
     const name = attempt === 0 ? book.displayName : `${book.displayName} (${attempt + 1})`;
-    try {
-      const r = await query<{ id: string }>(
-        // A newly connected external address book is not published to DAV devices
-        // until the user explicitly enables it (plan §17.1).
-        `INSERT INTO address_books (user_id, name, source, external_url, source_connection_id, dav_mode)
-         VALUES ($1, $2, 'carddav', $3, $4, 'off') RETURNING id`,
-        [userId, name, book.url, sourceConnectionId],
-      );
-      return r.rows[0].id;
-    } catch (caught) {
-      const err = toAppError(caught);
-      if (err.code === '23505') continue; // name taken — try next suffix
-      throw err;
-    }
+    const r = await client.query<{ id: string }>(
+      // A newly connected external address book is not published to DAV devices
+      // until the user explicitly enables it (plan §17.1).
+      `INSERT INTO address_books (user_id, name, source, external_url, source_connection_id, dav_mode)
+       VALUES ($1, $2, 'carddav', $3, $4, 'off') ON CONFLICT DO NOTHING RETURNING id`,
+      [userId, name, book.url, sourceConnectionId],
+    );
+    if (r.rows[0]) return r.rows[0].id;
   }
   throw new Error(`Could not create a local address book for "${book.displayName}"`);
 }
@@ -185,7 +189,7 @@ function contactFromVCard(vcard: string, href: string, etag: string | null = nul
 }
 
 type CardavContact = ReturnType<typeof contactFromVCard>;
-type CardavBook = Awaited<ReturnType<typeof discoverAddressBooks>>[number];
+type CardavBook = { url: string; displayName: string };
 type CardavCredentials = { username: string; password: string; allowPrivate: boolean };
 
 /**
@@ -281,83 +285,75 @@ async function mergeIntoExisting(client: PoolClient, id: string, c: CardavContac
       JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
-async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials, integrationId: string, sourceConnectionId: string, lease: CardavSourceLease) {
+async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials, integrationId: string, sourceConnectionId: string, lease: CardavSourceLease, generation: string, missingBookIds: readonly string[] = []) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href, rc.etag));
   if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
     throw new Error('Remote CardDAV vCard contains an invalid contact date');
   }
-  const bookId = await ensureCardavBook(userId, sourceConnectionId, book);
-  // Link the collection to its source connection so the per-collection write-back switch has something to
-  // enable (P02's backfill, P10's reachability). Not this sync's purpose: a failure is reported and the
-  // contacts still import, because losing them would be worse than a link that is retried next pass.
-  // DAV-02: ask the book itself what this user may do with it. A book that says read-only is recorded as such, so
-  // the interface stops offering writes and the capability model refuses them locally; a book that will not say
-  // leaves the assumption in place, and a refusal from a write still corrects it.
   const discoveredAccess = await discoverDavWriteAccess({ ...book, ...creds });
-  let collectionId: string | null = null;
-  try {
-    collectionId = await ensureExternalCollectionLink({
-      userId,
-      kind: 'carddav',
-      url: book.url,
-      remoteId: book.url,
-      label: book.displayName ?? null,
-      localAddressBookId: bookId,
-      discoveredAccess,
-      integrationId,
-    });
-  } catch (caught) {
-    console.warn('Linking an external address book to its source connection failed:', toAppError(caught).message);
-  }
-
-  // Emails present in the user's OTHER books, for cross-book duplicate handling. The owning book's source comes
-  // with it, because a contact that belongs to another provider must not be written by this pull (DAV-03).
-  const otherEmail = new Map<string, { id: string; source: string | null }>();
-  if (dupMode !== 'separate') {
-    const rows = await query<{ primary_email: string; id: string; source: string | null }>(
-      `SELECT c.id, c.primary_email, b.source
-         FROM contacts c JOIN address_books b ON b.id = c.address_book_id
-        WHERE c.user_id = $1 AND c.address_book_id <> $2 AND c.primary_email IS NOT NULL`,
-      [userId, bookId],
-    );
-    for (const r of rows.rows) otherEmail.set(r.primary_email.toLowerCase(), { id: r.id, source: r.source });
-  }
-
-  // Classify first (no writes) so we know the final set before touching the DB.
-  const seenInBook = new Set<string>();
-  const toUpsert: CardavContact[] = [];
-  const toMerge: Array<{ id: string; contact: CardavContact }> = []; // { id, contact }
-  for (const c of cards) {
-    // Avoid violating this book's (address_book_id, primary_email) uniqueness when
-    // two cards in the same book share an email — keep the email on the first only.
-    if (c.primaryEmail && seenInBook.has(c.primaryEmail)) c.primaryEmail = null;
-    else if (c.primaryEmail) seenInBook.add(c.primaryEmail);
-
-    if (c.primaryEmail && dupMode !== 'separate' && otherEmail.has(c.primaryEmail)) {
-      if (dupMode === 'skip') continue;
-      if (dupMode === 'merge') {
-        const owner = otherEmail.get(c.primaryEmail);
-        // A merge may only write a contact this pull owns: another book of the same DAV source, or one of the
-        // user's own local books. A contact that belongs to Google or Microsoft is left **untouched** — the pull
-        // has no write-through to that provider, so merging into it would overwrite the other source's data here
-        // and that source's next sync would clobber it back, silently losing whichever change came second
-        // (DAV-03). The incoming card is created as its own contact instead, so both copies survive.
-        if (owner && mergesIntoSource(owner.source)) { toMerge.push({ id: owner.id, contact: c }); continue; }
-      }
-    }
-    toUpsert.push(c);
-  }
-
-  const presentUids = toUpsert.map(c => c.uid);
-  // DAV-04: the whole pull is applied in **one transaction**. The delete of rows the snapshot no longer lists
-  // must happen before the upserts (a uid or email freed this round cannot then collide with an incoming card),
-  // but it must not be visible without them either: a failure halfway used to leave the book missing rows until
-  // the next successful pass. Delete, upsert, merge, the links and the token now commit together or not at all.
-  await withTransaction(async client => {
-    // Fencing is inside the transaction that mutates the projection; a source deleted
-    // while HTTP was in flight cannot resurrect or overwrite its local book.
+  return withDavSourceProjection(userId, 'addressbook', integrationId, generation, async client => {
     await assertCardavSourceLease((sql, params) => client.query<{ ok: unknown }>(sql, params), userId, integrationId, lease);
+    if (await isDavCollectionBlocked(client, userId, 'addressbook', integrationId, book.url)) return { bookId: null, count: 0 };
+    const bookId = await ensureCardavBook(client, userId, sourceConnectionId, book);
+    // Link ownership and discovered access in the same fenced transaction.
+    const collectionId = await ensureExternalCollectionLink({
+        userId,
+        kind: 'carddav',
+        url: book.url,
+        remoteId: book.url,
+        label: book.displayName ?? null,
+        localAddressBookId: bookId,
+        discoveredAccess: discoveredAccess ?? 'read_only',
+        integrationId,
+      }, client);
+
+    // Emails present in the user's OTHER books, for cross-book duplicate handling. The owning book's source comes
+    // with it, because a contact that belongs to another provider must not be written by this pull (DAV-03).
+    const otherEmail = new Map<string, { id: string; source: string | null }>();
+    if (dupMode !== 'separate') {
+      const rows = await client.query<{ primary_email: string; id: string; source: string | null }>(
+        `SELECT c.id, c.primary_email, b.source
+           FROM contacts c JOIN address_books b ON b.id = c.address_book_id
+          WHERE c.user_id = $1 AND c.address_book_id <> $2 AND c.primary_email IS NOT NULL
+            AND (b.source <> 'carddav' OR b.source_connection_id = $3)
+            AND b.id <> ALL($4::uuid[])`,
+        [userId, bookId, sourceConnectionId, [...missingBookIds]],
+      );
+      for (const r of rows.rows) otherEmail.set(r.primary_email.toLowerCase(), { id: r.id, source: r.source });
+    }
+
+    // Classify first (no writes) so we know the final set before touching the DB.
+    const seenInBook = new Set<string>();
+    const toUpsert: CardavContact[] = [];
+    const toMerge: Array<{ id: string; contact: CardavContact }> = []; // { id, contact }
+    for (const c of cards) {
+      // Avoid violating this book's (address_book_id, primary_email) uniqueness when
+      // two cards in the same book share an email — keep the email on the first only.
+      if (c.primaryEmail && seenInBook.has(c.primaryEmail)) c.primaryEmail = null;
+      else if (c.primaryEmail) seenInBook.add(c.primaryEmail);
+
+      if (c.primaryEmail && dupMode !== 'separate' && otherEmail.has(c.primaryEmail)) {
+        if (dupMode === 'skip') continue;
+        if (dupMode === 'merge') {
+          const owner = otherEmail.get(c.primaryEmail);
+          // A merge may only write a contact this pull owns: another book of the same DAV source, or one of the
+          // user's own local books. A contact that belongs to Google or Microsoft is left **untouched** — the pull
+          // has no write-through to that provider, so merging into it would overwrite the other source's data here
+          // and that source's next sync would clobber it back, silently losing whichever change came second
+          // (DAV-03). The incoming card is created as its own contact instead, so both copies survive.
+          if (owner && mergesIntoSource(owner.source)) { toMerge.push({ id: owner.id, contact: c }); continue; }
+        }
+      }
+      toUpsert.push(c);
+    }
+
+    const presentUids = toUpsert.map(c => c.uid);
+    // DAV-04: the whole pull is applied in **one transaction**. The delete of rows the snapshot no longer lists
+    // must happen before the upserts (a uid or email freed this round cannot then collide with an incoming card),
+    // but it must not be visible without them either: a failure halfway used to leave the book missing rows until
+    // the next successful pass. Delete, upsert, merge, the links and the token now commit together or not at all.
+
     await client.query(
       `DELETE FROM contacts WHERE address_book_id = $1 AND uid <> ALL($2::text[])`,
       [bookId, presentUids.length ? presentUids : ['']],
@@ -391,16 +387,20 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
       "UPDATE address_books SET sync_token = gen_random_uuid()::text, updated_at = NOW() WHERE id = $1",
       [bookId],
     );
+    return { bookId, count: presentUids.length };
   });
-  return { bookId, count: presentUids.length };
 }
 
 async function syncOneCardavSource(userId: string, source: CardavSourceConfig): Promise<{ ok: boolean; bookCount?: number; contactCount?: number; error?: string }> {
-  const config = source.config;
+  let config = source.config;
   if (!config.serverUrl) return { ok: false, error: 'not connected' };
   const lease = await claimCardavSourceLease(userId, source.id);
   if (!lease) return { ok: false, error: 'A sync for this source is already in progress' };
+  let generation: string | undefined;
   try {
+    generation = await captureDavSourceFence(userId, 'addressbook', source.id);
+    config = await getCardavConfig(userId, source.id) ?? {};
+    if (!config.serverUrl) throw new Error('CardDAV source was disconnected');
     const policy = await getConnectionPolicy();
     if (typeof config.username !== 'string') throw new Error('CardDAV username is missing');
     const decryptedPassword: unknown = decrypt(config.password);
@@ -412,43 +412,58 @@ async function syncOneCardavSource(userId: string, source: CardavSourceConfig): 
       userId, kind: 'carddav', url: config.serverUrl, integrationId: source.id,
     });
     if (!sourceConnectionId) throw new Error('CardDAV source ownership could not be established');
-    const books = await discoverAddressBooks({ serverUrl: config.serverUrl, ...creds });
-    let contactCount = 0;
-    const seenUrls: string[] = [];
-    for (const book of books) {
-      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, source.id, sourceConnectionId, lease);
-      contactCount += count;
-      seenUrls.push(book.url);
-    }
-    // Preserve the legacy cleanup for the unlabelled source. Labeled sources skip pruning until the collection
-    // link carries a source identity of its own; keeping a stale book is safer than deleting another source's book.
-    // Prune only books owned by this exact integration. A complete discovery is required
-    // before this point; auth, rate-limit, and partial discovery failures stay in the catch above.
-    await withTransaction(async client => {
-      // Hold the lease row lock through pruning: a successor cannot take an expired lease or
-      // disconnect this source between the fence check and this destructive projection mutation.
+    // Capture pruning candidates before HTTP. A collection created or changed
+    // during discovery belongs to a newer local intent and is not evidence of absence.
+    const candidates = await withDavSourceProjection(userId, 'addressbook', source.id, generation, async client => {
       await assertCardavSourceLease((sql, params) => client.query<{ ok: unknown }>(sql, params), userId, source.id, lease);
-      await client.query(
-        `DELETE FROM address_books ab
-         WHERE ab.user_id = $1 AND ab.source = 'carddav'
-           AND ab.source_connection_id = $2
-            AND ab.external_url <> ALL($3::text[])
-           AND EXISTS (
-             SELECT 1 FROM integration_collections ic
-             JOIN source_connections sc ON sc.id = ic.source_connection_id
-             WHERE ic.local_address_book_id = ab.id
-               AND sc.id = $2
-                AND sc.integration_id = $4
-               AND sc.user_id = $1
-           )`,
-        [userId, sourceConnectionId, seenUrls.length ? seenUrls : [''], source.id],
-      );
+      return (await client.query<{ id: string; external_url: string; revision: string }>(
+        `SELECT id, external_url, updated_at::text AS revision FROM address_books WHERE user_id = $1 AND source = 'carddav'
+          AND source_connection_id = $2`, [userId, sourceConnectionId])).rows;
     });
-    await saveCardavSyncStatus(userId, source.id, lease, { lastSyncAt: new Date().toISOString(), lastError: null, bookCount: books.length, contactCount });
+    const snapshot = await discoverAddressBookSnapshot({ serverUrl: config.serverUrl, ...creds });
+    const books = snapshot.collections;
+    const present = new Set(snapshot.resourceUrls.map(normalizeDavCollectionUrl));
+    const home = normalizeDavCollectionUrl(snapshot.homeUrl);
+    // Do not merge/skip a surviving contact into a book this complete snapshot
+    // no longer lists: retiring that old owner would remove the only local copy.
+    // Cleanup still waits for all card reads and its revision/lease checks below.
+    const missingBookIds = candidates.filter(book => {
+      const url = normalizeDavCollectionUrl(book.external_url);
+      return normalizeDavCollectionUrl(new URL('..', url).href) === home && !present.has(url);
+    }).map(book => book.id);
+    let contactCount = 0;
+    for (const book of books) {
+      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, source.id, sourceConnectionId, lease, generation, missingBookIds);
+      contactCount += count;
+    }
+    // Only a validated home-set snapshot can retire collections. A changed home
+    // is a different scope even when the same credentials expose both directories.
+    await withDavSourceProjection(userId, 'addressbook', source.id, generation, async client => {
+      await assertCardavSourceLease((sql, params) => client.query<{ ok: unknown }>(sql, params), userId, source.id, lease);
+      for (const book of candidates) {
+        const url = normalizeDavCollectionUrl(book.external_url);
+        if (normalizeDavCollectionUrl(new URL('..', url).href) !== home || present.has(url)) continue;
+        const unchanged = await client.query(`SELECT id FROM address_books WHERE id = $1 AND user_id = $2
+          AND source_connection_id = $3 AND external_url = $4 AND updated_at = $5::timestamptz FOR UPDATE`,
+        [book.id, userId, sourceConnectionId, book.external_url, book.revision]);
+        if (!unchanged.rows[0] || !await canRetireDavCollection(client, userId, 'addressbook', source.id, url, book.id)) continue;
+        await retireDavAddressBook(client, userId, sourceConnectionId, book.id);
+        await client.query(`UPDATE dav_collection_operations SET status = 'completed', updated_at = NOW()
+          WHERE user_id = $1 AND kind = 'addressbook' AND source_id = $2 AND local_id = $3
+            AND status IN ('pending', 'confirmed')`, [userId, source.id, book.id]);
+      }
+    });
+    await saveCardavSyncStatus(userId, source.id, lease, { lastSyncAt: new Date().toISOString(), lastError: null, bookCount: books.length, contactCount }, generation);
     return { ok: true, bookCount: books.length, contactCount };
   } catch (caught) {
     const err = toAppError(caught);
-    await saveCardavSyncStatus(userId, source.id, lease, { lastError: err.message, lastSyncAt: new Date().toISOString() });
+    if (generation) {
+      try {
+        await saveCardavSyncStatus(userId, source.id, lease, { lastError: err.message, lastSyncAt: new Date().toISOString() }, generation);
+      } catch (fenceError) {
+        console.warn('CardDAV sync failure could not be recorded for its original source generation:', toAppError(fenceError).message);
+      }
+    }
     return { ok: false, error: err.message };
   } finally {
     // A completion makes the source immediately eligible; owner+generation prevents

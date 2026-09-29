@@ -188,10 +188,11 @@ interface ConversationMessageProps {
   onRemoteImages: (id: string) => void;
   onReply: (message: ConversationReplyPayload, all?: boolean) => void;
   onActionComplete: (mutation: { logicalMessageId?: string; copyId?: string; [key: string]: unknown }) => Promise<void>;
-  onSetRead: (copyId: string, read: boolean) => void;
+  onSetRead: (copyId: string, read: boolean) => Promise<void>;
+  onSetStarred: (copyId: string, starred: boolean) => Promise<void>;
   onInitialBodyLayout?: (copyId: string) => void;
 }
-export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onInitialBodyLayout }: ConversationMessageProps) {
+export default function ConversationMessage({ conversationId, message, selectedCopyId, selectedAccountId, accounts, expanded, onToggle, body, status, onLoadBody, onRemoteImages, onReply, onActionComplete, onSetRead, onSetStarred, onInitialBodyLayout }: ConversationMessageProps) {
   const { t } = useTranslation();
   const isMobile = useMobile();
   const { replyDefault, aiActions, setShowAdmin, setAdminTab, blockRemoteImages, imageWhitelist } = useStore();
@@ -258,7 +259,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
     if (!hasAccountCopy || !copy.id || !selectedAccountId) return;
     onReply({
       ...copy,
-      logicalMessageId: message.id,
+      logicalMessageId: message.logicalMessageId ?? message.id,
       selectedCopyId: copy.id,
       accountId: selectedAccountId,
       conversationId,
@@ -284,7 +285,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
     }
   };
 
-  const actionOptions = { scope: 'THIS_COPY', copyId: copy.id, logicalMessageId: message.id };
+  const actionOptions = { scope: 'THIS_COPY', copyId: copy.id, logicalMessageId: message.logicalMessageId ?? message.id };
   const runAction = async (callback: () => void, action: string, actionState: Record<string, unknown> = {}) => {
     if (!hasAccountCopy) return;
     setActionError(null);
@@ -293,7 +294,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
       await onActionComplete({
         action,
         copyId: copy.id,
-        logicalMessageId: message.id,
+        logicalMessageId: message.logicalMessageId ?? message.id,
         ...actionState,
       });
     } catch (error) {
@@ -352,7 +353,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
   return <article
     id={`logical-message-${message.id}`}
     data-physical-copy-id={copy.id || undefined}
-    data-logical-message-id={message._ceMatched === false ? undefined : message.id}
+    data-logical-message-id={message._ceMatched === false ? undefined : message.logicalMessageId ?? message.id}
     data-conversation-message-state={expanded ? 'expanded' : 'collapsed'}
     style={{
       // Mobile: match native MessagePane single-message padding (12px 0 0) so the
@@ -401,7 +402,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onSetRead={isRead => {
           const copyId = copy.id;
           if (!copyId) return;
-          return runAction(() => onSetRead(copyId, isRead), 'read', { isRead });
+          return onSetRead(copyId, isRead);
         }}
         onViewHeaders={() => setShowHeaders(true)}
         onPrint={body ? handlePrint : undefined}
@@ -409,8 +410,10 @@ export default function ConversationMessage({ conversationId, message, selectedC
         onAiAction={action => { void runAiAction(action); }}
         onManageAiActions={() => { setAdminTab('ai-actions'); setShowAdmin(true); }}
         onStar={() => {
+          const copyId = copy.id;
+          if (!copyId) return;
           const isStarred = !(copy.isStarred ?? copy.is_starred);
-          return runAction(() => conversationApi.setStarred(conversationId, isStarred, actionOptions), 'star', { isStarred });
+          return onSetStarred(copyId, isStarred);
         }}
         onDelete={() => runAction(() => conversationApi.delete(conversationId, actionOptions), 'delete')}
       />}

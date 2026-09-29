@@ -80,8 +80,10 @@ for (const native of [false, true]) {
       await expect(page.getByTestId('calendar-event-dialog')).toHaveCount(0);
       await page.getByTestId('calendar-mobile-panel').click();
       await page.getByTestId('calendar-sidebar-manage-sources').click();
-      await back(page, native);
+      // Opening settings replaces the calendar dock; Back closes settings once,
+      // rather than leaving an invisible dock on top of the settings history.
       await expect(page.locator('.admin-panel')).toBeVisible();
+      await expect(page.getByTestId('calendar-mobile-dock')).toHaveCount(0);
       await back(page, native);
       await expect(page.locator('.admin-panel')).toHaveCount(0);
       await expect(page.getByTestId('calendar-page')).toBeVisible();

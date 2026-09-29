@@ -5,8 +5,9 @@ test.use({ serviceWorkers: 'block', timezoneId: 'Europe/Warsaw' });
 
 test('overnight Sent is acknowledged without clicking, retained through refresh and hidden on the next visit', async ({ page }) => {
   const server = queueServer([queueRow()]);
+  await page.clock.install();
   await bootQueue(page, server);
-  await page.clock.install(); await page.clock.fastForward(12_000);
+  await page.clock.fastForward(12_000);
   await expect.poll(() => server.listReads).toBeGreaterThan(1); expect(server.seenCalls).toEqual([]);
   await enterQueue(page);
   if ((page.viewportSize()?.width ?? 1280) < 768) {
@@ -43,7 +44,7 @@ test('offscreen sent badges and a hidden document are not acknowledged by fetche
   const server = queueServer(Array.from({ length: 40 }, (_, index) => queueRow(`old-${index}`, {
     scheduledAt: new Date(Date.UTC(2020, 0, 15, 12, 0) - index * 60_000).toISOString(), subject: `Overnight message ${index + 1}`,
   })));
-  await bootQueue(page, server); await page.clock.install();
+  await page.clock.install(); await bootQueue(page, server);
   await queueVisibility(page, 'hidden'); await enterQueue(page); await page.clock.fastForward(15_000);
   expect(server.seenCalls).toEqual([]);
   await queueVisibility(page, 'visible');
@@ -73,7 +74,7 @@ test('a row changing to Sent while visible is observed but never disappears duri
 
 test('failed visibility receipts remain retryable and an unsuccessful visit never loses its result', async ({ page }) => {
   const server = queueServer([queueRow()]); server.failSeen = true;
-  await bootQueue(page, server); await page.clock.install(); await enterQueue(page);
+  await page.clock.install(); await bootQueue(page, server); await enterQueue(page);
   await expect(page.getByRole('alert')).toContainText('Could not save the viewed status');
   expect(server.seen.size).toBe(0);
   await page.getByTestId('scheduled-refresh').click();

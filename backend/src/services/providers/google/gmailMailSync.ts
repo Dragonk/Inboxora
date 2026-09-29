@@ -1,3 +1,5 @@
+import { populatedMessageSql, visiblePhysicalMessageSql } from '../../messageVisibility.js';
+import { deferMailFlagReadback } from '../../mailFlagState.js';
 import { publishMailStateChanged } from '../../mailStateEvents.js';
 import type { PoolClient } from 'pg';
 import { query, withSavepoint, withTransaction } from '../../db.js';
@@ -22,13 +24,14 @@ import type { GmailLabel, LocalMailFolder } from './gmailLabels.js';
 import {
   fetchGmailHistoryPage,
   fetchGmailMessageIds,
+  fetchGmailMessage,
   fetchGmailProfileHistoryId,
   fetchGmailThread,
   gmailHistoryChanges,
   localMessageForGmailMessage,
   providerUidForGmailMessage,
 } from './gmailMail.js';
-import type { GmailThread, LocalGmailMessage } from './gmailMail.js';
+import type { GmailMessage, GmailThread, LocalGmailMessage } from './gmailMail.js';
 import { applyIngestRulesToRows } from '../../providerIngestRules.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
@@ -89,7 +92,7 @@ interface LabelContext {
 export async function listGmailMailAccounts(client: PoolClient, input: { userId: string; connectionId: string }): Promise<string[]> {
   const result = await client.query<{ id: string }>(
     `SELECT a.id FROM email_accounts a
-      WHERE a.user_id = $1 AND a.mail_transport = 'gmail_api'
+      WHERE a.user_id = $1 AND a.mail_transport = 'gmail_api' AND a.enabled = true
         AND (
           a.provider_connection_id = $2
           OR EXISTS (
@@ -197,7 +200,8 @@ async function applyLabel(client: PoolClient, context: LabelContext, remoteId: s
  * reported for the message when it was ingested. A message that still carries
  * another mailbox label is moved to it; a message that now names no mailbox is
  * archived, which is the state this adapter models by **not** keeping a local
- * folder row — so its row is removed rather than re-filed under a synthetic path.
+ * folder row. Preserve its physical identity and flags in the virtual Archive;
+ * deleting a label is not evidence that its messages were deleted.
  *
  * A row with no stored label set (an IMAP-ingested row, or one written before
  * migration 0111) is left untouched: deleting it would be guessing.
@@ -210,7 +214,8 @@ async function rehomeMessagesFromDeletedLabel(
 ): Promise<number> {
   const rows = await client.query<{ id: string; provider_labels: string[] | null }>(
     `SELECT id, provider_labels FROM messages
-      WHERE account_id = $1 AND folder = $2 AND provider_labels IS NOT NULL`,
+      WHERE account_id = $1 AND folder = $2 AND provider_labels IS NOT NULL
+      ORDER BY id FOR UPDATE`,
     [context.accountId, removedPath],
   );
   let changed = 0;
@@ -218,7 +223,7 @@ async function rehomeMessagesFromDeletedLabel(
     const labels = row.provider_labels ?? [];
     const destination = primaryFolderPathForGmailLabels(labels, pathByLabelId);
     if (destination === null) {
-      await client.query('DELETE FROM messages WHERE id = $1', [row.id]);
+      await client.query('UPDATE messages SET is_archived = true WHERE id = $1', [row.id]);
       changed += 1;
       continue;
     }
@@ -227,6 +232,28 @@ async function rehomeMessagesFromDeletedLabel(
     changed += 1;
   }
   return changed;
+}
+
+/** Match the list's physical copies and label memberships, not absent labels.list counters. */
+async function refreshGmailFolderCounts(client: PoolClient, accountId: string): Promise<void> {
+  await client.query(`WITH visible AS MATERIALIZED (
+    SELECT m.id,m.folder,m.is_archived,m.is_read FROM messages m
+    WHERE m.account_id=$1 AND m.is_deleted=false AND (${visiblePhysicalMessageSql}) AND (${populatedMessageSql})
+  ), membership AS (
+    SELECT id,is_read,folder AS path FROM visible WHERE is_archived=false
+    UNION
+    SELECT v.id,v.is_read,ml.folder_path FROM visible v JOIN message_labels ml ON ml.message_id=v.id
+      WHERE ml.account_id=$1 AND ml.folder_path IS NOT NULL AND v.is_archived=false
+    UNION
+    SELECT id,is_read,'Archive' FROM visible WHERE is_archived=true
+  ), counts AS (
+    SELECT path,COUNT(*)::int AS total,COUNT(*) FILTER(WHERE is_read=false)::int AS unread
+    FROM membership GROUP BY path
+  ), expected AS (
+    SELECT f.id,COALESCE(c.total,0) AS total,COALESCE(c.unread,0) AS unread
+    FROM folders f LEFT JOIN counts c ON c.path=f.path WHERE f.account_id=$1
+  ) UPDATE folders f SET total_count=e.total,unread_count=e.unread
+    FROM expected e WHERE f.id=e.id AND (f.total_count IS DISTINCT FROM e.total OR f.unread_count IS DISTINCT FROM e.unread)`, [accountId]);
 }
 
 /**
@@ -251,7 +278,10 @@ export async function applyGmailMailLabels(
     totals.relocatedMessages += applied.movedMessages;
   }
 
-  if (options.complete === false) return totals;
+  if (options.complete === false) {
+    await refreshGmailFolderCounts(client, context.accountId);
+    return totals;
+  }
 
   const stale = await client.query<{ id: string; remote_id: string; path: string | null }>(
     `SELECT ic.id, ic.remote_id, f.path
@@ -274,6 +304,7 @@ export async function applyGmailMailLabels(
     totals.deleted += 1;
   }
 
+  await refreshGmailFolderCounts(client, context.accountId);
   return totals;
 }
 
@@ -503,6 +534,8 @@ export interface GmailMessageContext {
   pathByLabelId: ReadonlyMap<string, string>;
   /** Overridable in tests; the API host is what the provider namespace records. */
   host?: string;
+  /** Only the current-read repair may restore a hidden projection. */
+  verifiedVisibility?: boolean;
 }
 
 /** The baseline's own resume position. */
@@ -567,21 +600,35 @@ export async function applyGmailMessage(
   // Gmail's archive state has no folder label. `folder` remains a legacy non-null
   // storage coordinate while `is_archived` is the source of visibility; it is never
   // presented as a provider-side Archive folder.
+  // A thread response may have started before a local archive/delete. Hold the
+  // physical row while checking visibility so a stale response cannot unhide it.
+  const previous = await client.query<{ id: string; is_deleted: boolean; is_archived: boolean }>(
+    'SELECT id,is_deleted,is_archived FROM messages WHERE account_id=$1 AND provider_message_id=$2 FOR UPDATE',
+    [context.accountId, local.providerMessageId],
+  );
+  const hidden = previous.rows[0];
+  if (!context.verifiedVisibility && local.folderPath !== null && hidden && (hidden.is_deleted || hidden.is_archived)) {
+    await client.query('UPDATE messages SET provider_visibility_checked_at=NULL WHERE id=$1', [hidden.id]);
+    await deferMailFlagReadback(hidden.id, client);
+    return { id: hidden.id, inserted: false };
+  }
   const archived = local.folderPath === null;
   const storageFolder = local.folderPath ?? 'INBOX';
-  let applied: { id: string; inserted: boolean } | null = null;
+  let applied: { id: string; inserted: boolean; flags_protected: boolean } | null = null;
   for (let attempt = 0; attempt < 3 && !applied; attempt++) {
     const uid = attempt === 0 ? local.uid : providerUidForGmailMessage(local.providerMessageId, attempt);
     try {
       applied = await withSavepoint(client, `gmail_uid_${attempt}`, async () => {
-        const result = await client.query<{ id: string; inserted: boolean }>(
+        const result = await client.query<{ id: string; inserted: boolean; flags_protected: boolean }>(
           `INSERT INTO messages (
              account_id, uid, folder, provider_message_id, message_id, thread_id, provider_thread_id,
              provider_namespace, provider_labels, subject, from_name, from_email,
              to_addresses, cc_addresses, reply_to, list_unsubscribe, list_unsubscribe_post,
-             date, snippet, is_read, is_starred, has_attachments, is_archived, synced_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20,$21,$22,$23,NOW())
+             date, snippet, is_read, is_starred, has_attachments, is_archived, synced_at, provider_visibility_checked_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::text[],$10,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20,$21,$22,$23,NOW(),CASE WHEN $23 THEN NOW() ELSE NULL END)
            ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
+             provider_visibility_checked_at = CASE WHEN messages.is_deleted OR messages.is_archived
+               THEN NULL ELSE messages.provider_visibility_checked_at END,
              folder = CASE WHEN EXCLUDED.is_archived THEN messages.folder ELSE EXCLUDED.folder END,
              uid = EXCLUDED.uid,
              message_id = EXCLUDED.message_id,
@@ -602,16 +649,26 @@ export async function applyGmailMessage(
              date = EXCLUDED.date,
              snippet = EXCLUDED.snippet,
              is_read = CASE
-               WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $24)
+               WHEN NOT EXISTS (
+                   SELECT 1 FROM mail_flag_intents intent WHERE intent.message_id = messages.id
+                     AND intent.flag = '\\Seen' AND intent.status IN ('pending','writing','readback')
+                 ) AND (messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $24))
                  THEN EXCLUDED.is_read ELSE messages.is_read END,
              is_starred = CASE
-               WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $24)
+               WHEN NOT EXISTS (
+                   SELECT 1 FROM mail_flag_intents intent WHERE intent.message_id = messages.id
+                     AND intent.flag = '\\Flagged' AND intent.status IN ('pending','writing','readback')
+                 ) AND (messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $24))
                  THEN EXCLUDED.is_starred ELSE messages.is_starred END,
              has_attachments = CASE WHEN messages.gmail_attachment_metadata_complete
                 THEN messages.has_attachments ELSE EXCLUDED.has_attachments END,
              is_archived = EXCLUDED.is_archived,
              synced_at = NOW()
-           RETURNING id, (xmax = 0) AS inserted`,
+           RETURNING id, (xmax = 0) AS inserted,
+               (read_changed_at >= NOW() - make_interval(secs => $24)
+                OR star_changed_at >= NOW() - make_interval(secs => $24)
+                OR EXISTS (SELECT 1 FROM mail_flag_intents intent WHERE intent.message_id = messages.id
+                            AND intent.status IN ('pending','writing','readback'))) IS TRUE AS flags_protected`,
           [
             context.accountId, uid, storageFolder, local.providerMessageId, local.messageId, local.threadId,
             local.providerThreadId, local.providerNamespace, local.labels,
@@ -629,6 +686,9 @@ export async function applyGmailMessage(
     }
   }
   if (applied) {
+    // Persist before the delta/history cursor can advance, including when the
+    // protected value happens to agree: the provider may change again meanwhile.
+    if (applied.flags_protected) await deferMailFlagReadback(applied.id, client);
     await client.query(
       `UPDATE messages
           SET parsed_headers = CASE WHEN parsed_headers_complete THEN parsed_headers ELSE $2::jsonb END
@@ -837,6 +897,95 @@ function addTotals(target: MessageTotals, source: MessageTotals): void {
   target.skipped += source.skipped;
 }
 
+
+/**
+ * Bound recovery work to hidden projections. A delta is not proof of current
+ * visibility: read the physical provider identity and fence the response against
+ * both the message/account snapshot and every recorded delete or move intent.
+ * Historical delete/move records remain a conservative operator-review boundary.
+ */
+export async function reconcileGmailMailVisibility(input: GoogleApiOptions & { accountId: string }): Promise<number> {
+  const candidates = await query<{
+    id: string; provider_message_id: string; row_version: string; account_version: string;
+    folder: string; synced_at: string | null;
+  }>(
+    `SELECT m.id, m.provider_message_id, m.xmin::text AS row_version, a.xmin::text AS account_version,
+            m.folder, m.synced_at::text AS synced_at
+       FROM messages m JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.id = $1 AND a.user_id = $2 AND a.provider_connection_id = $3
+        AND a.mail_transport = 'gmail_api'
+        AND m.provider_message_id IS NOT NULL
+        AND (m.is_deleted OR (m.is_archived AND (m.provider_visibility_checked_at IS NULL OR m.synced_at < NOW() - interval '1 hour')))
+        AND (m.provider_visibility_checked_at IS NULL OR m.provider_visibility_checked_at < NOW() - interval '1 hour')
+        AND NOT EXISTS (
+          SELECT 1 FROM provider_operations op
+           WHERE op.user_id = a.user_id AND op.account_id = a.id
+             AND (op.resource_id = m.id OR op.payload->>'providerMessageId' = m.provider_message_id)
+             AND (op.operation = 'delete' OR op.payload ?| ARRAY['destinationFolderId','addLabelIds','removeLabelIds']
+                  OR op.idempotency_key LIKE '%mail-move:%' OR op.idempotency_key LIKE '%mail-delete:%')
+        )
+      ORDER BY m.provider_visibility_checked_at NULLS FIRST, m.id LIMIT 20`,
+    [input.accountId, input.userId, input.connectionId],
+  );
+  let recovered = 0;
+  const pathByLabelId = candidates.rows.length ? await gmailFolderPathByLabelId(input) : new Map<string, string>();
+  for (const candidate of candidates.rows) {
+    let remote: GmailMessage | null;
+    try {
+      remote = await fetchGmailMessage(input, candidate.provider_message_id);
+      if (remote) {
+        const labels = remote.labelIds === undefined ? [] : remote.labelIds;
+        if (remote.id !== candidate.provider_message_id || !Array.isArray(labels) || !labels.every(label => typeof label === 'string')) {
+          throw new Error('Invalid Gmail visibility snapshot');
+        }
+        remote = { ...remote, labelIds: labels };
+      }
+    } catch (error) {
+      if (error instanceof GoogleApiError && error.status === 404) remote = null;
+      else {
+        // Recovery is optional after the normal delta committed. Back off this
+        // exact snapshot so a broken item cannot starve later hidden messages.
+        await query(`UPDATE messages m SET provider_visibility_checked_at=clock_timestamp()
+          FROM email_accounts a WHERE m.id=$1 AND m.xmin::text=$2 AND a.id=m.account_id
+            AND a.xmin::text=$3 AND a.id=$4 AND a.user_id=$5 AND a.provider_connection_id=$6`,
+          [candidate.id,candidate.row_version,candidate.account_version,input.accountId,input.userId,input.connectionId]);
+        console.warn('Gmail visibility recovery deferred', error instanceof GoogleApiError ? error.code : 'INVALID_OR_UNAVAILABLE_SNAPSHOT');
+        if (error instanceof GoogleApiError && [401,403,429].includes(error.status)) break;
+        continue;
+      }
+    }
+    const changed = await withTransaction(async client => {
+      const held = await client.query<{ id: string }>(
+        `SELECT m.id FROM messages m JOIN email_accounts a ON a.id = m.account_id
+          WHERE m.id = $1 AND m.xmin::text = $2 AND a.xmin::text = $3
+            AND a.id = $4 AND a.user_id = $5 AND a.provider_connection_id = $6
+            AND a.mail_transport = 'gmail_api'
+            AND NOT EXISTS (
+              SELECT 1 FROM provider_operations op
+               WHERE op.user_id = a.user_id AND op.account_id = a.id
+                 AND (op.resource_id = m.id OR op.payload->>'providerMessageId' = m.provider_message_id)
+                 AND (op.operation = 'delete' OR op.payload ?| ARRAY['destinationFolderId','addLabelIds','removeLabelIds']
+                      OR op.idempotency_key LIKE '%mail-move:%' OR op.idempotency_key LIKE '%mail-delete:%')
+            )
+          FOR UPDATE OF m FOR SHARE OF a`,
+        [candidate.id, candidate.row_version, candidate.account_version, input.accountId, input.userId, input.connectionId],
+      );
+      if (!held.rows.length) return false;
+      await client.query('UPDATE messages SET provider_visibility_checked_at = clock_timestamp() WHERE id = $1', [candidate.id]);
+      if (!remote) return false;
+      const local = localMessageForGmailMessage(remote, { accountId: input.accountId, pathByLabelId });
+      if (!local) return false;
+      const applied = await applyGmailMessage(client, { accountId: input.accountId, pathByLabelId, verifiedVisibility: true }, local);
+      if (!applied || applied.id !== candidate.id) throw new Error('Gmail visibility identity changed');
+      await client.query('UPDATE messages SET is_deleted = false, provider_visibility_checked_at = clock_timestamp() WHERE id = $1', [candidate.id]);
+      return true;
+    });
+    if (changed) recovered += 1;
+  }
+  if (recovered) publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+  return recovered;
+}
+
 /**
  * Sync the messages of one Gmail API account.
  *
@@ -859,8 +1008,8 @@ export async function syncGmailMailMessagesForAccount(input: {
   maxThreadsPerRun?: number;
 }): Promise<GmailMailMessageSyncResult> {
   const accountResult = await query<ConversationAccountRow>(
-    'SELECT id, user_id, imap_host, mail_transport FROM email_accounts WHERE id = $1',
-    [input.accountId],
+    "SELECT id, user_id, imap_host, mail_transport FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND mail_transport = 'gmail_api'",
+    [input.accountId, input.userId],
   );
   const account = accountResult.rows[0];
   if (!account) {
@@ -870,6 +1019,7 @@ export async function syncGmailMailMessagesForAccount(input: {
     };
   }
 
+  await reconcileGmailMailVisibility(input);
   const targets = await withTransaction(client => listGmailFolderTargets(client, input));
   // Folder scans preserve per-folder ingest behaviour. The final account-wide scan
   // discovers archived mail (which carries no folder label) and is the only scope
@@ -1010,10 +1160,12 @@ export async function syncGmailMailMessagesForAccount(input: {
       }
     }
 
+    await fenced(client => refreshGmailFolderCounts(client, input.accountId));
     if (!incomplete) {
       await commit({ cursor, clearPageCheckpoint: true });
       await finish();
     }
+    await reconcileGmailMailVisibility(input);
     await withTransaction(client => releaseSyncLease(client, { syncStateId, generation: lease.generation })).catch(() => {});
     if (totals.created || totals.updated || totals.deleted) {
       publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
@@ -1094,7 +1246,7 @@ async function runIncremental(
   }
 
   if (deletedMessageIds.size > 0) {
-    const deleted = await withTransaction(client => deleteGmailMessagesByProviderId(client, context.accountId, [...deletedMessageIds]));
+    const deleted = await fenced(client => deleteGmailMessagesByProviderId(client, context.accountId, [...deletedMessageIds]));
     totals.deleted += deleted;
     if (deleted) publishMailStateChanged({ userId: api.userId, accountId: context.accountId });
   }

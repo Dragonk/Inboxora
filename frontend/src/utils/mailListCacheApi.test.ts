@@ -111,3 +111,25 @@ test('old-session write completion does not evict new-session navigation snapsho
   finish(json({ ok: true })); await oldWrite;
   assert.deepEqual(api.getCachedMessages(params), data);
 });
+
+test('unified thread projection follows the backend INBOX scope, while an account can select Sent', async () => {
+  globalThis.fetch = async () => json({ messages: [{ id: 'head', account_id: 'a', message_count: 2, unread_count: 1 }], total: 1 });
+  const unified = await api.getMessages({ threaded: true, folder: 'Sent' });
+  const explicit = await api.getMessages({ threaded: true, folder: 'Sent', accountId: 'a' });
+  assert.deepEqual(unified.messages[0]._mailProjectionScope, { folder: 'INBOX', category: undefined });
+  assert.deepEqual(explicit.messages[0]._mailProjectionScope, { folder: 'Sent', category: undefined });
+});
+
+
+test('a foreign-account list response is rejected before it can populate navigation cache', async () => {
+  globalThis.fetch = async () => json(data);
+  const gmail = { ...params, accountId: 'gmail' };
+  await assert.rejects(api.getMessages(gmail), /does not match the requested account/);
+  assert.equal(api.getCachedMessages(gmail), undefined);
+});
+
+
+test('account search rejects foreign rows before projecting their flags', async () => {
+  globalThis.fetch = async () => json(data);
+  await assert.rejects(api.search('invoice', 'gmail'), /does not match the requested account/);
+});

@@ -3,7 +3,6 @@ import { GraphApiError, graphDelete, graphPatch, graphPost } from './graphApiCli
 import type { GraphApiOptions } from './graphApiClient.js';
 import { withTransaction } from '../../db.js';
 import { listDueOperations } from '../../providerOperations.js';
-import { runProviderMutation } from '../../providerMutationService.js';
 import type { ProviderAdapterOutcome, ProviderMutationAdapter } from '../../providerMutationService.js';
 import type { GraphMailFolder } from './graphMail.js';
 import type { FetchLike } from '../../providerAuthService.js';
@@ -17,10 +16,9 @@ import type { FetchLike } from '../../providerAuthService.js';
  * claim fencing are the same here as they are for the IMAP flag write, and the
  * routes above do not need to know which transport they are talking to.
  *
- * Graph's message mutations are **idempotent**: `PATCH { isRead: true }` and
- * `PATCH { flag: { flagStatus } }` set a state rather than applying a delta, so a
- * recovered claim may safely run them again — the same reasoning as the IMAP flag
- * adapter, and the opposite of a send.
+ * A flag PATCH sets a state, but replaying a recovered claim could overwrite a
+ * later user or remote edit. Recovery therefore requires provider read-back;
+ * only failures known to precede application may be retried as writes.
  */
 
 /** A flag write as the application models it, with IMAP-style flag names. */
@@ -106,13 +104,14 @@ export function graphFlagMutationAdapter(options: {
   const patch = options.patch ?? graphPatch;
   return {
     resourceType: 'message',
-    // A state set, not a delta: re-applying it converges.
-    idempotent: true,
-    async perform(write) {
+    // A stale state set can overwrite a newer edit; recovery must read back.
+    idempotent: false,
+    async perform(write, context) {
       const body = graphMessagePatchForFlag(write.flag, write.value);
       if (!body) return { status: 'permanent', code: 'OPERATION_FORBIDDEN' };
       try {
-        await patch(options.api, graphMessageResource(write.providerMessageId), body);
+        const signal = options.api.signal ? AbortSignal.any([options.api.signal, context.signal]) : context.signal;
+        await patch({ ...options.api, signal }, graphMessageResource(write.providerMessageId), body);
         return { status: 'committed' };
       } catch (error) {
         return classifyGraphMutationFailure(error);
@@ -122,17 +121,10 @@ export function graphFlagMutationAdapter(options: {
 }
 
 /**
- * Retry the flag mutations the journal left `pending` for one account.
- *
- * This is the drainer the `pending` pool was missing: a `retryable` outcome (a
- * throttle, a provider outage) schedules the operation instead of dropping the
- * user's change, and this pass re-runs each due row **under its own claim**, so
- * two workers cannot both execute it and a row that has since been completed is
- * answered from the journal rather than re-applied.
- *
- * It runs at the start of the account's message sync, which is the moment the
- * mailbox is being reconciled anyway: a pending flag is settled before the delta
- * is applied, so the sync cannot overwrite a change that is still in flight.
+ * Compatibility entry point for legacy callers. Legacy journal rows have no
+ * durable latest-intent fence, so none may be dispatched here. The mail flag
+ * state worker imports them as read-back obligations and records reconciliation
+ * separately from historical write success.
  */
 export async function drainGraphMailFlagOperations(input: {
   userId: string;
@@ -149,43 +141,7 @@ export async function drainGraphMailFlagOperations(input: {
     limit: input.limit ?? 25,
   }));
 
-  const api: GraphApiOptions = {
-    userId: input.userId,
-    connectionId: input.connectionId,
-    owner: `graph-mail-drain:${input.accountId}`,
-    ...(input.config ? { config: input.config } : {}),
-    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
-  };
-
-  let confirmed = 0;
-  let unresolved = 0;
-  for (const row of due) {
-    const payload = row.payload as GraphMailFlagPayload | null;
-    // A row without its adapter parameters cannot be re-run; leaving it pending
-    // for a human is honest, silently dropping it is not.
-    if (!payload?.providerMessageId || !payload.flag || !row.idempotencyKey || !row.payloadHash) {
-      unresolved += 1;
-      continue;
-    }
-    const result = await runProviderMutation<GraphMailFlagPayload, void>(
-      {
-        userId: input.userId,
-        channel: 'worker',
-        operation: 'update',
-        accountId: input.accountId,
-        resourceId: row.resourceId,
-        idempotencyKey: row.idempotencyKey,
-        payloadHash: row.payloadHash,
-        payload,
-        owner: api.owner,
-        retry: { delaySeconds: 300 },
-      },
-      graphFlagMutationAdapter({ api }),
-    );
-    if (result.status === 'confirmed' || result.status === 'accepted') confirmed += 1;
-    else unresolved += 1;
-  }
-  return { due: due.length, confirmed, unresolved };
+  return { due: due.length, confirmed: 0, unresolved: due.length };
 }
 
 // ── Moving and removing a message ───────────────────────────────────────────

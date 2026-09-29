@@ -11,3 +11,10 @@ describe('delete resource dialog', () => {
     assert.doesNotMatch(source, /t\('accountUi\.confirmName'\)\s*<input/);
   });
 });
+
+  it('requires typed name and acknowledgment and blocks repeat deletion while unknown', async () => {
+    const source = await read();
+    assert.match(source, /disabled=\{busy \|\| blocked \|\| confirm !== name \|\| !ack\}/);
+    assert.match(source, /remote \? 'accountUi.deleteRemoteWarning' : 'accountUi.deleteLocalWarning'/);
+    assert.match(source, /blocked \? 'accountUi.operationPending'/);
+  });

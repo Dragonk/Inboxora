@@ -35,9 +35,9 @@ import type { GoogleApiOptions } from './googleApiClient.js';
 /**
  * A label as Gmail returns it. Only the fields this adapter reads are declared.
  *
- * `messagesTotal`/`messagesUnread` are the label's counts and become the local
- * folder's counters, so the sidebar badge matches the provider rather than the
- * (recently partial) local table.
+ * `messagesTotal`/`messagesUnread` may be present in detailed label responses,
+ * but labels.list normally omits them. The sync projects folder badges from the
+ * same visible physical rows and label memberships as the local message list.
  */
 export interface GmailLabel {
   id: string;

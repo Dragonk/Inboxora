@@ -9,7 +9,6 @@ import {
   assertDocsPresentation,
   demoConversationId,
   demoCopyId,
-  demoLogicalId,
   newestDemoRowId,
   useDavDemoData,
   useEnglishLocale,
@@ -105,6 +104,8 @@ async function capture(page, name, { mode = 'mail-list', require: required = [],
   await parkPointer(page);
   await settle(page);
   await assertDocsPresentation(page, { mode, require: required });
+  await expect(page.getByText('Mail change pending', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Mail change failed', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: `${OUTPUT_DIR}${name}-${variant}.png`, animations: 'disabled' });
 }
 
@@ -217,7 +218,7 @@ test('mail: conversation reader with the thread history expanded', async ({ page
   await openMail(page, fixtureApi);
   const reader = await openDemoConversation(page, demoCopyId(4));
   for (const index of [1, 2]) {
-    const toggle = reader.locator(`#logical-message-${demoLogicalId(index)} [data-conversation-message-toggle="true"][aria-expanded="false"]`);
+    const toggle = reader.locator(`#logical-message-${demoCopyId(index)} [data-conversation-message-toggle="true"][aria-expanded="false"]`);
     if (await toggle.count()) await toggle.click();
   }
   await expect.poll(() => reader.locator('iframe').count()).toBeGreaterThanOrEqual(3);

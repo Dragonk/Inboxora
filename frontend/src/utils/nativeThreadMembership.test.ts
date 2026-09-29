@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { isExpandableNativeThread, nativeThreadCacheMatchesRow, normalizedNativeThreadMembers, singletonNativeThreadTarget } from './nativeThreadMembership.ts';
 
 describe('normalized native thread membership', () => {
-  it('treats duplicate physical copies of one normalized message as a singleton', () => {
+  it('preserves distinct physical copies sharing an RFC header', () => {
     const row = { id: 'copy-inbox', message_id: '<same@example.test>' };
     const members = normalizedNativeThreadMembers([row, { id: 'copy-all-mail', message_id: '<same@example.test>' }]);
-    assert.deepEqual(members.map(member => member.id), ['copy-inbox']);
-    assert.equal(isExpandableNativeThread(members), false);
+    assert.deepEqual(members.map(member => member.id), ['copy-inbox', 'copy-all-mail']);
+    assert.equal(isExpandableNativeThread(members), true);
     const target = singletonNativeThreadTarget(row, members);
     assert.ok(target);
     assert.equal(target.id, 'copy-inbox');
@@ -35,8 +35,8 @@ describe('native thread cache freshness', () => {
     assert.equal(nativeThreadCacheMatchesRow(row, []), false);
     assert.equal(nativeThreadCacheMatchesRow({ ...row, id: 'new', message_id: '<new>' }, members), false);
   });
-  it('accepts the same normalized head in another folder without an exact physical copy', () => {
-    assert.equal(nativeThreadCacheMatchesRow({ ...row, id: 'another-folder-copy' }, members), true);
+  it('rejects an RFC match without the exact physical head', () => {
+    assert.equal(nativeThreadCacheMatchesRow({ ...row, id: 'another-folder-copy' }, members), false);
   });
   it('never reuses membership from another account', () => {
     assert.equal(nativeThreadCacheMatchesRow({ ...row, account_id: 'b' }, members), false);

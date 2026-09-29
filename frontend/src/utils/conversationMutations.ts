@@ -14,6 +14,7 @@ export function removePhysicalCopy<Copy extends PhysicalCopy, Message extends Lo
 ): Message[] {
   return (logicalMessages || [])
     .map(message => String(message.id) !== String(logicalMessageId)
+      && !(message.copies || []).some(copy => String(copy.id) === String(copyId))
       ? message
       : { ...message, copies: (message.copies || []).filter(copy => String(copy.id) !== String(copyId)) })
     .filter(message => message.copies?.length);

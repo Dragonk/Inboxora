@@ -1,45 +1,38 @@
-// Serialize read-flag writes per normalized native message. IMAP/provider writes may
-// complete out of order; chaining makes the newest local intent the last server write.
-type PendingReadStateIntent = {
-  version: number;
-  read: boolean;
-};
+import { getAuthEpoch, isCurrentAuthEpoch, onAuthEpochChange } from './authEpoch.ts';
+import { beginMailFlagIntent, settleMailFlagIntent, pendingMailFlag, resetMailFlagIntentsForTest } from './mailFlagIntents.ts';
 
+// Serialize each physical copy while preserving the newest queued user intent.
 const tails = new Map<string, Promise<unknown>>();
 const versions = new Map<string, number>();
-const pendingIntents = new Map<string, PendingReadStateIntent>();
+let sequence = 0;
+onAuthEpochChange(() => { tails.clear(); versions.clear(); });
 
 export function queueReadStateMutation(id: string, read: boolean, request: (read: boolean) => Promise<unknown>) {
   const key = String(id);
-  const currentVersion = versions.get(key);
-  const version = currentVersion === undefined ? 1 : currentVersion + 1;
+  const version = ++sequence;
+  const epoch = getAuthEpoch();
   versions.set(key, version);
-  pendingIntents.set(key, { version, read });
-
+  const intent = beginMailFlagIntent(key, 'is_read', read);
   const previous = tails.get(key);
   const task = (previous === undefined ? Promise.resolve() : previous.catch(() => undefined))
-    .then(() => request(read));
-  const settled = task.finally(() => {
-    if (tails.get(key) === settled) tails.delete(key);
-
-    const pendingIntent = pendingIntents.get(key);
-    if (pendingIntent !== undefined && pendingIntent.version === version) pendingIntents.delete(key);
-  });
+    .then(() => {
+      if (!isCurrentAuthEpoch(epoch)) throw new Error('Mail action belongs to an expired session');
+      return request(read);
+    }).then(response => {
+      settleMailFlagIntent(key, 'is_read', intent, response);
+      return response;
+    }, error => {
+      settleMailFlagIntent(key, 'is_read', intent, error, true);
+      throw error;
+    });
+  const settled = task.finally(() => { if (tails.get(key) === settled) tails.delete(key); });
   tails.set(key, settled);
   return { version, promise: settled };
 }
+export function isLatestReadStateMutation(id: string, version: number) { return versions.get(String(id)) === version; }
+export function pendingReadState(id: string) { return pendingMailFlag(String(id), 'is_read'); }
+export function resetReadStateMutationsForTest() { tails.clear(); versions.clear(); resetMailFlagIntentsForTest(); }
 
-export function isLatestReadStateMutation(id: string, version: number) {
-  return versions.get(String(id)) === version;
-}
-
-export function pendingReadState(id: string) {
-  const pendingIntent = pendingIntents.get(String(id));
-  return pendingIntent === undefined ? undefined : pendingIntent.read;
-}
-
-export function resetReadStateMutationsForTest() {
-  pendingIntents.clear();
-  tails.clear();
-  versions.clear();
-}
+/** Snapshot the mutation clock before deferred UI work or thread resolution. */
+export function currentReadStateMutationVersion(id: string) { return versions.get(String(id)); }
+export function readStateMutationRevision() { return sequence; }

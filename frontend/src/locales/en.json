@@ -2521,6 +2521,7 @@
     "operationPending": "The remote operation is not yet confirmed. Do not repeat it with a new request identifier.",
     "targetUnavailable": "This account or resource is no longer available. Return to the list and refresh it.",
     "deleteLocalWarning": "This deletes the resource and its contents from Inboxora. This operation cannot be undone.",
+    "providerDeletionUnavailable": "Provider deletion is unavailable for this collection. Default, system and read-only collections cannot be deleted here.",
     "deleteRemoteWarning": "This deletes the resource at the provider, including its contents. It is not the same as hiding or disconnecting it.",
     "removeAccountHint": "All synced messages for this account will be removed from Inboxora. This does not delete the mailbox at its provider.",
     "intervalMinutes_zero": "Minutes: {{count}}",
@@ -2627,5 +2628,11 @@
     "recipientsUnavailable": "Recipient details unavailable",
     "editingNotice": "Sending is paused while you edit. Saving keeps it paused; choose Send or Schedule send when you are ready.",
     "resumeFromEditor": "Finish editing in the open composer, then send or schedule the updated message."
+  },
+  "mailStateChange": {
+    "pendingTitle": "Mail change pending",
+    "pendingBody": "The mail provider has not confirmed this change yet. The current mailbox state will be checked again.",
+    "failedTitle": "Mail change failed",
+    "failedBody": "The mail provider could not apply this change. The previous state has been restored."
   }
 }

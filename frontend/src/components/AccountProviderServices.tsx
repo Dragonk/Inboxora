@@ -1,3 +1,4 @@
+import { getAuthEpoch, isCurrentAuthEpoch } from '../utils/authEpoch.ts';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../utils/api.ts';
@@ -127,11 +128,12 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
 
   const load = useCallback(async (): Promise<void> => {
     const generation = ++statusGeneration.current;
+    const authEpoch = getAuthEpoch();
     try {
       const data = await api.accountProviderStatus(accountId) as AccountProviderStatusSnapshot;
       // An account switch or a newer refresh may finish first; never mix its state
       // with this response's diagnostics.
-      if (generation !== statusGeneration.current || data.accountId !== accountId) return;
+      if (generation !== statusGeneration.current || !isCurrentAuthEpoch(authEpoch) || data.accountId !== accountId) return;
       // Refresh updates server facts, but must not discard unsaved Save/Cancel intent.
       for (const service of ['calendars', 'contacts'] as const) {
         const key = service === 'calendars' ? 'calendar' : 'contacts';
@@ -140,7 +142,7 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
       }
       setFeatures(data); setDiagnostics(data.diagnostics); setError(null);
     } catch (caught) {
-      if (generation !== statusGeneration.current) return;
+      if (generation !== statusGeneration.current || !isCurrentAuthEpoch(authEpoch)) return;
       // Keep the last coherent snapshot visible but mark it stale rather than
       // dropping the card and making a temporary read failure look disconnected.
       setError(toAppError(caught).message);
@@ -489,6 +491,14 @@ export default function AccountProviderServices({ accountId, reload, t, deferSer
           </button>}
           {(diagnosticsOnly || diagnosticsOpen) && (
             <div data-testid="account-diagnostics" style={{ marginTop: 6, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+              {diagnosticsOnly && <dl className="au-meta" data-testid="account-diagnostics-summary">
+                <dt>{t('accountUi.transport')}</dt><dd>{transportLabel(diagnostics.mail.transport)}</dd>
+                <dt>{t('accountUi.lastSync')}</dt><dd data-testid="account-diagnostics-summary-sync">{diagnostics.mail.lastSuccessfulSync
+                  ? new Date(diagnostics.mail.lastSuccessfulSync).toLocaleString() : t('admin.accounts.diagnostics.never')}</dd>
+                <dt>{t('accountUi.connectionState')}</dt><dd data-testid="account-diagnostics-summary-state">{providerServiceStatus({
+                  ...features?.mail, authorized: diagnostics.mail.authorized, syncErrorCode: diagnostics.mail.lastErrorCode,
+                }, t)}</dd>
+              </dl>}
               <div data-testid="account-diagnostics-connection">
                 <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{t('admin.accounts.diagnostics.connection')}</div>
                 <div>{t('admin.accounts.diagnostics.provider')}: {diagnostics.provider ?? t('admin.accounts.diagnostics.none')}</div>

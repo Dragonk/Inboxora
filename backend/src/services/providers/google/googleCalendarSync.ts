@@ -1,4 +1,5 @@
 import type { PoolClient } from 'pg';
+import { discoverNativeCalendars } from '../../calendarCollectionDiscovery.js';
 import { withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import { lockCalendarCollection, isCalendarCollectionDeleted, assertCalendarCollectionPresent, withCalendarCollectionSyncFence, CalendarCollectionDeletedError } from '../../calendarCollectionFence.js';
@@ -195,16 +196,17 @@ export async function applyGoogleEventGroup(client: PoolClient, context: ApplyCo
   return applyProviderCalendarEventGroup(client, context, remoteId, group, GOOGLE_PROJECTION);
 }
 
-async function listAllCalendars(api: GoogleApiOptions): Promise<GoogleCalendarListEntry[]> {
+async function listAllCalendars(api: GoogleApiOptions, heartbeat: () => Promise<void>, maxPages = MAX_PAGES): Promise<GoogleCalendarListEntry[]> {
   const calendars: GoogleCalendarListEntry[] = [];
   let pageToken: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; page < maxPages; page++) {
+    await heartbeat();
     const result = await fetchCalendarList(api, { pageToken });
     calendars.push(...result.calendars);
     pageToken = result.nextPageToken;
-    if (!pageToken) break;
+    if (!pageToken) return calendars;
   }
-  return calendars;
+  throw new GoogleApiError({ code: 'PARTIAL_SYNC', message: 'Calendar discovery did not reach its final page', status: 409, retryable: true });
 }
 
 async function syncCollection(api: GoogleApiOptions, collection: CalendarCollection, context: Omit<ApplyContext, 'collectionId' | 'calendarId' | 'remoteCalendarId'>, maxPages?: number): Promise<{
@@ -332,6 +334,8 @@ export async function syncGoogleCalendar(input: {
   fetchImpl?: FetchLike;
   /** The page cap for one calendar; injectable so the "limited run is not complete" path is provable. */
   maxPages?: number;
+  /** Discovery cap never turns a partial collection list into deletion evidence. */
+  maxDiscoveryPages?: number;
 }): Promise<GoogleCalendarSyncResult> {
   // A complete run starts with CalendarList.list and then reads each collection.
   // Checking only events would turn an events-only token into an avoidable 403.
@@ -352,12 +356,10 @@ export async function syncGoogleCalendar(input: {
     owner: `google-calendar:${input.connectionId}`,
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
-  const calendars = await listAllCalendars(api);
-  await withTransaction(async client => {
-    // One client, so the discovery writes run in sequence on the same connection.
-    for (const entry of [...calendars].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {
-      await ensureGoogleCalendarCollection(client, { userId: input.userId, connectionId: input.connectionId, entry });
-    }
+  const calendars = await discoverNativeCalendars({
+    userId: input.userId, connectionId: input.connectionId,
+    load: heartbeat => listAllCalendars(api, heartbeat, input.maxDiscoveryPages),
+    ensure: (client, entry) => ensureGoogleCalendarCollection(client, { userId: input.userId, connectionId: input.connectionId, entry }),
   });
 
   const stored = await withTransaction(client => client.query<{ id: string; remote_id: string; local_calendar_id: string }>(

@@ -1,3 +1,7 @@
+import { mapConcurrent } from '../utils/mapConcurrent.js';
+import { deleteRemoteDavAddressBookCollection, getRemoteDavCollectionDeleteCapability } from '../services/davCollectionLifecycle.js';
+import { davCollectionDeletionResponse, validCollectionDeletionIntent } from '../services/davCollectionManagement.js';
+import { describeAddressBookDeletion, deleteProviderAddressBook, AddressBookCollectionError } from '../services/addressBookCollectionManagement.js';
 import contactPresentation from './contactPresentation.js';
 import { parseBookFilter } from '../utils/contactBookFilter.js';
 import { Router } from 'express';
@@ -268,14 +272,28 @@ router.get('/address-books', async (req, res) => {
       ADDRESS_BOOK_PRESENTATION_SQL,
       [req.session.userId],
     );
-    const addressBooks = result.rows.map(row => ({
-      ...row,
-      read_only: !collectionIsWritable({
-        source: typeof row.source === 'string' ? row.source : null,
-        source_access: typeof row.source_access === 'string' ? row.source_access : null,
-        user_access: typeof row.user_access === 'string' ? row.user_access : null,
-      }, 'contacts'),
-    }));
+    const addressBooks = await mapConcurrent(result.rows, 4, async row => {
+      let deletion: { supported: boolean; reason?: string } | undefined = row.source === 'local' ? { supported: true } : undefined;
+      if (row.source !== 'local' && req.query.includeDeletionCapabilities === 'true') {
+        try {
+          if (row.source === 'carddav') {
+            const capability = await getRemoteDavCollectionDeleteCapability(sessionUserId(req), 'addressbook', row.id);
+            deletion = { supported: capability.allowed, reason: capability.reason };
+          } else deletion = await describeAddressBookDeletion(sessionUserId(req), row.id);
+        } catch {
+          deletion = { supported: false, reason: 'Provider deletion rights could not be verified. Try again after the connection recovers.' };
+        }
+      }
+      return {
+        ...row,
+        deletion,
+        read_only: !collectionIsWritable({
+          source: typeof row.source === 'string' ? row.source : null,
+          source_access: typeof row.source_access === 'string' ? row.source_access : null,
+          user_access: typeof row.user_access === 'string' ? row.user_access : null,
+        }, 'contacts'),
+      };
+    });
     res.json({ addressBooks });
   } catch (err) { console.error('Address book list error:', err); res.status(500).json({ error: 'Failed to fetch address books' }); }
 });
@@ -323,13 +341,41 @@ router.patch('/address-books/:id', async (req, res) => {
 
 router.delete('/address-books/:id', async (req, res) => {
   try {
-    const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
-    if ('error' in local) return res.status(local.status).json({ error: local.error });
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) return res.status(400).json({ code: 'VALIDATION_ERROR', error: 'Invalid address book id' });
+    const userId = sessionUserId(req);
+    const owned = await query<{source:string;name:string}>('SELECT source, name FROM address_books WHERE id=$1 AND user_id=$2', [req.params.id, userId]);
+    if (owned.rows[0]?.source !== 'local') {
+      if (!validCollectionDeletionIntent(req.body)) return res.status(400).json({code:'VALIDATION_ERROR',error:'confirmName and idempotencyKey are required'});
+      const { confirmName, idempotencyKey } = req.body;
+      if (owned.rows[0]?.source === 'carddav') {
+        if (owned.rows[0].name !== confirmName) return res.status(400).json({ code: 'VALIDATION_ERROR', error: 'Confirm the exact address book name' });
+        const result = davCollectionDeletionResponse(await deleteRemoteDavAddressBookCollection(userId, req.params.id));
+        return res.status(result.status).json(result.body);
+      }
+      if (!owned.rows[0]) {
+        const dav = await query(`SELECT id FROM dav_collection_operations WHERE user_id=$1 AND kind='addressbook' AND local_id=$2`, [userId, req.params.id]);
+        if (dav.rows[0]) {
+          const result = davCollectionDeletionResponse(await deleteRemoteDavAddressBookCollection(userId, req.params.id));
+          return res.status(result.status).json(result.body);
+        }
+        // Only a matching owned native receipt may enter native replay after projection cleanup.
+        const native = await query(`SELECT id FROM provider_operations WHERE user_id=$1
+          AND resource_type='address_book_collection' AND operation='delete' AND resource_id=$2 AND idempotency_key=$3
+          AND payload->>'localAddressBookId'=$2::text AND payload->>'confirmName'=$4`, [userId, req.params.id, idempotencyKey, confirmName]);
+        if (!native.rows[0]) return res.status(404).json({ code: 'RESOURCE_NOT_FOUND', error: 'Address book not found' });
+      }
+      const result = await deleteProviderAddressBook({userId:sessionUserId(req),addressBookId:req.params.id,confirmName,idempotencyKey});
+      const status = result.status === 'confirmed' ? 200 : result.status === 'pending' ? 202 : result.status === 'conflict' ? 409 : result.status === 'permanent' ? 422 : result.status === 'retryable' ? 503 : 502;
+      return res.status(status).json({state:result.status,operationId:result.operationId,replayed:result.replayed,code:result.code});
+    }
     const count = await query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
     if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
-    await query('DELETE FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, req.session.userId]);
+    await query("DELETE FROM address_books WHERE id = $1 AND user_id = $2 AND source = 'local'", [req.params.id, req.session.userId]);
     res.status(204).end();
-  } catch (err) { console.error('Address book delete error:', err); res.status(500).json({ error: 'Failed to delete address book' }); }
+  } catch (err) {
+    if (err instanceof AddressBookCollectionError) return res.status(err.status).json({code:err.code,error:err.message});
+    console.error('Address book delete error:', err); res.status(500).json({ error: 'Failed to delete address book' });
+  }
 });
 
 // Whether Google contacts can be pulled, and what has been pulled so far. Safe for

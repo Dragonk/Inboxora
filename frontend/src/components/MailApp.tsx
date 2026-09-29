@@ -20,7 +20,8 @@ import { MobileHeaderHost } from './MobileModuleHeader.tsx';
 import { LAYOUTS } from '../layouts.ts';
 import { beginPanelResize } from '../utils/panelWidth.ts';
 import { shortcutBus } from '../utils/shortcutBus.ts';
-import { setPending, pendingMarkReadMap, completedMarkReadMap } from '../utils/pendingReads.ts';
+import { createPhysicalMailActions } from '../utils/physicalMailActions.ts';
+import { currentReadStateMutationVersion } from '../utils/readStateMutation.ts';
 import { openReplyFromMessage, openForwardFromMessage } from '../utils/composeFromMessage.ts';
 import { buildKeyMap, buildModKeyMap, getEffectiveShortcuts, getGroupedActions, parseModKey, modLabel, SPECIAL_KEYS, SPECIAL_KEY_LABELS } from '../utils/defaultShortcuts.ts';
 import Sidebar from './Sidebar.tsx';
@@ -44,6 +45,8 @@ import { usePluginSlot, PluginRuntime } from '../plugins/PluginSlot.tsx';
 import type { StoreState } from '../store/index.ts';
 import { toAppError } from '../utils/errors.ts';
 import { providerFailureKey } from '../utils/providerFailure.ts';
+
+const physicalMailActions = createPhysicalMailActions({ getState: useStore.getState, refresh: requestMailRefresh });
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
@@ -182,6 +185,8 @@ export default function MailApp() {
       return undefined;
     }
     let cancelled = false;
+    const resolutionAuthEpoch = useStore.getState().authEpoch;
+    const resolutionReadVersion = currentReadStateMutationVersion(selectedMessageId);
     // The selected physical copy is the canonical selection. Resolve its CE identity
     // independently of which list path produced the click (flat, ThreadRow parent or child).
     setConversationId(null);
@@ -211,7 +216,8 @@ export default function MailApp() {
     }
     conversationApi.resolveMessage(selectedMessageId, selected?.account_id || null)
       .then(resolved => {
-        if (!cancelled && resolved?.conversation_id) {
+        if (!cancelled && useStore.getState().authEpoch === resolutionAuthEpoch
+          && useStore.getState().selectedMessageId === selectedMessageId && resolved?.conversation_id) {
           setSelectedConversationCopy({
             id: resolved.physical_copy_id || resolved.id || selected?.id || selectedMessageId,
             accountId: resolved.account_id || resolved.accountId || selected?.account_id || null,
@@ -222,7 +228,7 @@ export default function MailApp() {
           setConversationId(resolved.conversation_id);
         }
       }).catch(error => {
-        if (!cancelled) {
+        if (!cancelled && useStore.getState().authEpoch === resolutionAuthEpoch) {
           // Never retain a previous conversation for a newly selected copy. This is
           // diagnostic only: the single-message pane remains a safe fallback when
           // a message has not yet been ingested by the CE model.
@@ -239,30 +245,14 @@ export default function MailApp() {
           if (threadKey && !nativeThreadUnavailable) return;
           const markFallbackRead = () => {
             const state = useStore.getState();
-            if (selectedMessageIdRef.current !== selectedMessageId || state.selectedMessageId !== selectedMessageId) return;
+            if (cancelled || state.authEpoch !== resolutionAuthEpoch || state.isLocked
+              || selectedMessageIdRef.current !== selectedMessageId || state.selectedMessageId !== selectedMessageId
+              || currentReadStateMutationVersion(selectedMessageId) !== resolutionReadVersion) return;
             const current = state.messages.find(item => item.id === selectedMessageId)
               || Object.values(state.threadMessages || {}).flat().find(item => item.id === selectedMessageId);
-            if (!current || current.is_read || state.markReadBehavior === 'manual') return;
-            const previousUnreadCount = current.unread_count;
-            state.updateMessage(current.id, { is_read: true, unread_count: 0 });
-            state.decrementUnread(current.account_id);
-            state.adjustCategoryCount(current.category, -1);
-            state.adjustFolderUnread(current.account_id, current.folder, -1);
-            setPending(current.id, current.account_id);
-            api.bulkRead([current.id], true)
-              .then(() => {
-                pendingMarkReadMap.delete(current.id);
-                completedMarkReadMap.set(current.id, current.account_id);
-                setTimeout(() => completedMarkReadMap.delete(current.id), 10000);
-              })
-              .catch(readError => {
-                console.error('Fallback markRead failed:', readError.message);
-                state.updateMessage(current.id, { is_read: false, unread_count: previousUnreadCount });
-                state.incrementUnread(current.account_id);
-                state.adjustCategoryCount(current.category, 1);
-                state.adjustFolderUnread(current.account_id, current.folder, 1);
-                pendingMarkReadMap.delete(current.id);
-              });
+            if (!current || (typeof current.physical_is_read === 'boolean' ? current.physical_is_read : current.is_read)
+              || state.markReadBehavior === 'manual') return;
+            void physicalMailActions.read(current, true);
           };
           if (useStore.getState().markReadBehavior === 'delay') {
             if (fallbackMarkReadTimerRef.current !== null) clearTimeout(fallbackMarkReadTimerRef.current);
@@ -539,27 +529,17 @@ export default function MailApp() {
         // reverting the optimistic flag. Respects the user's manual-mark preference.
         const st = useStore.getState();
         if (msg.is_read || st.markReadBehavior === 'manual') return;
-        st.updateMessage(msg.id, { is_read: true });
-        st.decrementUnread(msg.account_id);
-        st.adjustCategoryCount(msg.category, -1);
-        setPending(msg.id, msg.account_id);
-        api.bulkRead([msg.id], true)
-          .then(() => {
-            // Always release the process-local guard; only UI updates are session-scoped.
-            pendingMarkReadMap.delete(msg.id);
-            if (useStore.getState().authEpoch !== requestAuthEpoch) return;
-            completedMarkReadMap.set(msg.id, msg.account_id);
-            setTimeout(() => completedMarkReadMap.delete(msg.id), 10000);
-          })
-          .catch(e => {
-            // Always release the process-local guard; only UI updates are session-scoped.
-            pendingMarkReadMap.delete(msg.id);
-            if (useStore.getState().authEpoch !== requestAuthEpoch) return;
-            console.error('Deep-link markRead failed:', toAppError(e).message);
-            st.updateMessage(msg.id, { is_read: false });
-            st.incrementUnread(msg.account_id);
-            st.adjustCategoryCount(msg.category, 1);
-          });
+        const version = currentReadStateMutationVersion(msg.id);
+        const markRead = () => {
+          const current = useStore.getState();
+          if (current.authEpoch !== requestAuthEpoch || current.isLocked || current.selectedMessageId !== msg.id
+            || current.markReadBehavior === 'manual' || currentReadStateMutationVersion(msg.id) !== version) return;
+          void physicalMailActions.read(msg, true);
+        };
+        if (st.markReadBehavior === 'delay') {
+          if (fallbackMarkReadTimerRef.current !== null) clearTimeout(fallbackMarkReadTimerRef.current);
+          fallbackMarkReadTimerRef.current = setTimeout(markRead, st.markReadDelay * 1000);
+        } else markRead();
       })
       .catch(err => console.warn('Deep link message not found:', toAppError(err).message));
   }, [setSelectedMessage]);

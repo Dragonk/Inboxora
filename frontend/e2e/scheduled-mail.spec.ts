@@ -88,6 +88,8 @@ async function selectSchedule(page: Page, date = '2030-01-15', time = '13:45') {
 
 test('Undo queues instead of sending, survives reload and restores the paused full message', async ({ page, fixtureApi }) => {
   await fixtureApi;
+  // Install before app timers or message iframes are created.
+  await page.clock.install();
   const rows: Summary[] = []; let immediate = 0; let enqueue: Record<string, unknown> | undefined;
   await boot(page, rows, { undo: 60 });
   await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ json: { ok: true } }); });
@@ -103,7 +105,7 @@ test('Undo queues instead of sending, survives reload and restores the paused fu
   await expect.poll(() => enqueue).toMatchObject({ mode: 'undo', message: { subject: 'Queued fixture', bodyIsHtml: true } });
   await expect(page.getByTestId('compose-from')).toHaveCount(0);
   expect(immediate).toBe(0);
-  await page.clock.install(); await page.clock.fastForward(10_000);
+  await page.clock.fastForward(10_000);
   await expect(page.getByTestId('scheduled-undo-queued-1')).toBeVisible();
   await page.reload();
   await expect(page.getByTestId('scheduled-undo-queued-1')).toBeVisible();
@@ -424,7 +426,7 @@ test('a queue read slower than the poll interval still restores pending Undo aft
 });
 
 test('schedule confirmation waits for an in-flight autosave without discarding the selected instant', async ({ page, fixtureApi }) => {
-  await fixtureApi; await boot(page); await page.clock.install(); await compose(page);
+  await fixtureApi; await page.clock.install(); await boot(page); await compose(page);
   let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
   let saving = false; let queued: Record<string, unknown> | undefined;
   await page.route('**/api/mail/draft', async route => {
@@ -482,7 +484,7 @@ test('an open formatting popup is removed while sending and stays unavailable af
 
 test('held queued autosave allows body and recipient edits, serializes writes and blocks Send', async ({ page, fixtureApi }) => {
   await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
-  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.clock.install(); await boot(page, rows); await outbox(page);
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
   const writes: Record<string, unknown>[] = []; let deliveries = 0;
@@ -525,7 +527,7 @@ test('held queued autosave allows body and recipient edits, serializes writes an
 
 test('lost queued autosave acknowledgement stays editable and replays exact snapshot before newer revision', async ({ page, fixtureApi }) => {
   await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
-  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.clock.install(); await boot(page, rows); await outbox(page);
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   const writes: Record<string, unknown>[] = []; let deliveries = 0; let enqueues = 0;
   await page.route('**/api/mail/send', route => { deliveries++; return route.fulfill({ status: 503, json: {} }); });
@@ -569,7 +571,7 @@ test('lost queued autosave acknowledgement stays editable and replays exact snap
 
 test('late queued autosave acknowledgement after logout cannot restore editing or schedule more writes', async ({ page, fixtureApi }) => {
   await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
-  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.clock.install(); await boot(page, rows); await outbox(page);
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   let release: () => void = () => {}; const gate = new Promise<void>(resolve => { release = resolve; });
   let writes = 0; let completed = false;
@@ -660,7 +662,7 @@ test('late uncertain dismissal acknowledgement is fenced after session expiratio
 
 test('queued autosave conflict preserves local text and never rebases or sends another client revision', async ({ page, fixtureApi }) => {
   await fixtureApi; const rows = [pending({ state: 'editing', mode: 'schedule' })];
-  await boot(page, rows); await outbox(page); await page.clock.install();
+  await page.clock.install(); await boot(page, rows); await outbox(page);
   await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
   const writes: Record<string, unknown>[] = [];
   await page.route('**/api/mail/scheduled/queued-1', route => {
@@ -879,7 +881,7 @@ for (const outcome of ['success', 'conflict', 'lost response', 'logout'] as cons
     await page.setViewportSize({ width: 1280, height: 900 });
     await fixtureApi;
     const rows = [pending({ state: 'editing', mode: 'schedule' })];
-    await boot(page, rows); await outbox(page); await page.clock.install();
+    await page.clock.install(); await boot(page, rows); await outbox(page);
     await page.route('**/api/mail/scheduled/queued-1/edit', route => route.fulfill({ json: { ...rows[0], message } }));
     const writes: Record<string, unknown>[] = []; let deliveries = 0; let enqueues = 0;
     let release: () => void = () => {};

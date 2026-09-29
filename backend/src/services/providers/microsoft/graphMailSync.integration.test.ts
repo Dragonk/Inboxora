@@ -6,10 +6,11 @@
 //   DB_HOST=localhost DB_PORT=5432 DB_NAME=mailflow_test DB_USER=… DB_PASSWORD=… \
 //     npx vitest run src/services/providers/microsoft/graphMailSync.integration.test.ts
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../../db.js';
+import { drainMailFlagReadbacks, enqueueMailFlagIntent } from '../../mailFlagState.js';
 import {
   MICROSOFT_GRANT_AUDIENCE,
   MICROSOFT_ISSUER,
@@ -17,7 +18,7 @@ import {
   upsertProviderConnection,
 } from '../../providerAuthService.js';
 import { acquireSyncLease, ensureSyncState } from '../../syncCoordinator.js';
-import { graphFolderIdForPath, syncGraphMailFolders, syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './graphMailSync.js';
+import { reconcileGraphMailVisibility, graphFolderIdForPath, syncGraphMailFolders, syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from './graphMailSync.js';
 import { graphFlagIntent } from './graphMailMutations.js';
 
 const hasPg = process.env.DB_HOST && process.env.DB_NAME;
@@ -981,14 +982,222 @@ describeOrSkip('Microsoft Graph mail message sync (PostgreSQL)', () => {
       fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
     });
     // The user marks it read locally; the server answer that arrives next still says unread.
-    await autocommit(client => client.query("UPDATE messages SET is_read = true, read_changed_at = NOW() WHERE account_id = $1 AND provider_message_id = 'm1'", [ACCOUNT_ID]));
+    await autocommit(client => client.query("UPDATE messages SET is_read = true, is_starred = true, read_changed_at = NOW(), star_changed_at = NOW() WHERE account_id = $1 AND provider_message_id = 'm1'", [ACCOUNT_ID]));
 
     await syncGraphMailMessagesForAccount({
       userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
       fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1', { isRead: false })], '@odata.deltaLink': `${DELTA_INBOX}-2` }] }).fetchImpl,
     });
 
-    expect((await storedMessages())[0]?.is_read).toBe(true);
+    expect((await storedMessages())[0]).toMatchObject({ is_read: true, is_starred: true });
+    const obligations = await autocommit(client => client.query(
+      'SELECT r.message_id FROM mail_flag_readbacks r JOIN messages m ON m.id = r.message_id WHERE m.account_id = $1', [ACCOUNT_ID],
+    ));
+    expect(obligations.rows).toHaveLength(1);
+    // A later empty delta cannot supply the consumed flag again. The persisted
+    // obligation is drained independently, including by a fresh worker process.
+    await autocommit(client => client.query("UPDATE messages SET read_changed_at = NOW() - interval '1 minute', star_changed_at = NOW() - interval '1 minute' WHERE account_id = $1", [ACCOUNT_ID]));
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [], '@odata.deltaLink': `${DELTA_INBOX}-3` }] }).fetchImpl,
+    });
+    await autocommit(client => client.query('UPDATE mail_flag_readbacks SET next_attempt_at = NOW() WHERE message_id = $1', [obligations.rows[0].message_id]));
+    let reads = 0;
+    await drainMailFlagReadbacks({
+      manager: { setFlag: async () => {}, _resolveFlagPush() {}, _enqueueFlagPush() {}, readMessageFlags: async () => null },
+      read: async () => { reads += 1; return { isRead: false, isStarred: false }; },
+    }, 25, ACCOUNT_ID);
+    expect(reads).toBe(1);
+    expect((await storedMessages())[0]).toMatchObject({ is_read: false, is_starred: false });
+    expect((await autocommit(client => client.query('SELECT * FROM mail_flag_readbacks WHERE message_id = $1', [obligations.rows[0].message_id]))).rows).toEqual([]);
+  });
+
+  it('preserves durable pending read and star intents after the local-wins window expires', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    const provider = fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] });
+    await syncGraphMailMessagesForAccount({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG, fetchImpl: provider.fetchImpl });
+    const row = (await autocommit(client => client.query<{ id: string }>('SELECT id FROM messages WHERE account_id = $1', [ACCOUNT_ID]))).rows[0];
+    for (const flag of ['\\Seen', '\\Flagged']) {
+      await enqueueMailFlagIntent({ userId: USER_ID, accountId: ACCOUNT_ID, messageId: row.id, flag, value: true });
+    }
+    await autocommit(client => client.query("UPDATE messages SET is_read=true,is_starred=true,read_changed_at=NOW()-interval '1 minute',star_changed_at=NOW()-interval '1 minute' WHERE id=$1", [row.id]));
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': `${DELTA_INBOX}-pending` }] }).fetchImpl,
+    });
+    expect((await storedMessages())[0]).toMatchObject({ is_read: true, is_starred: true });
+    expect((await autocommit(client => client.query('SELECT * FROM mail_flag_readbacks WHERE message_id = $1', [row.id]))).rows).toHaveLength(1);
+  });
+
+
+  it.each([true, false])('repairs hidden Graph mail only after a current physical message read (deleted=%s)', async deleted => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+    await autocommit(client => client.query('UPDATE messages SET is_deleted = $2, is_archived = true WHERE account_id = $1', [ACCOUNT_ID, deleted]));
+    const urls: string[] = [];
+    const fetchImpl = async (url: string): Promise<Response> => {
+      urls.push(url);
+      return json(graphMessage('m1', { parentFolderId: 'graph-inbox', isRead: true, flag: { flagStatus: 'flagged' } }));
+    };
+    expect(await reconcileGraphMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl })).toBe(1);
+    const current = await autocommit(client => client.query('SELECT is_deleted, is_archived, is_read, is_starred FROM messages WHERE account_id = $1', [ACCOUNT_ID]));
+    expect(current.rows).toEqual([{ is_deleted: false, is_archived: false, is_read: true, is_starred: true }]);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('/me/messages/m1');
+  });
+
+
+  it('bounds hidden Graph recovery and continues with the remaining identities', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await autocommit(client => client.query(
+      `INSERT INTO messages (account_id,uid,folder,provider_message_id,is_deleted)
+       SELECT $1,n,'INBOX','hidden-'||n,true FROM generate_series(1,25) n`, [ACCOUNT_ID],
+    ));
+    let calls = 0;
+    const fetchImpl = async (url: string): Promise<Response> => {
+      calls += 1;
+      const id = new URL(url).pathname.split('/').at(-1);
+      if (!id) throw new Error('Missing synthetic provider identity');
+      return json(graphMessage(id, { parentFolderId: 'graph-inbox' }));
+    };
+    const input = { userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl };
+    expect(await reconcileGraphMailVisibility(input)).toBe(20);
+    expect(calls).toBe(20);
+    expect(await reconcileGraphMailVisibility(input)).toBe(5);
+    expect(calls).toBe(25);
+    const remaining = await autocommit(client => client.query('SELECT id FROM messages WHERE account_id=$1 AND is_deleted', [ACCOUNT_ID]));
+    expect(remaining.rows).toEqual([]);
+  });
+
+  it.each(['unavailable', 'malformed'] as const)('isolates a %s Graph visibility candidate and still syncs new mail', async failure => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await pool.query(`INSERT INTO messages(id,account_id,uid,folder,provider_message_id,is_deleted)
+      VALUES ('10000000-0000-4000-8000-000000000001',$1,1,'INBOX','bad',true),
+             ('20000000-0000-4000-8000-000000000001',$1,2,'INBOX','good',true)`, [ACCOUNT_ID]);
+    const normal = fakeMailProvider({ inbox: [{ value: [graphMessage('fresh')], '@odata.deltaLink': DELTA_INBOX }] });
+    const recoveryCalls: string[] = [];
+    const fetchImpl = async (url: string, init?: RequestInit): Promise<Response> => {
+      const path = new URL(url).pathname;
+      if (path.endsWith('/bad') || path.endsWith('/good')) {
+        recoveryCalls.push(path);
+        if (path.endsWith('/bad')) return failure === 'unavailable'
+          ? json({ error: { message: 'Synthetic unavailable item' } }, 500) : json({ id: 'bad' });
+        return json(graphMessage('good', { parentFolderId: 'graph-inbox' }));
+      }
+      return normal.fetchImpl(url, init);
+    };
+    const input = { userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl };
+    expect(await syncGraphMailMessagesForAccount(input)).toMatchObject({ created: 1, failedFolders: 0 });
+    expect(recoveryCalls).toEqual(['/v1.0/me/messages/bad', '/v1.0/me/messages/good']);
+    expect(await reconcileGraphMailVisibility(input)).toBe(0);
+    expect(recoveryCalls).toHaveLength(2);
+    const rows = (await pool.query(`SELECT provider_message_id,is_deleted,
+      provider_visibility_checked_at IS NOT NULL AS checked FROM messages
+      WHERE account_id=$1 ORDER BY provider_message_id`, [ACCOUNT_ID])).rows;
+    expect(rows).toContainEqual({ provider_message_id: 'bad', is_deleted: true, checked: true });
+    expect(rows).toContainEqual({ provider_message_id: 'good', is_deleted: false, checked: true });
+    expect(rows).toContainEqual({ provider_message_id: 'fresh', is_deleted: false, checked: false });
+  });
+
+  it('stops the Graph recovery slice on throttling without consuming the remaining candidates', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await pool.query(`INSERT INTO messages(account_id,uid,folder,provider_message_id,is_deleted)
+      VALUES($1,1,'INBOX','hidden-one',true),($1,2,'INBOX','hidden-two',true)`, [ACCOUNT_ID]);
+    const fetchImpl = vi.fn(async () => json({ error: { code: 'TooManyRequests' } }, 429));
+    expect(await reconcileGraphMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl })).toBe(0);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect((await pool.query(`SELECT COUNT(*)::int AS checked FROM messages
+      WHERE account_id=$1 AND is_deleted AND provider_visibility_checked_at IS NOT NULL`, [ACCOUNT_ID])).rows).toEqual([{ checked: 1 }]);
+  });
+
+  it('does not hide an account authorization failure as an isolated Graph recovery error', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await pool.query(`INSERT INTO messages(account_id,uid,folder,provider_message_id,is_deleted)
+      VALUES($1,1,'INBOX','hidden',true)`, [ACCOUNT_ID]);
+    const fetchImpl = vi.fn(async () => json({ error: { code: 'ErrorAccessDenied' } }, 403));
+    await expect(reconcileGraphMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl }))
+      .rejects.toMatchObject({ code: 'INSUFFICIENT_SCOPES' });
+    expect((await pool.query(`SELECT is_deleted,provider_visibility_checked_at FROM messages WHERE account_id=$1`, [ACCOUNT_ID])).rows)
+      .toEqual([{ is_deleted: true, provider_visibility_checked_at: null }]);
+  });
+
+  it.each(['local-change', 'delete-journal', 'missing'] as const)('does not resurrect hidden Graph mail after %s', async kind => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+    await autocommit(client => client.query('UPDATE messages SET is_deleted = true WHERE account_id = $1', [ACCOUNT_ID]));
+    let calls = 0;
+    const fetchImpl = async (): Promise<Response> => {
+      calls += 1;
+      if (kind === 'local-change') await autocommit(client => client.query("UPDATE messages SET folder = 'Sent' WHERE account_id = $1", [ACCOUNT_ID]));
+      if (kind === 'delete-journal') await autocommit(client => client.query(
+        `INSERT INTO provider_operations (user_id, account_id, resource_type, resource_id, operation, status)
+         SELECT $1, account_id, 'message', id, 'delete', 'in_flight' FROM messages WHERE account_id = $2`, [USER_ID, ACCOUNT_ID],
+      ));
+      return kind === 'missing' ? json({ error: { code: 'ErrorItemNotFound' } }, 404)
+        : json(graphMessage('m1', { parentFolderId: 'graph-inbox' }));
+    };
+    expect(await reconcileGraphMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl })).toBe(0);
+    const current = await autocommit(client => client.query('SELECT is_deleted, folder FROM messages WHERE account_id = $1', [ACCOUNT_ID]));
+    expect(current.rows[0]).toEqual({ is_deleted: true, folder: kind === 'local-change' ? 'Sent' : 'INBOX' });
+    if (kind === 'missing') {
+      expect(await reconcileGraphMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl })).toBe(0);
+      expect(calls).toBe(1);
+    }
+  });
+
+
+  it('waits for an uncommitted delete journal and rejects its stale visibility snapshot', async () => {
+    const connectionId = await seedConnection();
+    await discoverFolders(connectionId);
+    await syncGraphMailMessagesForAccount({
+      userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+      fetchImpl: fakeMailProvider({ inbox: [{ value: [graphMessage('m1')], '@odata.deltaLink': DELTA_INBOX }] }).fetchImpl,
+    });
+    await autocommit(client => client.query('UPDATE messages SET is_deleted=true WHERE account_id=$1', [ACCOUNT_ID]));
+    const journal = await pool.connect();
+    let releaseStarted = () => {};
+    const started = new Promise<void>(resolve => { releaseStarted = resolve; });
+    let repair: Promise<number> | undefined;
+    try {
+      await journal.query('BEGIN');
+      const pid = (await journal.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      repair = reconcileGraphMailVisibility({ userId: USER_ID, connectionId, accountId: ACCOUNT_ID, config: CONFIG,
+        fetchImpl: async () => {
+          await journal.query(`INSERT INTO provider_operations(user_id,account_id,resource_type,resource_id,operation,status)
+            SELECT $1,account_id,'message',id,'delete','in_flight' FROM messages WHERE account_id=$2`, [USER_ID, ACCOUNT_ID]);
+          releaseStarted();
+          return json(graphMessage('m1', { parentFolderId: 'graph-inbox' }));
+        },
+      });
+      await Promise.race([started, repair.then(() => { throw new Error('Recovery completed before journal insert'); })]);
+      await vi.waitFor(async () => {
+        const blocked = await pool.query<{ waiting: boolean }>(
+          'SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))) AS waiting', [pid],
+        );
+        expect(blocked.rows[0].waiting).toBe(true);
+      }, { timeout: 5000, interval: 20 });
+      await journal.query('COMMIT');
+      expect(await repair).toBe(0);
+      const row = await autocommit(client => client.query('SELECT is_deleted FROM messages WHERE account_id=$1', [ACCOUNT_ID]));
+      expect(row.rows[0]?.is_deleted).toBe(true);
+    } finally {
+      await journal.query('ROLLBACK');
+      journal.release();
+      if (repair) await repair;
+    }
   });
 
   it('rebuilds the folder when Graph rejects the delta token without deleting omitted local mail', async () => {
@@ -1091,7 +1300,7 @@ describeOrSkip('Microsoft Graph mail flag mutations (PostgreSQL)', () => {
     });
   });
 
-  it('drains a scheduled flag mutation before reading the delta', async () => {
+  it('does not blindly replay a legacy scheduled flag from a delta sync', async () => {
     const connectionId = await seedConnection();
     await discoverFolders(connectionId);
     // A baseline so a local message with the provider identity exists.
@@ -1120,10 +1329,10 @@ describeOrSkip('Microsoft Graph mail flag mutations (PostgreSQL)', () => {
     const operation = await autocommit(client => client.query<{ status: string; result: unknown }>(
       'SELECT status, result FROM provider_operations WHERE idempotency_key = $1', [intent.idempotencyKey],
     ));
-    expect(operation.rows[0]?.status).toBe('committed');
-    const patch = provider.calls.find(call => call.method === 'PATCH');
-    expect(patch?.url).toContain('/me/messages/m1');
-    expect(patch?.body).toEqual({ isRead: true });
+    // The durable flag worker imports legacy records and verifies current truth.
+    // A sync must never turn an old journal payload into a fresh user intent.
+    expect(operation.rows[0]?.status).toBe('pending');
+    expect(provider.calls.filter(call => call.method === 'PATCH')).toEqual([]);
   });
 
   it('leaves a pending row the journal cannot re-run rather than dropping it', async () => {

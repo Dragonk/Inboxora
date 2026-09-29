@@ -1,6 +1,6 @@
 import { requireCompleteMultistatus } from '../utils/davXml.js';
 // Minimal CardDAV *client* — discovers address books on a remote server (e.g.
-// Nextcloud) and pulls vCards. One-way/read-only: we never write back.
+// Nextcloud) and pulls vCards. Collection deletion is handled by davCollectionClient.
 //
 // Flow: current-user-principal -> addressbook-home-set -> enumerate collections
 // -> addressbook-query REPORT for each book's vCards. Uses native fetch with the
@@ -9,7 +9,7 @@ import { requireCompleteMultistatus } from '../utils/davXml.js';
 
 import { XMLParser } from 'fast-xml-parser';
 import { validateHost } from './hostValidation.js';
-import { davAuthenticatedFetch } from './davHttpAuth.js';
+import { davCollectionRequest, parseDavCollectionSnapshot, normalizeDavCollectionUrl, resolveDavHref, type DavCollectionSnapshot } from './davCollectionClient.js';
 import { toAppError } from '../utils/errors.js';
 
 interface DavRequestOptions {
@@ -18,6 +18,7 @@ interface DavRequestOptions {
   depth?: number | string | null;
   body?: unknown;
   allowPrivate?: boolean;
+  responseUrlSink?: string[];
 }
 
 const parser = new XMLParser({
@@ -42,7 +43,7 @@ async function assertHostAllowed(url: string, allowPrivate: boolean): Promise<vo
   if (err) throw new Error(err);
 }
 
-async function dav(method: string, url: string, { username, password, depth, body, allowPrivate = false }: DavRequestOptions) {
+async function dav(method: string, url: string, { username, password, depth, body, allowPrivate = false, responseUrlSink }: DavRequestOptions) {
   // Re-validate on every request: hrefs returned by the server (principal, home
   // set, book URLs) are attacker-influenced and could point at internal hosts.
   await assertHostAllowed(url, allowPrivate);
@@ -54,11 +55,9 @@ async function dav(method: string, url: string, { username, password, depth, bod
   try {
     // safeFetch validates every redirect hop's IP (well-known discovery relies on
     // the server's 301 redirect), honouring the admin private-host policy.
-    res = await davAuthenticatedFetch(
-      url,
-      { method, headers, body: body as RequestInit['body'], redirect: 'follow', signal: AbortSignal.timeout(30000) },
-      { username, password },
-      { allowPrivate },
+    res = await davCollectionRequest(
+      { url, username, password, allowPrivate },
+      { method, headers, body: body as RequestInit['body'], signal: AbortSignal.timeout(30000) },
     );
   } catch (caught) {
     const err = toAppError(caught);
@@ -69,12 +68,13 @@ async function dav(method: string, url: string, { username, password, depth, bod
   if (!res.ok && res.status !== 207) {
     throw new Error(`CardDAV request failed (${res.status} ${res.statusText})`);
   }
+  responseUrlSink?.push(res.url || url);
   return res.text();
 }
 
 // Merge the <prop> blocks from every 2xx propstat of a <response> into one object.
 // A propstat carrying a non-2xx status (e.g. 404 for unsupported props) is skipped;
-// a propstat with no status line at all is treated as usable.
+// a propstat with no status line is not usable.
 interface DavPropBlock {
   resourcetype?: Record<string, unknown>;
   displayname?: unknown;
@@ -90,7 +90,7 @@ function propsOf(response: { propstat?: DavPropStat | DavPropStat[] }): DavPropB
   const merged: DavPropBlock = {};
   for (const ps of toArray(response.propstat)) {
     const status = typeof ps.status === 'string' ? ps.status : '';
-    if (status && !/\b2\d\d\b/.test(status)) continue;
+    if (!/^HTTP\/\d+(?:\.\d+)?\s+2\d\d(?:\s|$)/.test(status)) continue;
     Object.assign(merged, ps.prop || {});
   }
   return merged;
@@ -124,20 +124,22 @@ function decodeXmlCharRefs(str: string) {
 
 // Resolve an href (often an absolute path) against the request URL's origin.
 function absolute(href: string, baseUrl: string): string {
-  try { return new URL(href, baseUrl).href; }
-  catch { return href; }
+  return resolveDavHref(href, baseUrl);
 }
 
 // Pure: pull a single href-valued property out of a PROPFIND multistatus, by its
 // namespace-stripped local name (e.g. 'current-user-principal'). Exported for testing.
 export function extractHref(xmlText: unknown, key: string, baseUrl: string): string | null {
   const xml = parser.parse(String(xmlText ?? ''));
+  requireCompleteMultistatus(String(xmlText ?? ''), xml);
   const response = toArray(xml?.multistatus?.response)[0];
   if (!response) return null;
   const val: unknown = propsOf(response)[key];
   const href = val !== null && typeof val === 'object' && 'href' in val ? val.href ?? val : val;
   const text = textOf(href) || (typeof href === 'string' ? href : '');
-  return text ? absolute(text, baseUrl) : null;
+  if (!text) return null;
+  if (toArray(xml?.multistatus?.response).length !== 1 || normalizeDavCollectionUrl(absolute(textOf(response.href), baseUrl)) !== normalizeDavCollectionUrl(baseUrl)) throw new Error('DAV discovery response does not identify the requested resource');
+  return absolute(text, baseUrl);
 }
 
 // PROPFIND for a single href-valued property. `key` is the expected local name in
@@ -145,7 +147,9 @@ export function extractHref(xmlText: unknown, key: string, baseUrl: string): str
 async function propfindHref(url: string, propXml: string, key: string, creds: DavCredentials): Promise<string | null> {
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav"><prop>${propXml}</prop></propfind>`;
-  return extractHref(await dav('PROPFIND', url, { ...creds, depth: 0, body }), key, url);
+  const responseUrls: string[] = [];
+  const raw = await dav('PROPFIND', url, { ...creds, depth: 0, body, responseUrlSink: responseUrls });
+  return extractHref(raw, key, responseUrls[0] || url);
 }
 
 // Find the user's principal URL. Tries the given URL, then RFC 6764 well-known
@@ -171,7 +175,7 @@ async function resolvePrincipal(serverUrl: string, creds: DavCredentials): Promi
 
 // Discover every address book on the server for these credentials.
 // Returns [{ url, displayName }].
-export async function discoverAddressBooks({ serverUrl, username, password, allowPrivate = false }: { serverUrl: string; username: string; password: string; allowPrivate?: boolean }): Promise<Array<{ url: string; displayName: string }>> {
+export async function discoverAddressBookSnapshot({ serverUrl, username, password, allowPrivate = false }: { serverUrl: string; username: string; password: string; allowPrivate?: boolean }): Promise<DavCollectionSnapshot> {
   await assertHostAllowed(serverUrl, allowPrivate);
   const creds = { username, password, allowPrivate };
 
@@ -183,29 +187,19 @@ export async function discoverAddressBooks({ serverUrl, username, password, allo
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <propfind xmlns="DAV:" xmlns:cs="http://calendarserver.org/ns/"><prop>
   <resourcetype/><displayname/><cs:getctag/></prop></propfind>`;
-  const xmlText = await dav('PROPFIND', homeSet, { ...creds, depth: 1, body });
-  const books = parseAddressBooks(xmlText, homeSet);
-  if (!books.length) throw new Error('No address books found for this account');
-  return books;
+  const responseUrls: string[] = [];
+  const xmlText = await dav('PROPFIND', homeSet, { ...creds, depth: 1, body, responseUrlSink: responseUrls });
+  return parseDavCollectionSnapshot(xmlText, responseUrls[0] || homeSet, 'addressbook');
+}
+
+export async function discoverAddressBooks(input: { serverUrl: string; username: string; password: string; allowPrivate?: boolean }): Promise<Array<{ url: string; displayName: string }>> {
+  return (await discoverAddressBookSnapshot(input)).collections;
 }
 
 // Pure: extract address-book collections from a PROPFIND multistatus. Exported
 // for testing. Returns [{ url, displayName }].
 export function parseAddressBooks(xmlText: unknown, baseUrl: string): Array<{ url: string; displayName: string }> {
-  const xml = parser.parse(String(xmlText ?? ''));
-  const books = [];
-  for (const response of toArray(xml?.multistatus?.response)) {
-    const props = propsOf(response);
-    const rt = props.resourcetype || {};
-    if (!('addressbook' in rt)) continue; // only address book collections
-    const href = textOf(response.href) || response.href;
-    if (!href) continue;
-    books.push({
-      url: absolute(href, baseUrl),
-      displayName: textOf(props.displayname) || 'Contacts',
-    });
-  }
-  return books;
+  return parseDavCollectionSnapshot(String(xmlText ?? ''), baseUrl, 'addressbook').collections;
 }
 
 // Fetch every vCard in an address book via a filter-less addressbook-query REPORT.
@@ -294,9 +288,16 @@ export function parseCards(xmlText: unknown, baseUrl: string): Array<{ href: str
   for (const response of responses) {
     const props = propsOf(response);
     const vcard = decodeXmlCharRefs(textOf(props['address-data'])).trim();
-    if (!vcard) continue; // collection self-entry or a non-vCard resource
+    if (!vcard) {
+      // Only the explicitly identified collection itself may omit address-data.
+      const href = textOf(response.href);
+      if (href && absolute(href, baseUrl).replace(/\/$/, '') === baseUrl.replace(/\/$/, '')) continue;
+      throw new Error('CardDAV server returned an incomplete address-data response');
+    }
+    const href = absolute(textOf(response.href), baseUrl);
+    if (!href.startsWith(normalizeDavCollectionUrl(baseUrl))) throw new Error('CardDAV resource is outside the requested address book');
     cards.push({
-      href: absolute(textOf(response.href) || response.href, baseUrl),
+      href,
       etag: (textOf(props.getetag) || '').replace(/"/g, ''),
       vcard,
     });

@@ -104,22 +104,24 @@ async function composeRawMail(composed: ComposedMail): Promise<{ raw: Buffer; en
     to: mailboxAddresses([...composed.to, ...composed.cc, ...composed.bcc]),
   };
 
+  // Preserve address identity through rendering; display names are not recipient syntax.
+  const wireMailbox = (mailbox: Mailbox) => ({ address: mailbox.email, name: mailbox.name || '' });
   const mailOptions: SendMailOptions = {
     messageId: composed.messageId,
-    from: formatMailbox(composed.from),
+    from: wireMailbox(composed.from),
     // Stated rather than derived: identical to what nodemailer derives from the three recipient
     // options (verified for to+cc+bcc, for bcc alone and with a display name in `from`), and stating
     // it is what lets the recipients survive the message being sent as `raw`.
     envelope,
-    ...(composed.replyTo ? { replyTo: formatMailbox(composed.replyTo) } : {}),
+    ...(composed.replyTo ? { replyTo: wireMailbox(composed.replyTo) } : {}),
     // Nodemailer uses bcc for the envelope but omits it from generated MIME. Do not add a synthetic
     // To header for a BCC-only message.
-    ...(composed.to.length ? { to: composed.to.map(formatMailbox).join(', ') } : {}),
-    ...(composed.cc.length ? { cc: composed.cc.map(formatMailbox).join(', ') } : {}),
+    ...(composed.to.length ? { to: composed.to.map(wireMailbox) } : {}),
+    ...(composed.cc.length ? { cc: composed.cc.map(wireMailbox) } : {}),
     // The blind recipients reach the envelope through this, and — measured, see above — the generated
     // message carries them in a `Bcc:` header as well. A caller that must not deliver that header removes
     // it; one whose transport derives the envelope from the headers keeps it.
-    ...(composed.bcc.length ? { bcc: composed.bcc.map(formatMailbox).join(', ') } : {}),
+    ...(composed.bcc.length ? { bcc: composed.bcc.map(wireMailbox) } : {}),
     subject: composed.subject,
     ...(composed.priority && composed.priority !== 'normal' ? { priority: composed.priority } : {}),
     text: composed.plainBody,

@@ -193,7 +193,7 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
     ]);
 
     const state = await autocommit(client => client.query<{ cursor: string | null }>(
-      'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2', [USER_ID, 'calendars'],
+      'SELECT cursor FROM sync_states WHERE user_id = $1 AND feature = $2 AND coverage = \'events\'', [USER_ID, 'calendars'],
     ));
     expect(state.rows[0]?.cursor).toBe('sync-1');
 

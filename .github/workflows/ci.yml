@@ -159,6 +159,15 @@ jobs:
             src/services/providerOperations.integration.test.ts \
             src/services/providerMutationService.integration.test.ts \
             src/services/providerWritesJournal.integration.test.ts \
+            src/services/mailFlagState.integration.test.ts \
+            src/services/messageFolderMembership.integration.test.ts \
+            src/services/mailFlagMigration.integration.test.ts \
+            src/services/imapManager.flags.integration.test.ts \
+            src/services/providers/mailFlagAuth.integration.test.ts \
+            src/services/calendarCollectionDiscovery.integration.test.ts \
+            src/services/calendarCollectionRecovery.integration.test.ts \
+            src/routes/accountsCalendarManagement.integration.test.ts \
+            src/routes/conversations.visibility.integration.test.ts \
             src/routes/send.limits.integration.test.ts \
             src/routes/mail.mixedBulkTrash.integration.test.ts \
             src/routes/mail.graphLegacyIdentity.integration.test.ts \
@@ -187,6 +196,20 @@ jobs:
             src/services/providerPushSubscriptions.integration.test.ts \
             src/routes/carddavAccount.integration.test.ts \
             src/routes/davPg.integration.test.ts
+
+      - name: Physical thread and DAV collection lifecycle regressions
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          DB_NAME: mailflow_test
+          DB_USER: mailflow_test
+          DB_PASSWORD: mailflow_test
+        run: |
+          node --import tsx --test --test-concurrency=1 \
+            src/services/mailThreadProjectionReal.integration.ts \
+            src/services/davCollectionLifecycle.integration.ts \
+            src/routes/davCollectionDeletion.integration.ts
 
       # The upgrade gate needs a database of its own: it builds the 4.0.4 state (migrations up to 0107, with
       # real legacy Gmail data) and then runs the production runner again for the rest. Running it against the

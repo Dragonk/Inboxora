@@ -1,4 +1,5 @@
 import type { PoolClient } from 'pg';
+import { discoverNativeCalendars } from '../../calendarCollectionDiscovery.js';
 import { withSavepoint, withTransaction } from '../../db.js';
 import { toAppError } from '../../../utils/errors.js';
 import { lockCalendarCollection, isCalendarCollectionDeleted, assertCalendarCollectionPresent, withCalendarCollectionSyncFence, CalendarCollectionDeletedError } from '../../calendarCollectionFence.js';
@@ -30,6 +31,7 @@ import {
   type CalendarProjectionContext,
   type CalendarResourceAdapters,
 } from '../providerCalendarProjection.js';
+import { readProviderFeatureAuthorization } from '../../providerFeatureAuthorization.js';
 import { ProviderAuthError } from '../../providerAuthService.js';
 import type { FetchLike } from '../../providerAuthService.js';
 import type { MicrosoftConfig } from '../../providerAuthService.js';
@@ -176,16 +178,17 @@ export async function applyGraphEventGroup(client: PoolClient, context: ApplyCon
   return applyProviderCalendarEventGroup(client, context, remoteId, group, GRAPH_PROJECTION);
 }
 
-async function listAllCalendars(api: GraphApiOptions): Promise<GraphCalendar[]> {
+async function listAllCalendars(api: GraphApiOptions, heartbeat: () => Promise<void>, maxPages = MAX_PAGES): Promise<GraphCalendar[]> {
   const calendars: GraphCalendar[] = [];
   let link: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; page < maxPages; page++) {
+    await heartbeat();
     const result = await fetchGraphCalendarsPage(api, { link, pageSize: PAGE_SIZE });
     calendars.push(...result.calendars);
     link = result.nextLink;
-    if (!link) break;
+    if (!link) return calendars;
   }
-  return calendars;
+  throw new GraphApiError({ code: 'PARTIAL_SYNC', message: 'Calendar discovery did not reach its final page', status: 409, retryable: true });
 }
 
 async function syncCollection(api: GraphApiOptions, collection: CalendarCollection, context: Omit<ApplyContext, 'collectionId' | 'calendarId' | 'remoteCalendarId'>, maxPages?: number): Promise<{
@@ -315,7 +318,11 @@ export async function syncGraphCalendar(input: {
   fetchImpl?: FetchLike;
   /** The page cap for one calendar; injectable so the "limited run is not complete" path is provable. */
   maxPages?: number;
+  /** Discovery cap never turns a partial collection list into deletion evidence. */
+  maxDiscoveryPages?: number;
 }): Promise<GraphCalendarSyncResult> {
+  const authorization = await readProviderFeatureAuthorization({ connectionId: input.connectionId, provider: 'microsoft', feature: 'calendar' });
+  if (!authorization.canDiscover || !authorization.canRead) throw new ProviderAuthError('INSUFFICIENT_SCOPES', 'Microsoft calendar discovery requires calendar read consent');
   const api: GraphApiOptions = {
     userId: input.userId,
     connectionId: input.connectionId,
@@ -323,12 +330,10 @@ export async function syncGraphCalendar(input: {
     owner: `microsoft-calendar:${input.connectionId}`,
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
-  const calendars = await listAllCalendars(api);
-  await withTransaction(async client => {
-    // One client, so the discovery writes run in sequence on the same connection.
-    for (const entry of [...calendars].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {
-      await ensureGraphCalendarCollection(client, { userId: input.userId, connectionId: input.connectionId, entry });
-    }
+  await discoverNativeCalendars({
+    userId: input.userId, connectionId: input.connectionId,
+    load: heartbeat => listAllCalendars(api, heartbeat, input.maxDiscoveryPages),
+    ensure: (client, entry) => ensureGraphCalendarCollection(client, { userId: input.userId, connectionId: input.connectionId, entry }),
   });
 
   const stored = await withTransaction(client => client.query<{ id: string; remote_id: string; local_calendar_id: string }>(

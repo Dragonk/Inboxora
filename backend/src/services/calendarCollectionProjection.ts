@@ -1,4 +1,5 @@
 import { withTransaction } from './db.js';
+import { retireCalendarProjection } from './calendarCollectionDiscovery.js';
 import { recordCalendarDeletionFence } from './calendarCollectionFence.js';
 import { ensureGoogleCalendarCollection } from './providers/google/googleCalendarSync.js';
 import { ensureGraphCalendarCollection } from './providers/microsoft/graphCalendarSync.js';
@@ -36,12 +37,7 @@ export async function projectCalendarCollection(input: CalendarCollectionProject
         // Snapshot the local ids before cleanup for an operator/recovery audit. Fence
         // precedes every destructive statement, so stale discovery cannot recreate it.
         await client.query(`UPDATE calendar_collection_projection_receipts SET collection_id=$2, local_calendar_id=$3 WHERE operation_id=$1`, [input.operationId,current?.id ?? null,current?.local_calendar_id ?? null]);
-        if (current) {
-          await client.query(`UPDATE integration_collections SET enabled=false, local_calendar_id=NULL, updated_at=NOW() WHERE id=$1`, [current.id]);
-          // Calendar event/sync-change/occurrence foreign keys cascade; deleting the
-          // projection prevents a phantom calendar without treating it as remote IO.
-          if (current.local_calendar_id) await client.query(`DELETE FROM calendars WHERE id=$1 AND user_id=$2 AND owner_user_id=$2`, [current.local_calendar_id,input.userId]);
-        }
+        await retireCalendarProjection(client, { userId: input.userId, connectionId: input.connectionId, remoteCalendarId: input.value.remoteCalendarId });
         await client.query(`UPDATE calendar_collection_projection_receipts SET state='projected', projected_at=NOW() WHERE operation_id=$1`, [input.operationId]);
         return { state: 'projected', collectionId: current?.id ?? null, localCalendarId: current?.local_calendar_id ?? null };
       }
@@ -60,7 +56,8 @@ export async function projectCalendarCollection(input: CalendarCollectionProject
       await client.query(`UPDATE calendar_collection_projection_receipts SET state='projected', collection_id=$2, local_calendar_id=$3, projected_at=NOW() WHERE operation_id=$1`, [input.operationId,current.id,current.local_calendar_id]);
       return { state:'projected',collectionId:current.id,localCalendarId:current.local_calendar_id };
     });
-  } catch {
+  } catch (error) {
+    console.error('Confirmed calendar operation awaits local projection cleanup', { operationId: input.operationId, error: error instanceof Error ? error.message : 'Unknown storage failure' });
     return { state:'pending',collectionId:null,localCalendarId:null };
   }
 }

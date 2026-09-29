@@ -75,17 +75,18 @@ describe('the identity of one flag intent', () => {
 });
 
 describe('the Graph flag adapter on the mutation layer', () => {
-  it('is idempotent, because it sets a state rather than applying a delta', () => {
-    expect(graphFlagMutationAdapter({ api: API }).idempotent).toBe(true);
+  it('requires read-back for recovered claims to preserve later edits', () => {
+    expect(graphFlagMutationAdapter({ api: API }).idempotent).toBe(false);
     expect(graphFlagMutationAdapter({ api: API }).resourceType).toBe('message');
   });
 
   it('patches the message and reports a committed outcome', async () => {
     const patch = vi.fn(async () => null);
     const adapter = graphFlagMutationAdapter({ api: API, patch: patch as never });
-    await expect(adapter.perform(payload, { operationId: 'op-1', signal: new AbortController().signal }))
+    const signal = new AbortController().signal;
+    await expect(adapter.perform(payload, { operationId: 'op-1', signal }))
       .resolves.toEqual({ status: 'committed' });
-    expect(patch).toHaveBeenCalledWith(API, '/me/messages/AAMkAD-1', { isRead: true });
+    expect(patch).toHaveBeenCalledWith({ ...API, signal }, '/me/messages/AAMkAD-1', { isRead: true });
   });
 
   it('reports a permanent refusal for an unsupported flag without calling Graph', async () => {

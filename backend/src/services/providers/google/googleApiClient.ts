@@ -1,4 +1,5 @@
 import { getGoogleAccessToken } from '../../providerTokenService.js';
+import { ProviderAuthError } from '../../providerAuthService.js';
 import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
 import type { ApiProblemCode } from '../contracts.js';
 
@@ -30,8 +31,9 @@ export class GoogleApiError extends Error {
     retryAfterSeconds?: number;
     providerReason?: string;
     providerService?: string;
+    cause?: unknown;
   }) {
-    super(input.message);
+    super(input.message, { cause: input.cause });
     this.name = 'GoogleApiError';
     this.code = input.code;
     this.status = input.status;
@@ -175,6 +177,36 @@ async function parseBody(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
+async function accessToken(options: GoogleApiOptions, skewSeconds?: number): Promise<string> {
+  try {
+    const token = await getGoogleAccessToken({
+      userId: options.userId,
+      connectionId: options.connectionId,
+      config: options.config,
+      ...(options.owner ? { owner: options.owner } : {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(skewSeconds !== undefined ? { skewSeconds } : {}),
+    });
+    return token.accessToken;
+  } catch (cause) {
+    // No resource mutation was dispatched; the controlled retry also only comes
+    // here after a definitive 401. Preserve why token acquisition failed.
+    const reason = cause instanceof ProviderAuthError ? cause.code : undefined;
+    const authRequired = reason !== undefined && [
+      'REAUTH_REQUIRED', 'GRANT_NOT_FOUND', 'invalid_grant', 'unauthorized_client', 'invalid_client',
+    ].includes(reason);
+    throw new GoogleApiError({
+      code: authRequired ? 'PROVIDER_AUTH_REQUIRED' : 'UPSTREAM_UNAVAILABLE',
+      message: authRequired ? 'Google authorization is required' : 'Google access token is temporarily unavailable',
+      status: authRequired ? 401 : 503,
+      retryable: !authRequired,
+      ...(!authRequired ? { retryAfterSeconds: 5 } : {}),
+      providerReason: reason,
+      cause,
+    });
+  }
+}
+
 /**
  * Perform an authenticated request against a Google API URL and hand back the raw
  * response.
@@ -211,29 +243,14 @@ export async function googleApiRequest(options: GoogleApiOptions, url: string, i
     });
   };
 
-  let token = await getGoogleAccessToken({
-    userId: options.userId,
-    connectionId: options.connectionId,
-    config: options.config,
-    ...(options.owner ? { owner: options.owner } : {}),
-    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-  });
-  let response = await send(token.accessToken);
+  let response = await send(await accessToken(options));
   signal.throwIfAborted();
 
   if (response.status === 401) {
     // At most one controlled refresh and retry: the cached token may have been
     // revoked between the validity check and the call.
-    token = await getGoogleAccessToken({
-      userId: options.userId,
-      connectionId: options.connectionId,
-      config: options.config,
-      ...(options.owner ? { owner: options.owner } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-      // A margin larger than any token lifetime forces one refresh.
-      skewSeconds: 60 * 60 * 24 * 365,
-    });
-    response = await send(token.accessToken);
+    // A margin larger than any token lifetime forces one refresh.
+    response = await send(await accessToken(options, 60 * 60 * 24 * 365));
     signal.throwIfAborted();
   }
 

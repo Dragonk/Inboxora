@@ -94,7 +94,8 @@ describe('parseAddressBooks', () => {
     <D:status>HTTP/1.1 200 OK</D:status></D:propstat>
   </D:response>
 </D:multistatus>`;
-    const books = parseAddressBooks(xml, BASE);
+    const home = '<D:response><D:href>/dav/</D:href><D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>';
+    const books = parseAddressBooks(xml.replace('</D:multistatus>', `${home}</D:multistatus>`), 'https://cloud.example.com/dav/');
     expect(books).toHaveLength(1);
     expect(books[0].displayName).toBe('Work');
   });
@@ -112,7 +113,7 @@ END:VCARD</card:address-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:pr
   <d:response><d:href>/dav/c/</d:href><d:status>HTTP/1.1 507 Insufficient Storage</d:status>
     <d:error><d:number-of-matches-within-limits/></d:error></d:response>
 </d:multistatus>`;
-    expect(() => parseCards(xml, BASE))
+    expect(() => parseCards(xml, 'https://cloud.example.com/dav/c/'))
       .toThrow('CardDAV server returned a truncated address book response');
   });
 
@@ -135,7 +136,7 @@ END:VCARD</card:address-data>
     </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
   </d:response>
 </d:multistatus>`;
-    const cards = parseCards(xml, BASE);
+    const cards = parseCards(xml, 'https://cloud.example.com/dav/contacts/');
     expect(cards).toHaveLength(1); // the collection self-entry (no address-data) is skipped
     expect(cards[0].etag).toBe('abc123'); // quotes stripped
     expect(cards[0].href).toContain('uid1.vcf');
@@ -163,7 +164,7 @@ END:VCARD</card:address-data>
     </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
   </d:response>
 </d:multistatus>`;
-    const parsed = parseVCard(parseCards(xml, BASE)[0].vcard);
+    const parsed = parseVCard(parseCards(xml, 'https://cloud.example.com/dav/c/')[0].vcard);
     expect(parsed.uid).toBe('grp-1');
     expect(parsed.emails[0].value).toBe('jane@example.com'); // grouped email is not lost
     expect(parsed.phones[0].value).toBe('+15551234567');
@@ -179,7 +180,7 @@ END:VCARD</card:address-data>
     </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
   </d:response>
 </d:multistatus>`;
-    const cards = parseCards(xml, BASE);
+    const cards = parseCards(xml, 'https://cloud.example.com/dav/c/');
     expect(cards[0].vcard).toContain('Tom & Jerry');
   });
 
@@ -200,7 +201,7 @@ END:VCARD&#13;
     </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
   </d:response>
 </d:multistatus>`;
-    const card = parseCards(xml, BASE)[0];
+    const card = parseCards(xml, 'https://cloud.example.com/dav/c/')[0];
     expect(card.vcard).not.toContain('&#13;');     // CR references decoded away
     const parsed = parseVCard(card.vcard);
     expect(parsed.displayName).toBe('Andrée'); // decimal &#233; decoded, no trailing junk
@@ -224,7 +225,7 @@ END:VCARD</card:address-data>
     </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat>
   </d:response>`).join('');
     const xml = `<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">${responses}</d:multistatus>`;
-    const cards = parseCards(xml, BASE);
+    const cards = parseCards(xml, 'https://cloud.example.com/dav/c/');
     expect(cards).toHaveLength(N);
     expect(cards[0].vcard).toContain('Tom <0> Ltd'); // entities still decoded
   });

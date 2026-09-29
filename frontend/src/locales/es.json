@@ -2521,6 +2521,7 @@
     "operationPending": "La operación remota aún no está confirmada. No la repita con un nuevo identificador de solicitud.",
     "targetUnavailable": "Esta cuenta o recurso ya no está disponible. Vuelva a la lista y actualícela.",
     "deleteLocalWarning": "Esto elimina el recurso y su contenido de Inboxora. Esta operación no se puede deshacer.",
+    "providerDeletionUnavailable": "No se puede eliminar esta colección en el proveedor. Las colecciones predeterminadas, del sistema y de solo lectura no se pueden eliminar aquí.",
     "deleteRemoteWarning": "Esto elimina el recurso y su contenido en el proveedor. No equivale a ocultarlo ni a desconectarlo.",
     "removeAccountHint": "Todos los mensajes sincronizados de esta cuenta se eliminarán de Inboxora. No se elimina el buzón en el proveedor.",
     "intervalMinutes_zero": "Minutos: {{count}}",
@@ -2627,5 +2628,11 @@
     "recipientsUnavailable": "Datos de destinatarios no disponibles",
     "editingNotice": "El envío está pausado mientras editas. Guardar no lo reanuda; cuando termines, elige Enviar o Programar envío.",
     "resumeFromEditor": "Termina de editar en la ventana abierta y después envía o programa el mensaje actualizado."
+  },
+  "mailStateChange": {
+    "pendingTitle": "Cambio pendiente de confirmación",
+    "pendingBody": "El proveedor de correo aún no ha confirmado este cambio. Se volverá a comprobar el estado actual del buzón.",
+    "failedTitle": "No se pudo aplicar el cambio",
+    "failedBody": "El proveedor de correo no pudo aplicar este cambio. Se ha restaurado el estado anterior."
   }
 }

@@ -1,3 +1,4 @@
+import { deferMailFlagReadback } from '../../mailFlagState.js';
 import { publishMailStateChanged } from '../../mailStateEvents.js';
 import type { PoolClient } from 'pg';
 import { graphDeltaFields } from './graphDeltaFields.js';
@@ -19,9 +20,10 @@ import {
   SyncLeaseLostError,
   withFencedSyncLease,
 } from '../../syncCoordinator.js';
-import { GraphApiError } from './graphApiClient.js';
+import { GraphApiError, graphGet, graphUrl } from './graphApiClient.js';
 import type { GraphApiOptions } from './graphApiClient.js';
 import {
+  GRAPH_MESSAGE_SELECT,
   fetchMailFolderSnapshot,
   fetchWellKnownFolderIds,
   fetchMessagesDeltaPage,
@@ -30,7 +32,6 @@ import {
   providerUidForGraphMessage,
 } from './graphMail.js';
 import type { GraphMessage, LocalMailFolder } from './graphMail.js';
-import { drainGraphMailFlagOperations } from './graphMailMutations.js';
 import { applyIngestRulesToRows } from '../../providerIngestRules.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import { immutableIdsEnabled } from './graphMessageIdType.js';
@@ -553,20 +554,22 @@ export async function applyGraphMailMessagesPage(
     })) { totals.skipped += 1; continue; }
     const local = localMessageForGraphMessage(message);
     if (!local) { totals.skipped += 1; continue; }
-    let applied: { id: string; inserted: boolean } | null = null;
+    let applied: { id: string; inserted: boolean; flags_protected: boolean } | null = null;
     for (let attempt = 0; attempt < 3 && !applied; attempt++) {
       const uid = attempt === 0 ? local.uid : providerUidForGraphMessage(local.providerMessageId, attempt);
       try {
         // The legacy (account_id, uid, folder) index can reject the derived number, and a failed statement
         // aborts the transaction; the savepoint is what lets the next attempt run at all (DB-01).
         applied = await withSavepoint(client, `graph_uid_${attempt}`, async () => {
-          const result = await client.query<{ id: string; inserted: boolean }>(
+          const result = await client.query<{ id: string; inserted: boolean; flags_protected: boolean }>(
             `INSERT INTO messages (
                account_id, uid, folder, provider_message_id, message_id, thread_id, subject, from_name, from_email,
                to_addresses, cc_addresses, reply_to, list_unsubscribe, list_unsubscribe_post,
                date, snippet, is_read, is_starred, has_attachments, synced_at
              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,NOW())
              ON CONFLICT (account_id, provider_message_id) WHERE provider_message_id IS NOT NULL DO UPDATE SET
+             provider_visibility_checked_at = CASE WHEN messages.is_deleted OR messages.is_archived
+               THEN NULL ELSE messages.provider_visibility_checked_at END,
                folder = EXCLUDED.folder,
                uid = EXCLUDED.uid,
                message_id = CASE WHEN $21::jsonb ? 'internetMessageId' THEN EXCLUDED.message_id ELSE messages.message_id END,
@@ -584,15 +587,25 @@ export async function applyGraphMailMessagesPage(
                snippet = CASE WHEN $21::jsonb ? 'bodyPreview' THEN EXCLUDED.snippet ELSE messages.snippet END,
                is_read = CASE
                  WHEN NOT ($21::jsonb ? 'isRead') THEN messages.is_read
-                 WHEN messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $20)
+                 WHEN NOT EXISTS (
+                   SELECT 1 FROM mail_flag_intents intent WHERE intent.message_id = messages.id
+                     AND intent.flag = '\\Seen' AND intent.status IN ('pending','writing','readback')
+                 ) AND (messages.read_changed_at IS NULL OR messages.read_changed_at < NOW() - make_interval(secs => $20))
                    THEN EXCLUDED.is_read ELSE messages.is_read END,
                is_starred = CASE
                  WHEN NOT ($21::jsonb ? 'flag') THEN messages.is_starred
-                 WHEN messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $20)
+                 WHEN NOT EXISTS (
+                   SELECT 1 FROM mail_flag_intents intent WHERE intent.message_id = messages.id
+                     AND intent.flag = '\\Flagged' AND intent.status IN ('pending','writing','readback')
+                 ) AND (messages.star_changed_at IS NULL OR messages.star_changed_at < NOW() - make_interval(secs => $20))
                    THEN EXCLUDED.is_starred ELSE messages.is_starred END,
                has_attachments = CASE WHEN $21::jsonb ? 'hasAttachments' THEN EXCLUDED.has_attachments ELSE messages.has_attachments END,
                synced_at = NOW()
-             RETURNING id, (xmax = 0) AS inserted`,
+             RETURNING id, (xmax = 0) AS inserted,
+               (read_changed_at >= NOW() - make_interval(secs => $20)
+                OR star_changed_at >= NOW() - make_interval(secs => $20)
+                OR EXISTS (SELECT 1 FROM mail_flag_intents intent WHERE intent.message_id = messages.id
+                            AND intent.status IN ('pending','writing','readback'))) IS TRUE AS flags_protected`,
             [
               context.accountId, uid, context.folderPath, local.providerMessageId, local.messageId, local.threadId,
               local.subject, local.fromName, local.fromEmail,
@@ -605,6 +618,9 @@ export async function applyGraphMailMessagesPage(
           return result.rows[0] ?? null;
         });
         if (applied) {
+          // Persist before the delta/history cursor can advance, including when the
+          // protected value happens to agree: the provider may change again meanwhile.
+          if (applied.flags_protected) await deferMailFlagReadback(applied.id, client);
           await client.query(
             `UPDATE messages
                 SET parsed_headers = CASE WHEN $3 THEN $2::jsonb ELSE parsed_headers END,
@@ -683,6 +699,106 @@ export async function persistConversations(rowIds: readonly string[], account: C
   }
 }
 
+
+/**
+ * Bound recovery work to hidden projections. A delta is not proof of current
+ * visibility: read the physical provider identity and fence the response against
+ * both the message/account snapshot and every recorded delete or move intent.
+ * Historical delete/move records remain a conservative operator-review boundary.
+ */
+export async function reconcileGraphMailVisibility(input: GraphApiOptions & { accountId: string; connectionId: string }): Promise<number> {
+  const candidates = await query<{
+    id: string; provider_message_id: string; row_version: string; account_version: string;
+    folder: string; synced_at: string | null;
+  }>(
+    `SELECT m.id, m.provider_message_id, m.xmin::text AS row_version, a.xmin::text AS account_version,
+            m.folder, m.synced_at::text AS synced_at
+       FROM messages m JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.id = $1 AND a.user_id = $2 AND a.provider_connection_id = $3
+        AND a.mail_transport = 'microsoft_graph'
+        AND m.provider_message_id IS NOT NULL
+        AND (m.is_deleted OR (m.is_archived AND (m.provider_visibility_checked_at IS NULL OR m.synced_at < NOW() - interval '1 hour')))
+        AND (m.provider_visibility_checked_at IS NULL OR m.provider_visibility_checked_at < NOW() - interval '1 hour')
+        AND NOT EXISTS (
+          SELECT 1 FROM provider_operations op
+           WHERE op.user_id = a.user_id AND op.account_id = a.id
+             AND (op.resource_id = m.id OR op.payload->>'providerMessageId' = m.provider_message_id)
+             AND (op.operation = 'delete' OR op.payload ?| ARRAY['destinationFolderId','addLabelIds','removeLabelIds']
+                  OR op.idempotency_key LIKE '%mail-move:%' OR op.idempotency_key LIKE '%mail-delete:%')
+        )
+      ORDER BY m.provider_visibility_checked_at NULLS FIRST, m.id LIMIT 20`,
+    [input.accountId, input.userId, input.connectionId],
+  );
+  let recovered = 0;
+  const api: GraphApiOptions = { ...input, immutableIds: input.immutableIds ?? (candidates.rows.length > 0 && await immutableIdsEnabled(input.connectionId)) };
+  for (const candidate of candidates.rows) {
+    let remote: GraphMessage | null;
+    try {
+      remote = await graphGet<GraphMessage>(api, graphUrl(`/me/messages/${encodeURIComponent(candidate.provider_message_id)}`, { $select: GRAPH_MESSAGE_SELECT }));
+      if (!remote || remote.id !== candidate.provider_message_id
+          || typeof remote.parentFolderId !== 'string' || !remote.parentFolderId) {
+        throw new Error('Invalid Graph visibility snapshot');
+      }
+    } catch (error) {
+      // Authorization loss applies to the account, not just this candidate.
+      if (error instanceof ProviderAuthError || (error instanceof GraphApiError
+          && ['PROVIDER_AUTH_REQUIRED', 'INSUFFICIENT_SCOPES'].includes(error.code))) throw error;
+      if (error instanceof GraphApiError && error.status === 404) remote = null;
+      else {
+        // An unavailable or malformed item is not evidence of absence. Back off
+        // this exact snapshot so it cannot starve later recovery or folder sync.
+        await query(`UPDATE messages m SET provider_visibility_checked_at=clock_timestamp()
+          FROM email_accounts a WHERE m.id=$1 AND m.xmin::text=$2 AND a.id=m.account_id
+            AND a.xmin::text=$3 AND a.id=$4 AND a.user_id=$5 AND a.provider_connection_id=$6
+            AND a.mail_transport='microsoft_graph'`,
+          [candidate.id, candidate.row_version, candidate.account_version, input.accountId, input.userId, input.connectionId]);
+        console.warn('Graph visibility recovery deferred', error instanceof GraphApiError ? error.code : 'INVALID_OR_UNAVAILABLE_SNAPSHOT');
+        if (error instanceof GraphApiError && error.status === 429) break;
+        continue;
+      }
+    }
+    const changed = await withTransaction(async client => {
+      await lockGraphMailWrites(client, input.accountId);
+      const held = await client.query<{ id: string }>(
+        `SELECT m.id FROM messages m JOIN email_accounts a ON a.id = m.account_id
+          WHERE m.id = $1 AND m.xmin::text = $2 AND a.xmin::text = $3
+            AND a.id = $4 AND a.user_id = $5 AND a.provider_connection_id = $6
+            AND a.mail_transport = 'microsoft_graph'
+            AND NOT EXISTS (
+              SELECT 1 FROM provider_operations op
+               WHERE op.user_id = a.user_id AND op.account_id = a.id
+                 AND (op.resource_id = m.id OR op.payload->>'providerMessageId' = m.provider_message_id)
+                 AND (op.operation = 'delete' OR op.payload ?| ARRAY['destinationFolderId','addLabelIds','removeLabelIds']
+                      OR op.idempotency_key LIKE '%mail-move:%' OR op.idempotency_key LIKE '%mail-delete:%')
+            )
+          FOR UPDATE OF m FOR SHARE OF a`,
+        [candidate.id, candidate.row_version, candidate.account_version, input.accountId, input.userId, input.connectionId],
+      );
+      if (!held.rows.length) return false;
+      await client.query('UPDATE messages SET provider_visibility_checked_at = clock_timestamp() WHERE id = $1', [candidate.id]);
+      if (!remote?.parentFolderId) return false;
+      const target = await client.query<{ path: string }>(
+        `SELECT f.path FROM integration_collections ic JOIN folders f ON f.id = ic.local_folder_id
+          WHERE ic.connection_id = $1 AND ic.user_id = $2 AND ic.remote_id = $3
+            AND ic.kind = 'mail_folder' AND ic.enabled AND f.account_id = $4`,
+        [input.connectionId, input.userId, remote.parentFolderId, input.accountId],
+      );
+      const folderPath = target.rows[0]?.path;
+      if (!folderPath) return false;
+      const applied = await applyGraphMailMessagesPage(client, {
+        userId: input.userId, accountId: input.accountId, connectionId: input.connectionId,
+        folderPath, remoteFolderId: remote.parentFolderId,
+      }, [remote], new Map([[candidate.provider_message_id, candidate]]));
+      if (!applied.rowIds.includes(candidate.id)) return false;
+      await client.query('UPDATE messages SET is_deleted = false, is_archived = false, provider_visibility_checked_at = clock_timestamp() WHERE id = $1', [candidate.id]);
+      return true;
+    });
+    if (changed) recovered += 1;
+  }
+  if (recovered) publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+  return recovered;
+}
+
 /**
  * Sync the messages of every discovered folder of one Graph mail account.
  *
@@ -701,20 +817,6 @@ export async function syncGraphMailMessagesForAccount(input: {
   /** Bounded local legacy-alias recovery slice; test/operational injection only. */
   legacyBindingRepairLimit?: number;
 }): Promise<GraphMailMessageSyncResult> {
-  // Settle any flag mutation the journal scheduled before reading the delta: a
-  // pending write would otherwise be overwritten by the very sync that is about to
-  // read the provider's older state.
-  const drained = await drainGraphMailFlagOperations({
-    userId: input.userId,
-    connectionId: input.connectionId,
-    accountId: input.accountId,
-    ...(input.config ? { config: input.config } : {}),
-    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
-  });
-  if (drained.unresolved > 0) {
-    console.warn(`Graph mail: ${drained.unresolved} scheduled flag mutation(s) still unresolved for account ${input.accountId}`);
-  }
-
   // Loaded once, for the conversation projection: the folder-level function would
   // otherwise query it per folder, and the projection needs the transport and host to
   // derive the provider identity.
@@ -725,6 +827,7 @@ export async function syncGraphMailMessagesForAccount(input: {
   const account = accountResult.rows[0];
   if (!account) return { accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0, failedFolders: 0 };
 
+  await reconcileGraphMailVisibility(input);
   const targets = await withTransaction(client => listGraphFolderTargets(client, input));
   const totals: GraphMailMessageSyncResult = {
     accountId: input.accountId, folders: 0, created: 0, updated: 0, deleted: 0, skipped: 0, fullSyncFolders: 0, incompleteFolders: 0, failedFolders: 0,
