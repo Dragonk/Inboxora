@@ -160,6 +160,7 @@ jobs:
             src/services/providerMutationService.integration.test.ts \
             src/services/providerWritesJournal.integration.test.ts \
             src/services/mailFlagState.integration.test.ts \
+            src/services/messageFolderMembership.integration.test.ts \
             src/services/mailFlagMigration.integration.test.ts \
             src/services/imapManager.flags.integration.test.ts \
             src/services/providers/mailFlagAuth.integration.test.ts \

@@ -1,3 +1,4 @@
+import { messageFolderMembershipSql } from './messageFolderMembership.js';
 import { populatedMessageSql, visiblePhysicalMessageSql } from './messageVisibility.js';
 import { query } from './db.js';
 import type { UnifiedInboxAccount } from './unifiedInbox.js';
@@ -38,20 +39,14 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       // MAIL-02: a Gmail message may carry several labels while the legacy row retains one primary folder. The
       // membership table makes it visible in every projected folder, but only for rows that actually have that
       // membership; IMAP rows and provider rows before migration 0116 retain the old `m.folder` behaviour.
-      whereConditions.push(`(m.folder = $${folderParam} OR EXISTS (
-        SELECT 1 FROM message_labels ml
-         WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = $${folderParam}
-      ))`);
+      whereConditions.push(messageFolderMembershipSql({ accountIdParam: 1 }, folderParam));
       displayFolderExpr = `(CASE WHEN m.folder = $${folderParam} THEN m.folder ELSE $${folderParam} END)`;
     }
   } else {
     whereConditions.push(`m.account_id = ANY($${p++})`);
     values.push(scopedAccountIds);
     whereConditions.push('m.is_archived = false');
-    whereConditions.push(`(m.folder = 'INBOX' OR EXISTS (
-      SELECT 1 FROM message_labels ml
-       WHERE ml.message_id = m.id AND ml.account_id = m.account_id AND ml.folder_path = 'INBOX'
-    ))`);
+    whereConditions.push(messageFolderMembershipSql({ accountIdsParam: 1 }));
     displayFolderExpr = "'INBOX'";
   }
 
@@ -208,7 +203,16 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
   const offsetParam = p + 1;
   values.push(safeLimit, safeOffset);
 
+  // Select the page before fetching wide message metadata or contact photos.
+  // Label membership must not make a 50-row view hydrate an entire inbox.
   const result = await query(`
+    WITH page_messages AS MATERIALIZED (
+      SELECT m.id
+      FROM messages m
+      WHERE ${where}
+      ORDER BY m.date DESC NULLS LAST, m.id DESC
+      LIMIT $${limitParam} OFFSET $${offsetParam}
+    )
     SELECT m.id, m.uid, ${displayFolderExpr} AS folder, m.message_id, m.thread_id, m.thread_key, m.subject, m.from_name, m.from_email,
            m.to_addresses, m.cc_addresses, m.draft_bcc_addresses, m.draft_uid_validity::text AS draft_uid_validity, m.draft_alias_id, m.draft_in_reply_to, m.draft_references, m.draft_composition, m.reply_to, m.in_reply_to,
            m.date, m.snippet, m.is_read, m.is_starred,
@@ -222,12 +226,10 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
                      AND photo_contact.primary_email = lower(m.from_email)
                      AND photo_contact.photo_data IS NOT NULL
                 )) AS has_contact_photo
-    FROM messages m
+    FROM page_messages page
+    JOIN messages m ON m.id = page.id
     JOIN email_accounts a ON m.account_id = a.id
-
-    WHERE ${where}
     ORDER BY m.date DESC NULLS LAST, m.id DESC
-    LIMIT $${limitParam} OFFSET $${offsetParam}
   `, values);
 
   return {

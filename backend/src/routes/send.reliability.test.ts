@@ -217,10 +217,10 @@ describe('send failure semantics', () => {
     expect(response.status).toBe(200);
     const [mailOptions] = sendMail.mock.calls[0];
     // Carried where it belongs — the envelope nodemailer builds from `bcc`.
-    expect(mailOptions).toMatchObject({ bcc: 'blind@example.com' });
+    expect(mailOptions).toMatchObject({ bcc: [{ address: 'blind@example.com', name: '' }] });
     // And nowhere a recipient or a relay could read it from the headers.
-    expect(String(mailOptions.to ?? '')).not.toContain('blind@');
-    expect(String(mailOptions.cc ?? '')).not.toContain('blind@');
+    expect(JSON.stringify(mailOptions.to ?? [])).not.toContain('blind@');
+    expect(JSON.stringify(mailOptions.cc ?? [])).not.toContain('blind@');
     expect(mailOptions).not.toHaveProperty('headers');
     // The envelope is where the blind recipient does belong, and it is now stated rather
     // than left for nodemailer to derive — so the guarantee survives the message being
@@ -239,7 +239,7 @@ describe('send failure semantics', () => {
     expect(response.status).toBe(200);
     expect(sendMail).toHaveBeenCalledOnce();
     const [mailOptions] = sendMail.mock.calls[0];
-    expect(mailOptions).toMatchObject({ bcc: 'blind@example.com' });
+    expect(mailOptions).toMatchObject({ bcc: [{ address: 'blind@example.com', name: '' }] });
     expect(mailOptions).not.toHaveProperty('to');
   });
 

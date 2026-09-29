@@ -80,3 +80,13 @@ test('selecting an unread physical duplicate does not open its read logical sibl
   assert.equal(conversationTargetId(merged, 'missing-logical', 'unread-copy'), 'unread-copy');
   assert.equal(merged[1].unread, true, 'native read evidence overrides stale logical metadata');
 });
+
+
+test('preserves a native Gmail Reply-To while adapting the physical copy for the reader', () => {
+  const replyTo = [{ name: 'OVH admin', address: 'admin@ovh.example.test' }];
+  const [message] = nativeThreadToReaderMessages([{ id: 'gmail-copy', account_id: 'gmail',
+    message_id: '<merge-copy@example.test>', from_email: 'noreply@example.test', reply_to: replyTo,
+  }], 'gmail');
+  assert.deepEqual(message.copies[0].replyTo, replyTo);
+  assert.deepEqual(message.copies[0].reply_to, replyTo);
+});

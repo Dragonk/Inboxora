@@ -1,3 +1,4 @@
+import { messageFolderMembershipSql } from '../services/messageFolderMembership.js';
 import { listThreadMessages, ThreadAccountNotFoundError } from '../services/mailThreadService.js';
 import { populatedMessageSql, visiblePhysicalMessageSql } from '../services/messageVisibility.js';
 import { readUnreadInboxCounts } from '../services/unreadInboxCounts.js';
@@ -3542,8 +3543,7 @@ router.get('/category-counts', async (req, res) => {
            COUNT(*) FILTER (WHERE m.is_read = false)::int AS unread_count
     FROM messages m
     WHERE m.account_id = ANY($1)
-      AND (m.folder = 'INBOX' OR EXISTS (SELECT 1 FROM message_labels ml
-        WHERE ml.message_id=m.id AND ml.account_id=m.account_id AND ml.folder_path='INBOX'))
+      AND ${messageFolderMembershipSql({ accountIdsParam: 1 })}
       AND m.is_deleted = false AND m.is_archived = false
       AND ${visiblePhysicalMessageSql} AND ${populatedMessageSql}
     GROUP BY COALESCE(m.category, 'primary')

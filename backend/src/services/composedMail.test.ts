@@ -1,5 +1,6 @@
+import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { describe, it, expect } from 'vitest';
-import { parseMailbox, renderSmtpMessage, type ComposedMail } from './composedMail.js';
+import { parseMailbox, renderSmtpMessage, renderGmailRawMessage, type ComposedMail } from './composedMail.js';
 
 // The renderer is the only place Inboxora decides a wire format, so these cases assert what a
 // recipient could observe rather than that an object was assembled: the MIME must not carry a blind
@@ -89,7 +90,7 @@ describe('renderSmtpMessage', () => {
     // The transport is given the envelope explicitly, so it cannot re-derive one from headers that
     // deliberately do not mention the blind recipient.
     expect(mailOptions.envelope).toEqual(envelope);
-    expect(mailOptions.from).toBe('Sam <sam@inboxora.test>');
+    expect(mailOptions.from).toEqual({ name: 'Sam', address: 'sam@inboxora.test' });
     expect(mailOptions.text).toBe('Plain body');
   });
 });
@@ -119,4 +120,20 @@ describe('recipient parsing and rendering', () => {
     // The envelope is addresses only — a display name there is not a valid SMTP recipient.
     expect(envelope.to).toEqual(['visible@example.test', 'copy@example.test', 'blind@example.test']);
   });
+});
+
+
+it('keeps structured names with commas or address-like text from changing Gmail recipients', async () => {
+  const to = { email: 'admin@ovh.example.test', name: 'Admin, OVH <not-a-recipient@example.test>' };
+  const raw = await renderGmailRawMessage({ ...base, from: { email: 'owner@gmail.example.test', name: 'Owner, Gmail' },
+    to: [to], cc: [{ email: 'copy@example.test', name: 'Copy, person' }],
+    bcc: [{ email: 'blind@example.test', name: 'Private, person' }], replyTo: { email: 'reply@example.test', name: 'Replies, desk' },
+  });
+  const headers = raw.toString('utf8').split('\r\n\r\n')[0].replace(/\r\n[ \t]+/g, ' ');
+  const addresses = (name: string) => addressparser(new RegExp(`^${name}: (.*)$`, 'mi').exec(headers)?.[1] ?? '', { flatten: true }).map(item => item.address);
+  expect(addresses('To')).toEqual([to.email]);
+  expect(addresses('Cc')).toEqual(['copy@example.test']);
+  expect(addresses('Bcc')).toEqual(['blind@example.test']);
+  expect(addresses('Reply-To')).toEqual(['reply@example.test']);
+  expect(addresses('From')).toEqual(['owner@gmail.example.test']);
 });

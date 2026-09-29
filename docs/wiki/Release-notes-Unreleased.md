@@ -143,3 +143,14 @@ An explicit disabled, removed or unowned account request returns no mail; it nev
 Native-account diagnostics show the mail pipeline's timestamp and status from the same snapshot as the detailed mail section. Opening that tab obtains current state; a recent successful calendar/contact sync or active push subscription does not conceal a failed mail run. No new migration, permission or environment setting is required beyond the chain through 0161 already documented above. Update both images; normal synchronization resumes from its stored checkpoint, without deleting the account, resetting cursors or marking messages read in bulk.
 
 Regressions use synthetic provider responses and isolated PostgreSQL. They reproduce a deleted thread blocking six unread messages, a disappearing thread during baseline import, stale-worker deletion, missing label counts, an unavailable account returning unrelated mail, delayed cross-account UI responses and coherent diagnostics. They do not access real Gmail accounts or prove the historical path of any specific production message.
+
+
+## Gmail list latency and reply addressing
+
+Folder membership is now evaluated as an account-scoped set instead of a correlated label lookup for each message. This removes the inflated planner costs that caused expensive PostgreSQL JIT compilation in Gmail and unified inbox lists. Lists, total counts, unread badges and category counts retain the same physical-copy, label, archive and account boundaries. Flat lists also select the requested page before loading full metadata and contact photos. No database-wide JIT setting, index or migration is changed. A PostgreSQL regression covers 40,000 multi-labelled messages and guards both results and query plans, including a low-memory join plan.
+
+Reply-To is retained when native thread messages are adapted to the Conversation Reader. Reply and Reply All accept both `email` and `address` fields from providers, with a non-empty email field taking precedence. MIME rendering passes structured addresses rather than reparsing display names; commas or address-like text in a name cannot replace the intended Gmail recipient. SMTP envelope recipients and BCC privacy remain unchanged.
+
+Synthetic tests cover the reader-to-composer recipient and the actual base64url MIME passed by the send pipeline to a mocked Gmail boundary, including a fresh Message-ID and the selected parent headers. An accepted send or a provider Sent copy is not a delivery receipt from the destination server. These fixes do not establish why a particular historical message was absent from both Inboxora and the destination webmail. Investigate that message using its actual To/Reply-To/Message-ID and any delivery-status notification, without automatically resending it.
+
+Update both dev images together. No additional migration, provider permission or environment setting is required beyond the earlier chain through 0161.
