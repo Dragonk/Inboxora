@@ -1,5 +1,7 @@
 // Conversation Engine v2 API client
 import { CSRF_HEADER, CSRF_VALUE } from './api.ts';
+import { getAuthEpoch, isCurrentAuthEpoch } from './authEpoch.ts';
+import { mailFlagReadbackTicket, projectMailFlagIntents } from './mailFlagIntents.ts';
 
 const API_BASE = '/api/mail';
 
@@ -70,7 +72,26 @@ export const conversationApi = {
     return apiFetch(`/conversations?${qs.toString()}`);
   },
 
-  detail: (conversationId: string | string[]) =>apiFetch(`/conversations/${conversationId}`),
+  // CE-only readers need the same physical-copy readback fence as native threads.
+  // Capture it before the request: an older GET must not acknowledge a later write.
+  detail: async (conversationId: string | string[]) => {
+    const epoch = getAuthEpoch();
+    const ticket = mailFlagReadbackTicket();
+    const data = await apiFetch(`/conversations/${conversationId}`);
+    if (!isCurrentAuthEpoch(epoch) || !Array.isArray(data?.logicalMessages)) return data;
+    return { ...data, logicalMessages: data.logicalMessages.map((message: {
+      copies?: Array<{ id?: string; isRead?: boolean; is_read?: boolean; isStarred?: boolean; is_starred?: boolean }>;
+    }) => !Array.isArray(message.copies) ? message : { ...message, copies: message.copies.map(copy => {
+      if (!copy || typeof copy.id !== 'string') return copy;
+      const [projected] = projectMailFlagIntents([{
+        id: copy.id, is_read: copy.isRead ?? copy.is_read, is_starred: copy.isStarred ?? copy.is_starred,
+      }], ticket);
+      return { ...copy,
+        ...(typeof projected.is_read === 'boolean' ? { isRead: projected.is_read, is_read: projected.is_read } : {}),
+        ...(typeof projected.is_starred === 'boolean' ? { isStarred: projected.is_starred, is_starred: projected.is_starred } : {}),
+      };
+    }) }) };
+  },
 
   body: (conversationId: string | string[], logicalMessageId: string | null, signal: AbortSignal | undefined, copyId = null, remoteImages = false) =>{
     const qs = new URLSearchParams();

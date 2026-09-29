@@ -113,6 +113,54 @@ test.describe('native conversation engine matrix', () => {
     await expect.poll(() => page.__bulkReadActions).toEqual([{ ids: ['conversation-gmail-copy-2'], read: true }]);
   });
 
+  test('CE-only refresh preserves inflight physical read and star state', async ({ page, fixtureApi }, testInfo) => {
+    test.skip(!isDesktopProject(testInfo) && !isPortraitMobileProject(testInfo), 'desktop and portrait reader');
+    await fixtureApi;
+    page.__noNativeThread = true;
+    page.__unreadCopies = ['conversation-gmail-copy-2'];
+    let releaseRead;
+    let releaseStar;
+    const readGate = new Promise(resolve => { releaseRead = resolve; });
+    const starGate = new Promise(resolve => { releaseStar = resolve; });
+    let reads = 0;
+    let stars = 0;
+    await page.route('**/api/mail/messages/bulk-read', async route => {
+      reads++; await readGate;
+      await route.fulfill({ json: { ok: true, pending: ['conversation-gmail-copy-2'] } });
+    });
+    await page.route('**/api/mail/messages/*/star', async route => {
+      stars++; await starGate;
+      await route.fulfill({ json: { ok: true, pending: ['conversation-gmail-copy-2'] } });
+    });
+    try {
+      await open(page, fixtureApi, false, true);
+      const initialDetail = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/conversations/conversation-gmail');
+      await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
+      const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
+      await expect(reader).toHaveAttribute('data-reader-source', 'conversation');
+      const card = reader.locator('article[data-physical-copy-id="conversation-gmail-copy-2"]');
+      await expect.poll(() => reads).toBe(1);
+      await card.locator('[data-message-action="star"]').click();
+      await expect.poll(() => stars).toBe(1);
+      await expect(card.locator('[data-conversation-message-subject]')).toHaveAttribute('data-unread', 'false');
+      await expect(card.locator('[data-message-action="star"] svg')).toHaveAttribute('fill', 'var(--amber)');
+      const snapshot = await (await initialDetail).json();
+      snapshot.logicalMessages = snapshot.logicalMessages.map(message => ({ ...message,
+        subject: 'Verified CE-only refresh',
+        copies: message.copies.map(copy => ({ ...copy, subject: 'Verified CE-only refresh' })),
+      }));
+      await page.route('**/api/mail/conversations/conversation-gmail', route => route.fulfill({ json: snapshot }));
+      const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/mail/conversations/conversation-gmail');
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent('inboxora:conversation-refresh', { detail: { conversationId: 'conversation-gmail' } })));
+      await refreshed;
+      // Wait for the changed subject so the assertions inspect the refreshed DOM.
+      await expect(card.locator('[data-conversation-message-subject]')).toHaveText('Verified CE-only refresh');
+      await expect(card.locator('[data-conversation-message-subject]')).toHaveAttribute('data-unread', 'false');
+      await expect(card.locator('[data-message-action="star"] svg')).toHaveAttribute('fill', 'var(--amber)');
+      await expect(reader.locator('article[data-physical-copy-id]')).toHaveCount(5);
+    } finally { releaseRead(); releaseStar(); }
+  });
+
   test('OFF/ON retains the selected physical message when the resolver target is stale', async ({ page, fixtureApi }) => {
     await open(page, fixtureApi, false, true, { invalidTarget: true });
     await page.locator('[data-msgid="conversation-gmail-copy-2"]:visible').click();
