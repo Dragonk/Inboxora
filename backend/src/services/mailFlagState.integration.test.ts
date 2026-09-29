@@ -585,6 +585,21 @@ suite('durable mail flags (real PostgreSQL, synthetic provider)', () => {
     }]);
     expect((await pool.query('SELECT * FROM mail_flag_readbacks WHERE message_id=$1', [messageId])).rows).toHaveLength(0);
   });
+  it('reconciles a Gmail message with no labels without replaying the write', async () => {
+    await seedGoogleGrant(); await enqueue(true);
+    await processMailFlagIntent(messageId, '\\Seen', { manager: manager(), write: async () => ({ status: 'outcome_unknown' }) });
+    await due();
+    const fetch = vi.fn<FetchLike>(async (_url, init) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      return Response.json({ id: 'synthetic-remote' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    expect(await processMailFlagIntent(messageId, '\\Seen', { manager: manager() })).toEqual({ status: 'outcome_unknown', code: 'RECONCILED_PROVIDER_STATE' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(await flags()).toEqual({ is_read: true, is_starred: false });
+    expect((await intent()).status).toBe('reconciled');
+  });
+
   for (const malformed of [{}, { id: 'wrong-resource', labelIds: ['INBOX'] }, { id: 'synthetic-remote', labelIds: null }]) {
     it(`retains an unknown Gmail intent after invalid readback ${JSON.stringify(malformed)}`, async () => {
       await seedGoogleGrant();

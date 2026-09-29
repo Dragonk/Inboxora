@@ -220,6 +220,7 @@ function listFixture(request: (id: string) => Promise<unknown>, membershipGate: 
     setTimeout: () => {}, requestMailRefresh: () => {},
     addNotification: (notice: { title: string }) => notices.push(notice),
     window: { dispatchEvent: () => {} }, CustomEvent: class {}, Event: class {},
+    sendMailRead: (id: string) => request(id),
     api: { bulkRead: (ids: string[]) => request(ids[0]), markStarred: (id: string) => request(id) },
     console, toAppError: (error: Error) => error,
   };

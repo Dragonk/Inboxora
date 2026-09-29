@@ -540,7 +540,7 @@ export async function syncGraphContacts(input: {
     try {
       discovered = await discoverGraphContactFolders(api);
       await withFencedSyncLease({ ...discoveryLease, run: async client => {
-        await reconcileAddressBookCollections(client, { ...input, syncStateId: discoveryStateId, seenRemoteIds: discovered.map(folder => folder.id) });
+        await reconcileAddressBookCollections(client, { ...input, syncStateId: discoveryStateId, generation: discoveryClaim.generation, seenRemoteIds: discovered.map(folder => folder.id) });
         await finishSyncRun(client, { ...discoveryLease, lastErrorCode: null });
       } });
     } catch (caught) {

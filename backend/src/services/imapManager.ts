@@ -1581,6 +1581,7 @@ class MailFlagObservationError extends Error {}
 // obligation in the same transaction as ingest, before its cursor can advance.
 async function withImapFlagObservation<T>(accountId: string, folder: string, uids: unknown[],
   apply: (client: PoolClient) => Promise<T>): Promise<T> {
+  let rowDataFailure: unknown;
   try {
     return await withTransaction(async client => {
       const observed = await client.query<{ id: string; protected: boolean }>(`
@@ -1590,9 +1591,18 @@ async function withImapFlagObservation<T>(accountId: string, folder: string, uid
       for (const row of observed.rows) {
         if (row.protected) await deferMailFlagReadback(row.id, client);
       }
-      return apply(client);
+      try {
+        return await apply(client);
+      } catch (error) {
+        // A malformed single row rolls back its observation as well. Preserve
+        // the existing per-message isolation for data/constraint failures, but
+        // never downgrade lock, readback, connection or commit failures.
+        if (/^(22|23)/.test(toAppError(error).code ?? '')) rowDataFailure = error;
+        throw error;
+      }
     });
   } catch (cause) {
+    if (cause === rowDataFailure) throw cause;
     throw new MailFlagObservationError('Could not persist IMAP flag observation', { cause });
   }
 }

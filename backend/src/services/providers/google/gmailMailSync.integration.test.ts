@@ -417,6 +417,37 @@ describeOrSkip('Gmail API label and message ingest (PostgreSQL)', () => {
     expect(provider.urls).toHaveLength(1);
   });
 
+  it('recovers a present Gmail message whose empty label set is omitted', async () => {
+    const connectionId = await seedConnection();
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX'])] }));
+    await pool.query('UPDATE messages SET is_deleted=true WHERE account_id=$1', [ACCOUNT_ID]);
+    const remote = message('m1', 't1', []);
+    const { labelIds: _omitted, ...withoutLabels } = remote;
+    expect(_omitted).toEqual([]);
+    const provider = fakeGmail([{ match: /\/messages\/m1$/, handle: () => json(withoutLabels) }]);
+    expect(await reconcileGmailMailVisibility({ userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl })).toBe(1);
+    expect((await pool.query('SELECT is_deleted,is_archived,is_read,is_starred FROM messages WHERE account_id=$1', [ACCOUNT_ID])).rows)
+      .toEqual([{ is_deleted: false, is_archived: true, is_read: true, is_starred: false }]);
+  });
+
+  it('backs off an invalid visibility candidate without starving a later valid message', async () => {
+    const connectionId = await seedConnection();
+    await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });
+    const context = { accountId: ACCOUNT_ID, pathByLabelId: new Map([['INBOX', 'INBOX']]) };
+    await inTransaction(client => applyGmailThread(client, context, { id: 't1', messages: [message('m1', 't1', ['INBOX']), message('m2', 't1', ['INBOX'])] }));
+    await pool.query('UPDATE messages SET is_deleted=true WHERE account_id=$1', [ACCOUNT_ID]);
+    const provider = fakeGmail([{ match: /\/messages\/m[12]$/, handle: url => url.pathname.endsWith('/m1')
+      ? json({ id: 'm1', labelIds: null }) : json(message('m2', 't1', ['INBOX', 'UNREAD'])) }]);
+    const input = { userId: USER_ID, accountId: ACCOUNT_ID, connectionId, config: CONFIG, fetchImpl: provider.fetchImpl };
+    expect(await reconcileGmailMailVisibility(input)).toBe(1);
+    const result = await pool.query('SELECT provider_message_id,is_deleted,provider_visibility_checked_at IS NOT NULL AS checked FROM messages WHERE account_id=$1 ORDER BY provider_message_id', [ACCOUNT_ID]);
+    expect(result.rows).toEqual([{ provider_message_id: 'm1', is_deleted: true, checked: true }, { provider_message_id: 'm2', is_deleted: false, checked: true }]);
+    expect(provider.urls).toHaveLength(2);
+    expect(await reconcileGmailMailVisibility(input)).toBe(0);
+    expect(provider.urls).toHaveLength(2);
+  });
+
   it.each(['local-change', 'delete-journal', 'connection-change', 'missing'] as const)('rejects a Gmail visibility read after %s', async kind => {
     const connectionId = await seedConnection();
     await syncGmailMailLabels({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeGmail([{ match: /\/labels$/, handle: () => json(LABELS) }]).fetchImpl });

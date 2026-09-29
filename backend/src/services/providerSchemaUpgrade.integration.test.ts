@@ -99,13 +99,20 @@ describeOrSkip('the v4 provider schema upgrades over existing data', () => {
       await upgradePool.end();
       upgradePool = null;
     }
-    const remaining = await pool.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM pg_stat_activity
-       WHERE datname = $1 AND pid <> pg_backend_pid()`,
-      [UPGRADE_DB],
-    );
-    if (remaining.rows[0]?.count !== '0') {
-      throw new Error(`upgrade fixture still has ${remaining.rows[0]?.count} PostgreSQL connection(s)`);
+    // The client socket can close before PostgreSQL processes its Terminate packet.
+    // Keep the leak assertion, allowing only a bounded graceful shutdown.
+    const deadline = Date.now() + 2000;
+    let remaining: string;
+    do {
+      remaining = (await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid()`, [UPGRADE_DB],
+      )).rows[0]?.count ?? 'unknown';
+      if (remaining === '0') break;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    } while (Date.now() < deadline);
+    if (remaining !== '0') {
+      throw new Error(`upgrade fixture still has ${remaining} PostgreSQL connection(s)`);
     }
     await pool.query(`DROP DATABASE IF EXISTS "${UPGRADE_DB}"`);
   });

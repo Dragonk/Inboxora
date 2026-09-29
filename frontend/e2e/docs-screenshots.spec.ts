@@ -9,7 +9,6 @@ import {
   assertDocsPresentation,
   demoConversationId,
   demoCopyId,
-  demoLogicalId,
   newestDemoRowId,
   useDavDemoData,
   useEnglishLocale,
@@ -217,7 +216,7 @@ test('mail: conversation reader with the thread history expanded', async ({ page
   await openMail(page, fixtureApi);
   const reader = await openDemoConversation(page, demoCopyId(4));
   for (const index of [1, 2]) {
-    const toggle = reader.locator(`#logical-message-${demoLogicalId(index)} [data-conversation-message-toggle="true"][aria-expanded="false"]`);
+    const toggle = reader.locator(`#logical-message-${demoCopyId(index)} [data-conversation-message-toggle="true"][aria-expanded="false"]`);
     if (await toggle.count()) await toggle.click();
   }
   await expect.poll(() => reader.locator('iframe').count()).toBeGreaterThanOrEqual(3);

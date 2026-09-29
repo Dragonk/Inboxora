@@ -904,12 +904,26 @@ export async function reconcileGmailMailVisibility(input: GoogleApiOptions & { a
     let remote: GmailMessage | null;
     try {
       remote = await fetchGmailMessage(input, candidate.provider_message_id);
+      if (remote) {
+        const labels = remote.labelIds === undefined ? [] : remote.labelIds;
+        if (remote.id !== candidate.provider_message_id || !Array.isArray(labels) || !labels.every(label => typeof label === 'string')) {
+          throw new Error('Invalid Gmail visibility snapshot');
+        }
+        remote = { ...remote, labelIds: labels };
+      }
     } catch (error) {
-      if (!(error instanceof GoogleApiError && error.status === 404)) throw error;
-      remote = null;
-    }
-    if (remote && (remote.id !== candidate.provider_message_id || !Array.isArray(remote.labelIds))) {
-      throw new Error('Invalid Gmail visibility snapshot');
+      if (error instanceof GoogleApiError && error.status === 404) remote = null;
+      else {
+        // Recovery is optional after the normal delta committed. Back off this
+        // exact snapshot so a broken item cannot starve later hidden messages.
+        await query(`UPDATE messages m SET provider_visibility_checked_at=clock_timestamp()
+          FROM email_accounts a WHERE m.id=$1 AND m.xmin::text=$2 AND a.id=m.account_id
+            AND a.xmin::text=$3 AND a.id=$4 AND a.user_id=$5 AND a.provider_connection_id=$6`,
+          [candidate.id,candidate.row_version,candidate.account_version,input.accountId,input.userId,input.connectionId]);
+        console.warn('Gmail visibility recovery deferred', error instanceof GoogleApiError ? error.code : 'INVALID_OR_UNAVAILABLE_SNAPSHOT');
+        if (error instanceof GoogleApiError && [401,403,429].includes(error.status)) break;
+        continue;
+      }
     }
     const changed = await withTransaction(async client => {
       const held = await client.query<{ id: string }>(

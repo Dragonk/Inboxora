@@ -1,3 +1,4 @@
+import { sendMailRead } from '../utils/mailReadBatch.ts';
 import { MailListHeader, MailListTitle, MailRowHeading, MailRowSubject, MailRowSender, MailRowDate, MailRowAvatar, MailRowSelection, mailRowStyle, mailListSurfaceStyle } from './MailListPresentation.tsx';
 import { noteMailListLoaded, requestMailRefresh } from '../utils/mailRefresh.ts';
 import { createCoalescedTask } from '../utils/coalescedTask.ts';
@@ -1007,7 +1008,7 @@ export default function MessageList() {
 
     // Register each physical intent before cache setters project pending flags.
     const mutations = eligibleMessages.map(msg => ({ msg, mutation: queueReadStateMutation(
-      msg.id, read, targetRead => api.bulkRead([msg.id], targetRead, [msg.account_id]),
+      msg.id, read, targetRead => sendMailRead(msg.id, targetRead, msg.account_id),
     ) }));
 
     // Now update the thread cache and correct the parent row if our estimate was off.

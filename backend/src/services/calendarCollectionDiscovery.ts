@@ -76,6 +76,23 @@ export async function discoverNativeCalendars<T extends { id: string }>(input: {
         const identity = { userId: input.userId, connectionId: input.connectionId, remoteCalendarId };
         await lockCalendarCollection(client, identity);
         const entry = present.get(remoteCalendarId);
+        if (entry) {
+          // Only a newer complete, authorized discovery can restore an absent
+          // subscription. Confirmed DELETE receipts remain authoritative below.
+          const restored = await client.query<{ discovery_was_enabled: boolean | null }>(`DELETE FROM calendar_collection_tombstones
+            WHERE user_id=$1 AND connection_id=$2 AND remote_calendar_id=$3
+              AND retirement_reason='complete_discovery' AND discovery_generation < $4
+            RETURNING discovery_was_enabled`, [input.userId,input.connectionId,remoteCalendarId,lease.generation]);
+          const enabled = restored.rows[0]?.discovery_was_enabled;
+          if (restored.rows.length) await client.query(`UPDATE sync_states SET cursor=NULL,page_checkpoint=NULL,
+            completed_watermark=NULL,last_success_at=NULL,updated_at=NOW()
+            WHERE user_id=$1 AND connection_id=$2 AND collection_id IN (SELECT id FROM integration_collections
+              WHERE user_id=$1 AND connection_id=$2 AND kind='calendar' AND remote_id=$3)`,
+            [input.userId,input.connectionId,remoteCalendarId]);
+          if (enabled !== null && enabled !== undefined) await client.query(`UPDATE integration_collections
+            SET enabled=$4,updated_at=NOW() WHERE user_id=$1 AND connection_id=$2 AND remote_id=$3 AND kind='calendar'`,
+            [input.userId,input.connectionId,remoteCalendarId,enabled]);
+        }
         if (await isCalendarCollectionDeleted(client, identity)) {
           const operationId = await findCommittedCalendarDeletion(client, identity);
           if (operationId) await recordCalendarDeletionFence(client, { ...identity, operationId });
@@ -83,8 +100,9 @@ export async function discoverNativeCalendars<T extends { id: string }>(input: {
         } else if (entry) await input.ensure(client, entry);
         else {
           await client.query(`INSERT INTO calendar_collection_tombstones
-            (user_id,connection_id,remote_calendar_id,retirement_reason,discovery_generation)
-            VALUES ($1,$2,$3,'complete_discovery',$4) ON CONFLICT DO NOTHING`, [input.userId, input.connectionId, remoteCalendarId, lease.generation]);
+            (user_id,connection_id,remote_calendar_id,retirement_reason,discovery_generation,discovery_was_enabled)
+            VALUES ($1,$2,$3,'complete_discovery',$4,(SELECT enabled FROM integration_collections
+              WHERE user_id=$1 AND connection_id=$2 AND kind='calendar' AND remote_id=$3)) ON CONFLICT DO NOTHING`, [input.userId, input.connectionId, remoteCalendarId, lease.generation]);
           await retireCalendarProjection(client, identity);
         }
       }

@@ -124,7 +124,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       const row = page.locator('[data-msgid="conversation-gmail-copy-5"]:visible');
       page.__bulkReadActions = [];
       await swipe(row, 120, 230);
-      await expect.poll(() => page.__bulkReadActions.at(-1)).toEqual({ ids: ['conversation-gmail-copy-5'], read: true });
+      await expect.poll(() => page.__bulkReadActions.at(-1)).toEqual({ ids: [1,2,3,4,5].map(index => `conversation-gmail-copy-${index}`), read: true });
 
       await page.addInitScript(() => localStorage.setItem('mailflow_swipe_actions', JSON.stringify({ left: 'archive', right: 'star' })));
       await page.reload({ waitUntil: 'domcontentloaded' });
@@ -153,23 +153,23 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect.poll(() => sender.evaluate(element => getComputedStyle(element).fontWeight)).toBe('400');
       await expect.poll(() => page.__threadLoadStarts.length).toBe(1);
       releaseRead();
-      await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
-      await expect.poll(() => page.__bulkReadActions.length).toBe(5);
-      expect(page.__bulkReadActions.map(action => action.ids)).toEqual([
-        ['conversation-gmail-copy-1'], ['conversation-gmail-copy-2'], ['conversation-gmail-copy-3'],
-        ['conversation-gmail-copy-4'], ['conversation-gmail-copy-5'],
-      ]);
+      await expect.poll(() => page.__bulkReadStarts.length).toBe(1);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(1);
+      expect(page.__bulkReadActions[0]).toEqual({ read: true, ids: [
+        'conversation-gmail-copy-1', 'conversation-gmail-copy-2', 'conversation-gmail-copy-3',
+        'conversation-gmail-copy-4', 'conversation-gmail-copy-5',
+      ] });
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /oznacz jako nieprzeczytan|mark as unread/i);
       await expect.poll(() => sender.evaluate(element => getComputedStyle(element).fontWeight)).toBe('600');
-      await expect.poll(() => page.__bulkReadActions.length).toBe(10);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(2);
       await expect.poll(() => page.__bulkReadActions.at(-1)?.read).toBe(false);
       await expect.poll(() => sender.evaluate(element => getComputedStyle(element).fontWeight)).toBe('600');
 
       page.__bulkReadFailureIds = new Set(['conversation-gmail-copy-3']);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /oznacz jako przeczytan|mark as read/i);
-      await expect.poll(() => page.__bulkReadActions.length).toBe(15);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(3);
       await expect.poll(() => sender.evaluate(element => getComputedStyle(element).fontWeight)).toBe('600');
 
       page.__starFailureIds = new Set(['conversation-gmail-copy-3']);
@@ -201,7 +201,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
 
       releaseThread();
-      await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
+      await expect.poll(() => page.__bulkReadStarts.length).toBe(1);
       await expect.poll(() => page.__starStarts.length).toBe(5);
       expect(page.__starStarts.every(action => action.body?.starred === false)).toBe(true);
       await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
@@ -225,7 +225,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       await expect.poll(() => page.__threadLoadStarts.length).toBe(2);
 
       releaseThread();
-      await expect.poll(() => page.__bulkReadStarts.length).toBe(5);
+      await expect.poll(() => page.__bulkReadStarts.length).toBe(1);
       await expect.poll(() => page.__starStarts.length).toBe(5);
       expect(page.__starStarts.every(action => action.body?.starred === false)).toBe(true);
       await expect(row.locator('[data-thread-row-star="true"]')).toHaveCount(0);
@@ -305,7 +305,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       page.__bulkReadFailureIds = new Set(['conversation-gmail-copy-2']);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /oznacz jako przeczytan|mark as read/i);
-      await expect.poll(() => page.__bulkReadActions.length).toBe(5);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(1);
       await expect(sender).toHaveCSS('font-weight', '400');
       await expect(row.locator('.unread-dot')).toHaveCount(0);
       await expect(account).not.toContainText('1');
@@ -320,7 +320,7 @@ for (const viewport of [DESKTOP, 'mobile']) {
       page.__bulkReadFailureIds = new Set(['conversation-gmail-copy-2']);
       await openContextMenu(page, row, testInfo);
       await chooseMenuItem(page, /oznacz jako nieprzeczytan|mark as unread/i);
-      await expect.poll(() => page.__bulkReadActions.length).toBe(5);
+      await expect.poll(() => page.__bulkReadActions.length).toBe(1);
       await expect(sender).toHaveCSS('font-weight', '600');
       await expect(row.locator('.unread-dot')).toHaveCount(1);
       // Inbox copies 1/3/5 count here; the failed no-op copy belongs to Sent.

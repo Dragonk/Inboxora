@@ -591,6 +591,22 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     expect(fixture.deleteCount()).toBe(0);
   });
 
+  it('restores a re-observed contact folder but preserves confirmed deletion fences', async () => {
+    const connectionId = await seedConnection();
+    const present = () => fakeProvider([() => json({ value: [contact('returning', 'Returned', 'returned@test.invalid')] })]).fetchImpl;
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: present() });
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([], []).fetchImpl });
+    expect(await storedContacts()).toHaveLength(0);
+    expect((await pool.query('SELECT retirement_reason FROM address_book_collection_tombstones WHERE connection_id=$1', [connectionId])).rows)
+      .toEqual([{ retirement_reason: 'complete_discovery' }]);
+    const restored = await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: present() });
+    expect(restored.errors).toEqual([]); expect(await storedContacts()).toHaveLength(1);
+    await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: fakeProvider([], []).fetchImpl });
+    await pool.query("UPDATE address_book_collection_tombstones SET retirement_reason='confirmed_delete' WHERE connection_id=$1", [connectionId]);
+    expect((await syncGraphContacts({ userId: USER_ID, connectionId, config: CONFIG, fetchImpl: present() })).incomplete).toBe(true);
+    expect(await storedContacts()).toHaveLength(0);
+  });
+
   it('limits discovery retirement to the exact connection and preserves user-local books', async () => {
     const one = await seedConnection('first');
     const two = await seedConnection('second');

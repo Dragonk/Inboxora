@@ -50,8 +50,9 @@ describe('native conversation 2x2 contract', () => {
 
   it('keeps compact native cards and delegates expanded physical-copy content to the shared renderer', () => {
     const reader = read('ConversationReader.tsx'); const item = read('ConversationMessage.tsx'); const detail = read('MessageDetailContent.tsx');
-    assert.match(reader, /selectedPhysicalTarget/);
-    assert.match(reader, /const requestedTargetId = messages\.find\(\(message: ConversationLogicalMessage\) => message\.id === targetLogicalMessageId \|\| message\.logicalMessageId === targetLogicalMessageId\)\?\.id/);
+    // Initial expansion and navigation use the same physical-first resolver;
+    // its mixed-state duplicate behavior is covered by the adapter's unit test.
+    assert.equal(reader.match(/const requestedTargetId = conversationTargetId\(messages, targetLogicalMessageId, selectedCopyId\)/g)?.length, 2);
     assert.match(reader, /setExpanded\(initialConversationExpansion\(messages, requestedTargetId\)\)/);
     assert.match(reader, /api\.getMessageBody\(physicalCopyId, remoteImages\)/);
     assert.match(reader, /filter\(copy => String\(copy\.accountId \?\? copy\.account_id\) === String\(selectedAccountId\)\)/);

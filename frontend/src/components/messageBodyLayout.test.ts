@@ -91,3 +91,31 @@ describe('initial message body layout scheduling', () => {
     assert.deepEqual(ready, ['replacement']);
   });
 });
+
+describe('non-collapsing iframe measurement', () => {
+  it('holds the outer height during shrink measurement and restores inline styles', async () => {
+    const { measureMessageFrameHeight } = await import('./messageBodyLayout.ts');
+    const props = new Map<string, [string, string]>([['min-height', ['20px', '']]]);
+    const style = {
+      getPropertyValue: (key: string) => props.get(key)?.[0] ?? '',
+      getPropertyPriority: (key: string) => props.get(key)?.[1] ?? '',
+      setProperty: (key: string, value: string, priority: string) => { props.set(key, [value, priority]); },
+      removeProperty: (key: string) => { props.delete(key); },
+    };
+    const frame = {
+      parentElement: { style, getBoundingClientRect: () => ({ height: 1500 }) },
+      style: { height: '1474px' },
+      contentDocument: { body: { get scrollHeight() {
+        assert.equal(frame.style.height, '0px');
+        assert.deepEqual(props.get('min-height'), ['1500px', 'important']);
+        return 510;
+      } } },
+    };
+    assert.equal(measureMessageFrameHeight(frame as unknown as HTMLIFrameElement), 510);
+    assert.equal(frame.style.height, '510px');
+    assert.deepEqual(props.get('min-height'), ['20px', '']);
+    props.clear();
+    assert.equal(measureMessageFrameHeight(frame as unknown as HTMLIFrameElement), 510);
+    assert.equal(props.has('min-height'), false);
+  });
+});

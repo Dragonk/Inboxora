@@ -570,3 +570,23 @@ test('OPTIONS DELETE without parent unbind cannot authorize collection deletion'
   assert.equal(f.calls.filter(call => call.method === 'DELETE').length, 0);
   assert.equal(await count('contacts', 'address_book_id', a.id), 1);
 });
+
+for (const mode of ['merge', 'skip']) test(`CardDAV ${mode} keeps a surviving book's contact when its duplicate owner disappears`, { timeout: 20_000 }, async t => {
+  const f = await fixture(); t.after(f.close);
+  const a = await f.addressBook();
+  const survivorPath = '/a/surviving/';
+  f.collections.set(survivorPath, { ...a.collection });
+  a.home.collections.push(survivorPath);
+  await query("UPDATE user_integrations SET config=config || jsonb_build_object('dupMode',$2::text) WHERE id=$1", [a.sourceId, mode]);
+  assert.equal((await syncUser(f.userId, a.sourceId)).ok, true);
+  const survivor = (await query<{ id: string }>('SELECT id FROM address_books WHERE user_id=$1 AND external_url=$2', [f.userId, f.origin + survivorPath])).rows[0];
+  assert.ok(survivor);
+  assert.equal(await count('contacts', 'address_book_id', survivor.id), 0, 'the initial duplicate policy has one owner');
+  a.collection.missing = true;
+  const result = await syncUser(f.userId, a.sourceId);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await assertBookGone(a.id, f.userId);
+  assert.equal(await count('contacts', 'address_book_id', survivor.id), 1, 'surviving remote contact must not wait for another sync');
+  assert.equal((await syncUser(f.userId, a.sourceId)).ok, true);
+  assert.equal(await count('contacts', 'address_book_id', survivor.id), 1);
+});

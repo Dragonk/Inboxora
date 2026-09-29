@@ -285,7 +285,7 @@ async function mergeIntoExisting(client: PoolClient, id: string, c: CardavContac
       JSON.stringify(c.urls), JSON.stringify(c.instantMessages), JSON.stringify(c.categories), JSON.stringify(c.addresses), c.vcard, etag]);
 }
 
-async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials, integrationId: string, sourceConnectionId: string, lease: CardavSourceLease, generation: string) {
+async function syncBook(userId: string, book: CardavBook, dupMode: string, creds: CardavCredentials, integrationId: string, sourceConnectionId: string, lease: CardavSourceLease, generation: string, missingBookIds: readonly string[] = []) {
   const rawCards = await fetchAddressBookCards({ ...book, ...creds });
   const cards = rawCards.map(rc => contactFromVCard(rc.vcard, rc.href, rc.etag));
   if (cards.some(card => card.invalidDates.length || card.invalidDateLabels.length)) {
@@ -316,8 +316,9 @@ async function syncBook(userId: string, book: CardavBook, dupMode: string, creds
         `SELECT c.id, c.primary_email, b.source
            FROM contacts c JOIN address_books b ON b.id = c.address_book_id
           WHERE c.user_id = $1 AND c.address_book_id <> $2 AND c.primary_email IS NOT NULL
-            AND (b.source <> 'carddav' OR b.source_connection_id = $3)`,
-        [userId, bookId, sourceConnectionId],
+            AND (b.source <> 'carddav' OR b.source_connection_id = $3)
+            AND b.id <> ALL($4::uuid[])`,
+        [userId, bookId, sourceConnectionId, [...missingBookIds]],
       );
       for (const r of rows.rows) otherEmail.set(r.primary_email.toLowerCase(), { id: r.id, source: r.source });
     }
@@ -421,17 +422,24 @@ async function syncOneCardavSource(userId: string, source: CardavSourceConfig): 
     });
     const snapshot = await discoverAddressBookSnapshot({ serverUrl: config.serverUrl, ...creds });
     const books = snapshot.collections;
+    const present = new Set(snapshot.resourceUrls.map(normalizeDavCollectionUrl));
+    const home = normalizeDavCollectionUrl(snapshot.homeUrl);
+    // Do not merge/skip a surviving contact into a book this complete snapshot
+    // no longer lists: retiring that old owner would remove the only local copy.
+    // Cleanup still waits for all card reads and its revision/lease checks below.
+    const missingBookIds = candidates.filter(book => {
+      const url = normalizeDavCollectionUrl(book.external_url);
+      return normalizeDavCollectionUrl(new URL('..', url).href) === home && !present.has(url);
+    }).map(book => book.id);
     let contactCount = 0;
     for (const book of books) {
-      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, source.id, sourceConnectionId, lease, generation);
+      const { count } = await syncBook(userId, book, config.dupMode || 'separate', creds, source.id, sourceConnectionId, lease, generation, missingBookIds);
       contactCount += count;
     }
     // Only a validated home-set snapshot can retire collections. A changed home
     // is a different scope even when the same credentials expose both directories.
     await withDavSourceProjection(userId, 'addressbook', source.id, generation, async client => {
       await assertCardavSourceLease((sql, params) => client.query<{ ok: unknown }>(sql, params), userId, source.id, lease);
-      const present = new Set(snapshot.resourceUrls.map(normalizeDavCollectionUrl));
-      const home = normalizeDavCollectionUrl(snapshot.homeUrl);
       for (const book of candidates) {
         const url = normalizeDavCollectionUrl(book.external_url);
         if (normalizeDavCollectionUrl(new URL('..', url).href) !== home || present.has(url)) continue;

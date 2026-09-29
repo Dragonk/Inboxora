@@ -341,6 +341,15 @@ export function mergeThreadWithConversation(ceMessages: ConversationLogicalMessa
         .filter(([, value]) => value != null && value !== ''));
       return { ...ceCopy, ...definedNative };
     });
-    return { ...native, ...ce, copies, id: native.id, logicalMessageId: ce.id, _ceMatched: true };
+    return { ...native, ...ce, copies, id: native.id, logicalMessageId: ce.id, unread: native.unread, _ceMatched: true };
   });
+}
+
+/** A logical message can have several cards. Explicit physical selection always
+ * wins; ambiguous logical enrichment must not jump to another provider copy. */
+export function conversationTargetId(messages: readonly ConversationLogicalMessageLike[], logicalId: string | null, physicalId: string | null): string | undefined {
+  const physical = physicalId && messages.find(message => (message.copies || []).some(copy => copy.id === physicalId));
+  if (physical) return physical.id;
+  const logical = logicalId ? messages.filter(message => message.id === logicalId || message.logicalMessageId === logicalId) : [];
+  return logical.length === 1 ? logical[0].id : undefined;
 }

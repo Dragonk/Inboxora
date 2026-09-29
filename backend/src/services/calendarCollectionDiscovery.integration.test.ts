@@ -61,7 +61,7 @@ suite.each(['google', 'microsoft'] as const)('native %s complete collection disc
     if (originalKey === undefined) delete process.env.ENCRYPTION_KEY; else process.env.ENCRYPTION_KEY = originalKey;
   });
 
-  it('retires a complete absence with events, occurrences, DAV changes and links; stale IDs stay retired and new IDs work', async () => {
+  it('retires a complete absence with events, occurrences, DAV changes and links; a newer complete snapshot restores subscriptions with a fresh baseline', async () => {
     expect((await sync()).errors).toEqual([]);
     const [row] = await projection();
     await pool.query(`INSERT INTO calendar_occurrences (event_id,calendar_id,user_id,starts_at,ends_at)
@@ -75,9 +75,33 @@ suite.each(['google', 'microsoft'] as const)('native %s complete collection disc
     expect((await pool.query('SELECT 1 FROM calendars WHERE id=$1', [row.local_calendar_id])).rowCount).toBe(0);
     expect((await pool.query('SELECT 1 FROM remote_object_links WHERE collection_id=$1', [row.id])).rowCount).toBe(0);
     expect((await pool.query('SELECT retirement_reason FROM calendar_collection_tombstones WHERE connection_id=$1', [connectionId])).rows).toEqual([{ retirement_reason: 'complete_discovery' }]);
-    snapshot = list(['secondary', 'new-secondary']); expect((await sync()).collections).toBe(1);
-    expect((await projection()).filter(item => item.local_calendar_id)).toHaveLength(1);
+    calls = [];
+    snapshot = list(['secondary', 'new-secondary']); expect((await sync()).collections).toBe(2);
+    expect((await projection()).filter(item => item.local_calendar_id && item.enabled)).toHaveLength(2);
+    expect((await pool.query('SELECT 1 FROM calendar_events WHERE user_id=$1', [userId])).rowCount).toBe(2);
+    if (provider === 'google') expect(calls.filter(url => url.includes('/events')).every(url => !new URL(url).searchParams.has('syncToken'))).toBe(true);
+    expect((await pool.query('SELECT 1 FROM calendar_collection_tombstones WHERE connection_id=$1', [connectionId])).rowCount).toBe(0);
     if (provider === 'google') expect(calls.filter(url => url.includes('/calendarList')).every(url => new URL(url).searchParams.get('showHidden') === 'true')).toBe(true);
+  });
+
+  it('restores a disabled subscription without overriding the user preference', async () => {
+    await sync(); const [row] = await projection();
+    await pool.query('UPDATE integration_collections SET enabled=false WHERE id=$1', [row.id]);
+    snapshot = list([]); await sync();
+    snapshot = list(['secondary']); await sync();
+    const [restored] = await projection();
+    expect(restored.id).toBe(row.id); expect(restored.local_calendar_id).not.toBeNull();
+    expect(restored.enabled).toBe(false);
+  });
+
+  it('does not clear a confirmed deletion fence from a newer discovery', async () => {
+    await sync();
+    snapshot = list([]); await sync();
+    await pool.query("UPDATE calendar_collection_tombstones SET retirement_reason='confirmed_delete' WHERE connection_id=$1", [connectionId]);
+    snapshot = list(['secondary']); await sync();
+    expect((await projection()).every(row => row.local_calendar_id === null)).toBe(true);
+    expect((await pool.query('SELECT 1 FROM calendars WHERE user_id=$1', [userId])).rowCount).toBe(0);
+    expect((await pool.query('SELECT 1 FROM calendar_collection_tombstones WHERE connection_id=$1', [connectionId])).rowCount).toBe(1);
   });
 
   it.each([{}, { items: 'bad', value: 'bad' }, { items: [{}], value: [{}] }])('rejects malformed snapshot %j without erasing projections', async malformed => {

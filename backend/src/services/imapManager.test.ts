@@ -3061,6 +3061,19 @@ describe('durable IMAP flag observation and writes', () => {
     expect(query.mock.calls.some(([sql]) => sql.includes('UPDATE messages SET'))).toBe(false);
   });
 
+  it('does not misclassify a row data failure as a lost flag observation', async () => {
+    const rowError = Object.assign(new Error('Synthetic invalid character'), { code: '22021' });
+    query.mockImplementation(async sql => {
+      if (sql.includes('UPDATE messages SET')) throw rowError;
+      return { rows: [{ id: 'message-1', protected: true }], rowCount: 1 };
+    });
+    await expect(ImapManager.prototype._applyFlagUpdates(baseAccount, 'INBOX', [{ uid: 1, isRead: false }]))
+      .rejects.toBe(rowError);
+    vi.mocked(deferMailFlagReadback).mockRejectedValue(rowError);
+    await expect(ImapManager.prototype._applyFlagUpdates(baseAccount, 'INBOX', [{ uid: 1, isRead: false }]))
+      .rejects.toThrow('Could not persist IMAP flag observation');
+  });
+
   it('awaits durable persistence for a legacy flag enqueue', async () => {
     query.mockResolvedValue({ rows: [{ user_id: 'owner-1' }] });
     await ImapManager.prototype._enqueueFlagPush('account-1', 'message-1', '\\Seen', true);

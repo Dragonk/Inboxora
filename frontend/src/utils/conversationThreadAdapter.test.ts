@@ -63,3 +63,20 @@ test('physical copies with identical RFC IDs remain separate reader cards and ac
   assert.deepEqual(merged.map(row => row.logicalMessageId), ['logical', 'logical']);
   assert.deepEqual(conversationDetailToThreadMessages(detail, 'INBOX').map(row => row.id), ['read-copy', 'unread-copy']);
 });
+
+test('selecting an unread physical duplicate does not open its read logical sibling', async () => {
+  const { mergeThreadWithConversation, conversationTargetId } = await import('./conversationThreadAdapter.ts');
+  const native = nativeThreadToReaderMessages([
+    { id: 'read-copy', account_id: 'a', message_id: '<same>', is_read: true },
+    { id: 'unread-copy', account_id: 'a', message_id: '<same>', is_read: false },
+  ], 'a');
+  const merged = mergeThreadWithConversation([{ id: 'logical', unread: false, copies: [
+    { id: 'read-copy', account_id: 'a', message_id: '<same>', is_read: true },
+    { id: 'unread-copy', account_id: 'a', message_id: '<same>', is_read: true },
+  ] }], native);
+  assert.equal(conversationTargetId(merged, 'logical', 'unread-copy'), 'unread-copy');
+  assert.equal(conversationTargetId(merged, 'logical', 'read-copy'), 'read-copy');
+  assert.equal(conversationTargetId(merged, 'logical', null), undefined);
+  assert.equal(conversationTargetId(merged, 'missing-logical', 'unread-copy'), 'unread-copy');
+  assert.equal(merged[1].unread, true, 'native read evidence overrides stale logical metadata');
+});

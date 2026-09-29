@@ -25,7 +25,13 @@ test.describe('real MailFlow conversation browser E2E', () => {
     await goldenThread.locator('[data-thread-row-child]').first().click();
     const reader = page.locator('section[data-conversation-id]:visible');
     await expect(reader).toHaveCount(1);
-    await expect(reader.locator('[data-logical-message-id]')).toHaveCount(5);
+    // Five logical messages have six independently addressable physical copies.
+    await expect(reader.locator('[data-logical-message-id]')).toHaveCount(6);
+    const identities = await reader.locator('[data-logical-message-id]').evaluateAll(cards => cards.map(card => ({
+      logical: card.getAttribute('data-logical-message-id'), physical: card.id,
+    })));
+    expect(new Set(identities.map(card => card.logical)).size).toBe(5);
+    expect(new Set(identities.map(card => card.physical)).size).toBe(6);
     await expect(reader.locator('iframe').first().contentFrame().getByText(/Fixture body (?:1|2|3|4|5)/, { exact: false })).toBeVisible();
   });
 });

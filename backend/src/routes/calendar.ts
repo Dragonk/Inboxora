@@ -1,3 +1,4 @@
+import { mapConcurrent } from '../utils/mapConcurrent.js';
 import { deleteRemoteDavCalendarCollection, getRemoteDavCollectionDeleteCapability } from '../services/davCollectionLifecycle.js';
 import { davCollectionDeletionResponse, validCollectionDeletionIntent } from '../services/davCollectionManagement.js';
 import { describeCalendarCollectionDeletion } from './accountsCalendarManagement.js';
@@ -738,9 +739,8 @@ router.get('/calendars', async (req, res) => {
   const [appearance, preferences] = await Promise.all([
     contactCalendarAppearance(userId), loadCalendarColorPreferences(userId),
   ]);
-  const calendars = [];
-  // Keep provider capability reads bounded: large lists must not flood provider APIs.
-  for (const row of result.rows) {
+  // Bound provider calls without serializing the whole settings page.
+  const calendars = await mapConcurrent(result.rows, 4, async row => {
     let deletion: { supported: boolean; reason?: string } | undefined = row.source === 'local' ? { supported: true } : undefined;
     if (row.source !== 'local' && req.query.includeDeletionCapabilities === 'true') {
       try {
@@ -752,8 +752,8 @@ router.get('/calendars', async (req, res) => {
         deletion = { supported: false, reason: 'Provider deletion rights could not be verified. Try again after the connection recovers.' };
       }
     }
-    calendars.push({ ...row, ...calendarColorFields(row.id, row.color, preferences), deletion });
-  }
+    return { ...row, ...calendarColorFields(row.id, row.color, preferences), deletion };
+  });
   res.json({ calendars: [...calendars, {
     id: CONTACT_CALENDAR_ID, name: appearance.name || 'Contact dates', custom_name: Boolean(appearance.name), description: 'Birthdays and anniversaries from contacts',
     ...calendarColorFields(CONTACT_CALENDAR_ID, appearance.color || '#e879f9', preferences),

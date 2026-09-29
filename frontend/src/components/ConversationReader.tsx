@@ -5,7 +5,7 @@ import { api } from '../utils/api.ts';
 import ConversationMessage from './ConversationMessage.tsx';
 import { initialConversationExpansion, initialConversationTarget, toggleConversationExpansion } from './conversationExpansion.ts';
 import { alignReaderHeader } from './readerScrollAlignment.ts';
-import { nativeThreadToReaderMessages, mergeThreadWithConversation } from '../utils/conversationThreadAdapter.ts';
+import { nativeThreadToReaderMessages, mergeThreadWithConversation, conversationTargetId } from '../utils/conversationThreadAdapter.ts';
 import { removePhysicalCopy } from '../utils/conversationMutations.ts';
 import { queueReadStateMutation, isLatestReadStateMutation, pendingReadState } from '../utils/readStateMutation.ts';
 import { setCompletedDelete, applyDeleteGuard } from '../utils/pendingDeletes.ts';
@@ -160,10 +160,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
         ? mergeThreadWithConversation(ceLogicalMessages, nativeReaderMessages)
         : ceLogicalMessages;
       const result = { ...ceResult, logicalMessages: messages };
-      const selectedPhysicalTarget = messages.find((message: ConversationLogicalMessage) => (message.copies || [])
-        .some((copy: ConversationCopyRef) => String(copy.id) === String(selectedCopyId)))?.id;
-      const requestedTargetId = messages.find((message: ConversationLogicalMessage) => message.id === targetLogicalMessageId || message.logicalMessageId === targetLogicalMessageId)?.id
-        || selectedPhysicalTarget;
+      const requestedTargetId = conversationTargetId(messages, targetLogicalMessageId, selectedCopyId);
       setExpanded(initialConversationExpansion(messages, requestedTargetId));
       setData(result);
     }).catch(reason => { if (active && isCurrentScope()) setError(reason.message || t('conversation.loadFailed')); });
@@ -325,10 +322,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   // CE resolves a logical target asynchronously, while native selection already
   // has the exact physical ID. Use that physical identity as the interim target so
   // a child click expands and scrolls its own native card without waiting for CE.
-  const selectedPhysicalTarget = messages.find((message: ConversationLogicalMessage) => (message.copies || [])
-    .some((copy: ConversationCopyRef) => String(copy.id) === String(selectedCopyId)))?.id;
-  const requestedTargetId = messages.find((message: ConversationLogicalMessage) => message.id === targetLogicalMessageId || message.logicalMessageId === targetLogicalMessageId)?.id
-    || selectedPhysicalTarget;
+  const requestedTargetId = conversationTargetId(messages, targetLogicalMessageId, selectedCopyId);
   const initialTargetId = initialConversationTarget(messages, requestedTargetId);
   // Opening a conversation is a navigation to one physical target, never a reason to
   // bulk-mark the native thread. The set also prevents redundant reselect writes.
@@ -354,6 +348,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
   }, [setLocalReadState]);
 
   const loadBody = useCallback((logicalId: string, force = false, remoteImages = false) => {
+    if (!selectedAccountAvailable) return Promise.resolve();
     const isCurrentScope = captureReaderScope();
     const copy = selectedCopyFor(logicalId);
     const physicalCopyId = copy?.id;
@@ -388,7 +383,7 @@ export default function ConversationReader({ conversationId, targetLogicalMessag
       .finally(() => {
         if (aborters.current.get(physicalCopyId) === controller) aborters.current.delete(physicalCopyId);
       });
-  }, [selectedCopyFor, t, captureReaderScope]);
+  }, [selectedCopyFor, t, captureReaderScope, selectedAccountAvailable]);
   useEffect(() => { for (const id of expanded) loadBody(id); }, [expanded, loadBody]);
   const navigationTargetId = activeTargetLogicalId || initialTargetId;
   // Align once when the target header mounts, then once more after that exact

@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo } from 'react';
 export { EMAIL_SANITIZE_POLICY, sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG, buildSrcDoc } from './messageBodySecurity.ts';
 import { sanitizeMessageHtml, buildSrcDoc, escapeMessageText } from './messageBodySecurity.ts';
 import { installMessageQuoteFolding } from './messageQuoteFolding.ts';
-import { scheduleInitialLayoutReady } from './messageBodyLayout.ts';
+import { scheduleInitialLayoutReady, measureMessageFrameHeight } from './messageBodyLayout.ts';
 import { useStore } from '../store/index.ts';
 import { getEmailSurface } from '../themes.ts';
 
@@ -79,9 +79,8 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         // value is at least the old iframe viewport height and prevents a later quote
         // collapse from shrinking the frame. Resetting to a natural viewport before
         // reading body.scrollHeight makes H3 reflect the currently visible DOM.
-        iframe.style.height = '0px';
-        const contentHeight = Math.max(300, doc.body.scrollHeight || 0);
-        iframe.style.height = contentHeight + 'px';
+        const contentHeight = measureMessageFrameHeight(iframe);
+        if (contentHeight === null) return;
         onHeightChange?.(contentHeight);
         if (!initialLayoutReported) {
           // The iframe height participates in its parent reader's scroll range on

@@ -211,9 +211,10 @@ async function readFlags(state: MessageState, account: EmailAccountRow, ports: M
             id?: string;
             labelIds?: string[];
         }>({ userId: state.user_id, connectionId: identity.connection, config: googleConfigFromEnv() }, `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(identity.providerId)}?format=minimal`);
-        if (result?.id !== identity.providerId || !Array.isArray(result.labelIds) || !result.labelIds.every(label => typeof label === 'string'))
+        const labels = result?.labelIds === undefined ? [] : result.labelIds;
+        if (result?.id !== identity.providerId || !Array.isArray(labels) || !labels.every(label => typeof label === 'string'))
             throw new Error('Invalid Gmail flag readback');
-        return { isRead: !result.labelIds.includes('UNREAD'), isStarred: result.labelIds.includes('STARRED') };
+        return { isRead: !labels.includes('UNREAD'), isStarred: labels.includes('STARRED') };
     }
     if (!ports.manager.readMessageFlags)
         throw new Error('IMAP flag reader unavailable');

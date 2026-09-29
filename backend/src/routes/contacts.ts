@@ -1,3 +1,4 @@
+import { mapConcurrent } from '../utils/mapConcurrent.js';
 import { deleteRemoteDavAddressBookCollection, getRemoteDavCollectionDeleteCapability } from '../services/davCollectionLifecycle.js';
 import { davCollectionDeletionResponse, validCollectionDeletionIntent } from '../services/davCollectionManagement.js';
 import { describeAddressBookDeletion, deleteProviderAddressBook, AddressBookCollectionError } from '../services/addressBookCollectionManagement.js';
@@ -271,8 +272,7 @@ router.get('/address-books', async (req, res) => {
       ADDRESS_BOOK_PRESENTATION_SQL,
       [req.session.userId],
     );
-    const addressBooks = [];
-    for (const row of result.rows) {
+    const addressBooks = await mapConcurrent(result.rows, 4, async row => {
       let deletion: { supported: boolean; reason?: string } | undefined = row.source === 'local' ? { supported: true } : undefined;
       if (row.source !== 'local' && req.query.includeDeletionCapabilities === 'true') {
         try {
@@ -284,7 +284,7 @@ router.get('/address-books', async (req, res) => {
           deletion = { supported: false, reason: 'Provider deletion rights could not be verified. Try again after the connection recovers.' };
         }
       }
-      addressBooks.push({
+      return {
         ...row,
         deletion,
         read_only: !collectionIsWritable({
@@ -292,8 +292,8 @@ router.get('/address-books', async (req, res) => {
           source_access: typeof row.source_access === 'string' ? row.source_access : null,
           user_access: typeof row.user_access === 'string' ? row.user_access : null,
         }, 'contacts'),
-      });
-    }
+      };
+    });
     res.json({ addressBooks });
   } catch (err) { console.error('Address book list error:', err); res.status(500).json({ error: 'Failed to fetch address books' }); }
 });

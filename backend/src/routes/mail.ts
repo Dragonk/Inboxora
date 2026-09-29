@@ -1909,7 +1909,8 @@ router.post('/mark-all-read', async (req, res) => {
   const outcomes = await pushProviderMessageFlags(rows.map(message => ({
     userId: sessionUserId(req), accountId, messageId: message.id, flag: '\\Seen', value: true,
   })), { manager: imapManager });
-  notifyMailMutation(rows.filter(row => outcomes.some(outcome => outcome.id === row.id && outcome.status === 'confirmed')), sessionUserId(req));
+  const confirmedIds = new Set(outcomes.filter(outcome => outcome.status === 'confirmed').map(outcome => outcome.id));
+  notifyMailMutation(rows.filter(row => confirmedIds.has(row.id)), sessionUserId(req));
   res.json(mailFlagResponse(outcomes));
 });
 
@@ -2154,7 +2155,8 @@ for (const [path, field, flag] of [
     for (const id of new Set<string>(ids)) {
       if (!rows.some(row => row.id === id)) outcomes.push({ id, status: 'permanent' as const, code: 'RESOURCE_NOT_FOUND' });
     }
-    notifyMailMutation(rows.filter(row => outcomes.some(outcome => outcome.id === row.id && outcome.status === 'confirmed')), sessionUserId(req));
+    const confirmedIds = new Set(outcomes.filter(outcome => outcome.status === 'confirmed').map(outcome => outcome.id));
+    notifyMailMutation(rows.filter(row => confirmedIds.has(row.id)), sessionUserId(req));
     res.json(mailFlagResponse(outcomes));
   });
 }

@@ -69,7 +69,7 @@ export async function withAddressBookCollectionSyncFence<T>(identity: AddressBoo
 }
 
 /** Caller proves complete discovery under its source lease, or supplies committed deletion evidence. */
-export async function retireAddressBookCollection(client: PoolClient, identity: AddressBookCollectionIdentity, operationId: string | null = null): Promise<void> {
+export async function retireAddressBookCollection(client: PoolClient, identity: AddressBookCollectionIdentity, operationId: string | null = null, discoveryGeneration: number | null = null): Promise<void> {
   await lockAddressBookCollection(client, identity);
   if (operationId) {
     const evidence = await client.query(`SELECT op.id FROM provider_operations op
@@ -85,8 +85,12 @@ export async function retireAddressBookCollection(client: PoolClient, identity: 
       FOR SHARE OF op`, [operationId, identity.userId, identity.connectionId, identity.remoteAddressBookId]);
     if (!evidence.rows.length) throw new Error('Address book retirement requires matching committed deletion evidence');
   }
-  await client.query(`INSERT INTO address_book_collection_tombstones(user_id,connection_id,remote_address_book_id,operation_id)
-    VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [identity.userId, identity.connectionId, identity.remoteAddressBookId, operationId]);
+  await client.query(`INSERT INTO address_book_collection_tombstones(user_id,connection_id,remote_address_book_id,operation_id,retirement_reason,discovery_generation)
+    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(user_id,connection_id,remote_address_book_id) DO UPDATE
+      SET operation_id=EXCLUDED.operation_id,retirement_reason=EXCLUDED.retirement_reason,discovery_generation=NULL
+      WHERE EXCLUDED.retirement_reason='confirmed_delete' AND EXCLUDED.operation_id IS NOT NULL`,
+    [identity.userId, identity.connectionId, identity.remoteAddressBookId, operationId,
+      !operationId && discoveryGeneration !== null ? 'complete_discovery' : 'confirmed_delete', discoveryGeneration]);
   const collections = await client.query<{ id: string; local_address_book_id: string | null }>(`SELECT ic.id,book.id local_address_book_id FROM integration_collections ic
     JOIN provider_connections pc ON pc.id=ic.connection_id AND pc.user_id=ic.user_id
     LEFT JOIN address_books book ON book.id=ic.local_address_book_id AND book.user_id=ic.user_id AND book.source=pc.provider
@@ -115,13 +119,20 @@ export async function retireAddressBookCollection(client: PoolClient, identity: 
 
 /** Only invoke for a validated, complete provider listing while holding its discovery lease. */
 export async function reconcileAddressBookCollections(client: PoolClient, input: {
-  userId: string; connectionId: string; seenRemoteIds: readonly string[]; syncStateId: string;
+  userId: string; connectionId: string; seenRemoteIds: readonly string[]; syncStateId: string; generation: number;
 }): Promise<void> {
   await assertContactDiscoveryAuthorized(client, input);
+  for (const remoteAddressBookId of [...new Set(input.seenRemoteIds)].sort()) {
+    await lockAddressBookCollection(client, { ...input, remoteAddressBookId });
+    await client.query(`DELETE FROM address_book_collection_tombstones
+      WHERE user_id=$1 AND connection_id=$2 AND remote_address_book_id=$3
+        AND retirement_reason='complete_discovery' AND discovery_generation < $4`,
+      [input.userId,input.connectionId,remoteAddressBookId,input.generation]);
+  }
   const missing = await client.query<{ remote_id: string }>(`SELECT remote_id FROM integration_collections
     WHERE user_id=$1 AND connection_id=$2 AND kind='address_book' AND NOT(remote_id=ANY($3::text[]))
       AND remote_id NOT IN ('default_contacts','contacts','people/me')
       AND created_at <= (SELECT running_started_at FROM sync_states WHERE id=$4 AND user_id=$1 AND connection_id=$2)
     ORDER BY remote_id`, [input.userId, input.connectionId, input.seenRemoteIds, input.syncStateId]);
-  for (const row of missing.rows) await retireAddressBookCollection(client, { ...input, remoteAddressBookId: row.remote_id });
+  for (const row of missing.rows) await retireAddressBookCollection(client, { ...input, remoteAddressBookId: row.remote_id }, null, input.generation);
 }

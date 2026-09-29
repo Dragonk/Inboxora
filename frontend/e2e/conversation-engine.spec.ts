@@ -182,9 +182,8 @@ test.describe('native conversation engine matrix', () => {
     await expect(latest.locator('[data-conversation-message-actions="true"][data-action-target-id="conversation-gmail-copy-5"]')).toBeVisible();
     await page.screenshot({ path: 'artifacts/on-on-after-switch-expanded.png', fullPage: true });
     const second = reader.locator('#logical-message-conversation-gmail-copy-2');
-    // Destructive conversation actions retain their logical+physical scope.
-    // Read and star share the durable physical-copy flag endpoints, independent
-    // of which reader displays the message.
+    // Destructive actions keep the CE identity; flags use the shared physical
+    // intent queue so read/star results obey the same recovery contract.
     const starAction = second.locator('[data-message-action="star"]');
     await starAction.click();
     await expect.poll(() => page.__starActions.at(-1)).toEqual({
@@ -238,9 +237,9 @@ test.describe('native conversation engine matrix', () => {
     test.skip(!isDesktopProject(testInfo), 'desktop parent-row selection contract');
     await open(page, fixtureApi, true, true);
     page.__unknownConversationAccount = true;
-    let bodyRequests = 0;
+    const bodyRequests: string[] = [];
     page.on('request', request => {
-      if (/\/logical-messages\/[^/]+\/body(?:\?|$)/.test(request.url())) bodyRequests += 1;
+      if (/\/(?:logical-messages|messages)\/[^/]+\/body(?:\?|$)/.test(request.url())) bodyRequests.push(new URL(request.url()).pathname);
     });
     await page.locator('[data-msgid="conversation-gmail-copy-5"]:visible').click();
     const reader = page.locator('section[data-conversation-id="conversation-gmail"]:visible');
@@ -250,7 +249,9 @@ test.describe('native conversation engine matrix', () => {
     await expect(expanded.getByRole('status')).toContainText(/brak|no message body/i);
     await expect(expanded.locator('[data-conversation-message-actions="true"]')).toHaveCount(0);
     await expect(expanded.locator('[data-conversation-message-attachments="true"]')).toHaveCount(0);
-    expect(bodyRequests).toBe(0);
+    // Selection warms the owned list copy before the resolver answers. The
+    // unavailable reader must not issue a CE body fetch or retry another copy.
+    expect(bodyRequests).toEqual(['/api/mail/messages/conversation-gmail-copy-5/body']);
   });
 
   test('reader keeps all native children when CE detail is incomplete', async ({ page, fixtureApi }) => {
