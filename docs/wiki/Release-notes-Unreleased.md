@@ -130,3 +130,16 @@ Gmail readbacks accept an omitted empty label list but reject malformed identiti
 Conversation-only detail reads use the same session and physical-flag readback guards as native threads, including initial loads and live refreshes. A stale response cannot overwrite a later read/star click; a post-settlement readback can still correct an unknown outcome.
 
 The reader keeps the selected physical copy and its read state even when several copies share a logical message. Frame height measurements preserve outer layout so repeated measurements cannot clamp an already-scrolled reader. Tests cover mixed read outcomes, physical duplicates, same-sync CardDAV contact survival, subscription restoration, empty Gmail labels, invalid visibility candidates, and graceful migration-fixture shutdown. No additional provider scopes or environment settings are needed for this follow-up.
+
+
+## Gmail history recovery and mailbox isolation
+
+A Gmail history entry or message listing can refer to a thread that has since been deleted. A 404 from that exact thread read now skips the unavailable thread instead of aborting the mailbox on every retry. A 404 from the history endpoint still follows the separate expired-cursor baseline recovery. Authentication, throttling and server failures are not treated as empty threads. Local messages are removed only with explicit history deletion evidence or a completed account-wide baseline, and history deletion transactions are fenced to their worker generation.
+
+Gmail folder totals and unread badges are recomputed from visible physical rows and label memberships after sync/discovery. Missing count fields in a label listing no longer reset an existing badge to zero. Removing a label preserves a now-labelless message in the virtual Archive instead of deleting its physical row. Inboxora's inbox badge counts inbox messages; unread messages archived or filed outside the inbox are not silently added to that badge.
+
+An explicit disabled, removed or unowned account request returns no mail; it never falls back to the unified inbox. Browser list/search requests and delayed rollback paths also retain their account and navigation boundaries. A response that contains another account's rows is rejected before caching or flag readback. A late reader resolution cannot reopen an older selection.
+
+Native-account diagnostics show the mail pipeline's timestamp and status from the same snapshot as the detailed mail section. Opening that tab obtains current state; a recent successful calendar/contact sync or active push subscription does not conceal a failed mail run. No new migration, permission or environment setting is required beyond the chain through 0161 already documented above. Update both images; normal synchronization resumes from its stored checkpoint, without deleting the account, resetting cursors or marking messages read in bulk.
+
+Regressions use synthetic provider responses and isolated PostgreSQL. They reproduce a deleted thread blocking six unread messages, a disappearing thread during baseline import, stale-worker deletion, missing label counts, an unavailable account returning unrelated mail, delayed cross-account UI responses and coherent diagnostics. They do not access real Gmail accounts or prove the historical path of any specific production message.

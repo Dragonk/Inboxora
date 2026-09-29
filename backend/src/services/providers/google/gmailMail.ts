@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { GMAIL_USER, gmailGet, gmailUrl } from './gmailApi.js';
-import { googleApiJson } from './googleApiClient.js';
+import { googleApiJson, GoogleApiError } from './googleApiClient.js';
 import type { GoogleApiOptions } from './googleApiClient.js';
 import { decodeMimeWords, parseMailboxList } from '../../messageParser.js';
 import { primaryFolderPathForGmailLabels } from './gmailLabels.js';
@@ -294,10 +294,19 @@ export async function fetchGmailThread(
   threadId: string,
   format: 'metadata' | 'full' | 'minimal' = 'metadata',
 ): Promise<GmailThread | null> {
-  return googleApiJson<GmailThread>(api, gmailUrl(`users/${GMAIL_USER}/threads/${encodeURIComponent(threadId)}`, {
-    format,
-    ...(format === 'metadata' ? { metadataHeaders: GMAIL_METADATA_HEADERS } : {}),
-  }), { method: 'GET' });
+  try {
+    return await googleApiJson<GmailThread>(api, gmailUrl(`users/${GMAIL_USER}/threads/${encodeURIComponent(threadId)}`, {
+      format,
+      ...(format === 'metadata' ? { metadataHeaders: GMAIL_METADATA_HEADERS } : {}),
+    }), { method: 'GET' });
+  } catch (error) {
+    // History and message listings outlive individual threads (especially deleted
+    // drafts). A 404 for this exact read is not an expired history cursor and must
+    // not pin the entire mailbox to the same failing history page forever.
+    // The caller still needs explicit deletion evidence to remove local messages.
+    if (error instanceof GoogleApiError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 /** The mailbox's current history id, captured before a baseline so nothing is skipped. */

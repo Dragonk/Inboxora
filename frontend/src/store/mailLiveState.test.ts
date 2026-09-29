@@ -285,3 +285,38 @@ test('mixed thread aggregate never overwrites its successful physical head', () 
   assert.equal(useStore.getState().messages[0].physical_is_read, true);
   assert.equal(useStore.getState().threadMessages['a:thread'][0].is_read, true);
 });
+
+
+test('a late mailbox response or rollback cannot insert other-account mail in the selected tab', () => {
+  seed();
+  useStore.getState().setSelectedAccount('gmail', 'INBOX');
+  const other = { id: 'reply', account_id: 'ovh', folder: 'INBOX', is_read: false };
+  const gmail = { id: 'gmail-mail', account_id: 'gmail', folder: 'INBOX', is_read: false };
+  useStore.getState().setMessages([other, gmail]);
+  useStore.getState().appendMessages([other]);
+  useStore.getState().restoreMessages([other]);
+  assert.deepEqual(useStore.getState().messages.map(row => row.id), ['gmail-mail']);
+  assert.equal(useStore.getState().messages[0].is_read, false);
+});
+
+test('late rollback respects folder, multi-label inbox membership and virtual archive', () => {
+  seed(); useStore.getState().setSelectedAccount('gmail', 'INBOX');
+  useStore.getState().restoreMessages([
+    { id: 'sent', account_id: 'gmail', folder: 'Sent' },
+    { id: 'work', account_id: 'gmail', folder: 'Work', folder_paths: ['INBOX','Work'] },
+    { id: 'archived', account_id: 'gmail', folder: 'INBOX', is_archived: true },
+  ]);
+  assert.deepEqual(useStore.getState().messages.map(row => row.id), ['work']);
+});
+
+
+test('a late rollback cannot add another account to an all-folders account search', () => {
+  seed(); useStore.getState().setSelectedAccount('gmail', 'INBOX');
+  useStore.setState({ searchQuery: 'invoice', searchAllFolders: true, searchResults: [] });
+  useStore.getState().restoreMessages([
+    { id: 'other', account_id: 'ovh', folder: 'INBOX' },
+    { id: 'gmail-sent', account_id: 'gmail', folder: 'Sent' },
+  ]);
+  assert.deepEqual(useStore.getState().messages, []);
+  assert.deepEqual(useStore.getState().searchResults.map(row => row.id), ['gmail-sent']);
+});

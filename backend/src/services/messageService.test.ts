@@ -43,22 +43,11 @@ describe('listMessages — account scope', () => {
     expect(query).toHaveBeenCalledOnce();
   });
 
-  it('falls back to unified inbox when accountId is not owned by the user', async () => {
-    query
-      .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })           // accounts
-      .mockResolvedValueOnce({ rows: [{ n: 5 }] })                  // membership-aware count
-      .mockResolvedValueOnce({ rows: [{ id: 'msg-1', folder: 'INBOX' }] }); // messages
-
+  it('returns no rows rather than another mailbox for an unavailable explicit account', async () => {
+    query.mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] });
     const result = await listMessages({ userId: 'user-1', accountId: 'acc-other' });
-
-    // Unified inbox returns the cached total from the folder sum query
-    expect(result.total).toBe(5);
-    expect(result.resolvedAccountId).toBeNull();
-
-    // The folder count query should have used total_count (not unread_count)
-    const countSql = query.mock.calls[1][0];
-    expect(countSql).toContain('COUNT(*)');
-    expect(countSql).toContain('message_labels');
+    expect(result).toEqual({ messages: [], total: 0 });
+    expect(query).toHaveBeenCalledOnce();
   });
 
   it('uses only opted-in accounts for the unified inbox', async () => {

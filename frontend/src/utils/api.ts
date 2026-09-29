@@ -332,6 +332,11 @@ export const api = {
     const flagTicket = mailFlagReadbackTicket();
     try {
       const data: MailListSnapshot = await request('GET', `/mail/messages?${toSearchParams(params)}`, undefined, undefined, options);
+      // A stale/mis-scoped backend response must never be cached or acknowledge
+      // another account's pending flags under the requested mailbox tab.
+      if (params.accountId && data.messages.some(row => row.account_id !== params.accountId)) {
+        throw new Error('Mail response does not match the requested account');
+      }
       const projected = isCurrentAuthEpoch(epoch) ? { ...data, messages: projectMailFlagIntents(data.messages, flagTicket).map(row => Number(row.message_count) > 1 ? ({
         ...row, _mailReadbackSequence: flagTicket.sequence, _mailProjectionScope: { folder: params.accountId ? params.folder || 'INBOX' : 'INBOX', category: params.category },
       }) : row) } : data;
@@ -502,6 +507,9 @@ export const api = {
     const epoch = getAuthEpoch();
     const flagTicket = mailFlagReadbackTicket();
     const data = await request('GET', `/search?${params}`);
+    if (accountId && Array.isArray(data?.messages) && data.messages.some((row: { account_id?: unknown }) => row.account_id !== accountId)) {
+      throw new Error('Search response does not match the requested account');
+    }
     return isCurrentAuthEpoch(epoch) && Array.isArray(data?.messages)
       ? { ...data, messages: projectMailFlagIntents(data.messages, flagTicket) } : data;
   },

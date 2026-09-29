@@ -175,6 +175,17 @@ describe('reading from the Gmail REST surface', () => {
     expect(urls[1]).toContain('format=metadata');
   });
 
+  it('returns absent only for an exact thread 404, not for the history endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Not found' } }), { status: 404 })));
+    expect(await fetchGmailThread(OPTIONS, 'deleted-thread')).toBeNull();
+    await expect(fetchGmailHistoryPage(OPTIONS, { startHistoryId: '123' })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+  });
+
+  it.each([401, 403, 429, 500])('does not treat thread HTTP %s as an empty thread', async status => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'Unavailable' } }), { status })));
+    await expect(fetchGmailThread(OPTIONS, 'existing-thread')).rejects.toMatchObject({ status });
+  });
+
   it('passes the page token and the start history id through', async () => {
     const urls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

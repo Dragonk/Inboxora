@@ -216,7 +216,8 @@ export default function MailApp() {
     }
     conversationApi.resolveMessage(selectedMessageId, selected?.account_id || null)
       .then(resolved => {
-        if (!cancelled && useStore.getState().authEpoch === resolutionAuthEpoch && resolved?.conversation_id) {
+        if (!cancelled && useStore.getState().authEpoch === resolutionAuthEpoch
+          && useStore.getState().selectedMessageId === selectedMessageId && resolved?.conversation_id) {
           setSelectedConversationCopy({
             id: resolved.physical_copy_id || resolved.id || selected?.id || selectedMessageId,
             accountId: resolved.account_id || resolved.accountId || selected?.account_id || null,

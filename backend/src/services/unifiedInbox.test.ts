@@ -23,10 +23,10 @@ describe('resolveAccountScope', () => {
     });
   });
 
-  it('falls back to unified scope for an account the user does not own', () => {
+  it('fails closed for an unavailable explicit account', () => {
     expect(resolveAccountScope(accounts, 'other')).toEqual({
-      accountIds: ['included', 'legacy'],
-      resolvedAccountId: null,
+      accountIds: [],
+      resolvedAccountId: 'other',
     });
   });
 });

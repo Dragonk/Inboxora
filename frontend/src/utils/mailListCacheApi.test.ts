@@ -119,3 +119,17 @@ test('unified thread projection follows the backend INBOX scope, while an accoun
   assert.deepEqual(unified.messages[0]._mailProjectionScope, { folder: 'INBOX', category: undefined });
   assert.deepEqual(explicit.messages[0]._mailProjectionScope, { folder: 'Sent', category: undefined });
 });
+
+
+test('a foreign-account list response is rejected before it can populate navigation cache', async () => {
+  globalThis.fetch = async () => json(data);
+  const gmail = { ...params, accountId: 'gmail' };
+  await assert.rejects(api.getMessages(gmail), /does not match the requested account/);
+  assert.equal(api.getCachedMessages(gmail), undefined);
+});
+
+
+test('account search rejects foreign rows before projecting their flags', async () => {
+  globalThis.fetch = async () => json(data);
+  await assert.rejects(api.search('invoice', 'gmail'), /does not match the requested account/);
+});

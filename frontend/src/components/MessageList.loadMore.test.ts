@@ -9,6 +9,7 @@ test('offset pages share the navigation-safe latest-request guard', async () => 
   assert.match(loadMore, /appendMessages\(applyDeleteGuard\(applyReadGuard\(data\.messages\)\)\)/);
   assert.match(loadMore, /setMessagesOffset\(currentOffset \+ data\.messages\.length\)/);
   assert.match(loadMore, /const signal = listAbortRef\.current\?\.signal/);
-  assert.match(loadMore, /if \(!signal\?\.aborted\) setLoadingMessages\(false\)/);
+  assert.match(loadMore, /if \(!signal\?\.aborted && isCurrentListScope\(\)\) setLoadingMessages\(false\)/);
+  assert.match(loadMore, /if \(!isCurrentListScope\(\)\) return;\s*appendMessages/);
   assert.doesNotMatch(loadMore, /const data = await api\.getMessages\(params, \{ signal \}\)/);
 });

@@ -1,3 +1,4 @@
+import { messageMatchesMailbox } from '../utils/mailViewScope.ts';
 import { appendPhysicalMessages, missingPhysicalMessages } from '../utils/nativeThreadMembership.ts';
 import { projectMailFlagIntents, projectMailThreadRows, scopedThreadUnreadCount } from '../utils/mailFlagIntents.ts';
 import { nativeThreadCacheMatchesRow, normalizedNativeThreadMembers } from '../utils/nativeThreadMembership.ts';
@@ -730,9 +731,9 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Messages
   messages: [],
   // Preserve every physical copy; RFC headers can be shared by distinct provider messages.
-  setMessages: (messages: StoreMessageRow[]) =>set(state => ({ messages: normalizedNativeThreadMembers(projectMailThreadRows(messages, state.threadMessages)) })),
+  setMessages: (messages: StoreMessageRow[]) =>set(state => ({ messages: normalizedNativeThreadMembers(projectMailThreadRows(messages.filter(row => !state.selectedAccountId || row.account_id === state.selectedAccountId), state.threadMessages)) })),
   appendMessages: (newMessages: StoreMessageRow[]) =>set((state: StoreStateRead) => {
-    const messages = appendPhysicalMessages(state.messages, projectMailFlagIntents(newMessages));
+    const messages = appendPhysicalMessages(state.messages, projectMailFlagIntents(newMessages.filter(row => !state.selectedAccountId || row.account_id === state.selectedAccountId)));
     return messages === state.messages ? {} : { messages };
   }),
   updateMessage: (id: string, updates: Record<string, unknown>, accountHint?: string) =>set((state: StoreStateRead) => {
@@ -821,9 +822,11 @@ export const useStore = create<StoreState>()((set, get) => ({
     if (!list.length) return {};
     invalidateMailListCacheForAccounts(messageAccountScope(state, new Set(list.map(row => row.id)), list));
     const sort = (arr: StoreMessageRow[]) => [...arr].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-    const missing = missingPhysicalMessages(state.messages, list);
+    const missing = missingPhysicalMessages(state.messages, list.filter(row => messageMatchesMailbox(row, state)));
     if (missing.length === 0 && !state.searchQuery.trim()) return {};
-    const missingFromSearch = missingPhysicalMessages(state.searchResults, list);
+    const searchScope = list.filter(row => (!state.selectedAccountId || row.account_id === state.selectedAccountId)
+      && (!state.selectedAccountId || state.searchAllFolders || messageMatchesMailbox(row, state)));
+    const missingFromSearch = missingPhysicalMessages(state.searchResults, searchScope);
     return {
       messages: missing.length ? sort([...state.messages, ...missing]) : state.messages,
       searchResults: state.searchQuery.trim() && missingFromSearch.length

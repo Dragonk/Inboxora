@@ -1,3 +1,4 @@
+import { populatedMessageSql, visiblePhysicalMessageSql } from '../../messageVisibility.js';
 import { deferMailFlagReadback } from '../../mailFlagState.js';
 import { publishMailStateChanged } from '../../mailStateEvents.js';
 import type { PoolClient } from 'pg';
@@ -91,7 +92,7 @@ interface LabelContext {
 export async function listGmailMailAccounts(client: PoolClient, input: { userId: string; connectionId: string }): Promise<string[]> {
   const result = await client.query<{ id: string }>(
     `SELECT a.id FROM email_accounts a
-      WHERE a.user_id = $1 AND a.mail_transport = 'gmail_api'
+      WHERE a.user_id = $1 AND a.mail_transport = 'gmail_api' AND a.enabled = true
         AND (
           a.provider_connection_id = $2
           OR EXISTS (
@@ -199,7 +200,8 @@ async function applyLabel(client: PoolClient, context: LabelContext, remoteId: s
  * reported for the message when it was ingested. A message that still carries
  * another mailbox label is moved to it; a message that now names no mailbox is
  * archived, which is the state this adapter models by **not** keeping a local
- * folder row — so its row is removed rather than re-filed under a synthetic path.
+ * folder row. Preserve its physical identity and flags in the virtual Archive;
+ * deleting a label is not evidence that its messages were deleted.
  *
  * A row with no stored label set (an IMAP-ingested row, or one written before
  * migration 0111) is left untouched: deleting it would be guessing.
@@ -212,7 +214,8 @@ async function rehomeMessagesFromDeletedLabel(
 ): Promise<number> {
   const rows = await client.query<{ id: string; provider_labels: string[] | null }>(
     `SELECT id, provider_labels FROM messages
-      WHERE account_id = $1 AND folder = $2 AND provider_labels IS NOT NULL`,
+      WHERE account_id = $1 AND folder = $2 AND provider_labels IS NOT NULL
+      ORDER BY id FOR UPDATE`,
     [context.accountId, removedPath],
   );
   let changed = 0;
@@ -220,7 +223,7 @@ async function rehomeMessagesFromDeletedLabel(
     const labels = row.provider_labels ?? [];
     const destination = primaryFolderPathForGmailLabels(labels, pathByLabelId);
     if (destination === null) {
-      await client.query('DELETE FROM messages WHERE id = $1', [row.id]);
+      await client.query('UPDATE messages SET is_archived = true WHERE id = $1', [row.id]);
       changed += 1;
       continue;
     }
@@ -229,6 +232,28 @@ async function rehomeMessagesFromDeletedLabel(
     changed += 1;
   }
   return changed;
+}
+
+/** Match the list's physical copies and label memberships, not absent labels.list counters. */
+async function refreshGmailFolderCounts(client: PoolClient, accountId: string): Promise<void> {
+  await client.query(`WITH visible AS MATERIALIZED (
+    SELECT m.id,m.folder,m.is_archived,m.is_read FROM messages m
+    WHERE m.account_id=$1 AND m.is_deleted=false AND (${visiblePhysicalMessageSql}) AND (${populatedMessageSql})
+  ), membership AS (
+    SELECT id,is_read,folder AS path FROM visible WHERE is_archived=false
+    UNION
+    SELECT v.id,v.is_read,ml.folder_path FROM visible v JOIN message_labels ml ON ml.message_id=v.id
+      WHERE ml.account_id=$1 AND ml.folder_path IS NOT NULL AND v.is_archived=false
+    UNION
+    SELECT id,is_read,'Archive' FROM visible WHERE is_archived=true
+  ), counts AS (
+    SELECT path,COUNT(*)::int AS total,COUNT(*) FILTER(WHERE is_read=false)::int AS unread
+    FROM membership GROUP BY path
+  ), expected AS (
+    SELECT f.id,COALESCE(c.total,0) AS total,COALESCE(c.unread,0) AS unread
+    FROM folders f LEFT JOIN counts c ON c.path=f.path WHERE f.account_id=$1
+  ) UPDATE folders f SET total_count=e.total,unread_count=e.unread
+    FROM expected e WHERE f.id=e.id AND (f.total_count IS DISTINCT FROM e.total OR f.unread_count IS DISTINCT FROM e.unread)`, [accountId]);
 }
 
 /**
@@ -253,7 +278,10 @@ export async function applyGmailMailLabels(
     totals.relocatedMessages += applied.movedMessages;
   }
 
-  if (options.complete === false) return totals;
+  if (options.complete === false) {
+    await refreshGmailFolderCounts(client, context.accountId);
+    return totals;
+  }
 
   const stale = await client.query<{ id: string; remote_id: string; path: string | null }>(
     `SELECT ic.id, ic.remote_id, f.path
@@ -276,6 +304,7 @@ export async function applyGmailMailLabels(
     totals.deleted += 1;
   }
 
+  await refreshGmailFolderCounts(client, context.accountId);
   return totals;
 }
 
@@ -979,8 +1008,8 @@ export async function syncGmailMailMessagesForAccount(input: {
   maxThreadsPerRun?: number;
 }): Promise<GmailMailMessageSyncResult> {
   const accountResult = await query<ConversationAccountRow>(
-    'SELECT id, user_id, imap_host, mail_transport FROM email_accounts WHERE id = $1',
-    [input.accountId],
+    "SELECT id, user_id, imap_host, mail_transport FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND mail_transport = 'gmail_api'",
+    [input.accountId, input.userId],
   );
   const account = accountResult.rows[0];
   if (!account) {
@@ -1131,6 +1160,7 @@ export async function syncGmailMailMessagesForAccount(input: {
       }
     }
 
+    await fenced(client => refreshGmailFolderCounts(client, input.accountId));
     if (!incomplete) {
       await commit({ cursor, clearPageCheckpoint: true });
       await finish();
@@ -1216,7 +1246,7 @@ async function runIncremental(
   }
 
   if (deletedMessageIds.size > 0) {
-    const deleted = await withTransaction(client => deleteGmailMessagesByProviderId(client, context.accountId, [...deletedMessageIds]));
+    const deleted = await fenced(client => deleteGmailMessagesByProviderId(client, context.accountId, [...deletedMessageIds]));
     totals.deleted += deleted;
     if (deleted) publishMailStateChanged({ userId: api.userId, accountId: context.accountId });
   }

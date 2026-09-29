@@ -1,3 +1,4 @@
+import { mailViewScopeMatches } from '../utils/mailViewScope.ts';
 import { sendMailRead } from '../utils/mailReadBatch.ts';
 import { MailListHeader, MailListTitle, MailRowHeading, MailRowSubject, MailRowSender, MailRowDate, MailRowAvatar, MailRowSelection, mailRowStyle, mailListSurfaceStyle } from './MailListPresentation.tsx';
 import { noteMailListLoaded, requestMailRefresh } from '../utils/mailRefresh.ts';
@@ -161,7 +162,7 @@ export default function MessageList() {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const {
-    selectedAccountId, selectedFolder, messages, setMessages,
+    authEpoch, selectedAccountId, selectedFolder, messages, setMessages,
     appendMessages, messagesTotal, setMessagesTotal,
     setMessagesOffset, hasMoreMessages, setHasMoreMessages,
     loadingMessages, setLoadingMessages, selectedMessageId, lastViewedMessageId,
@@ -192,6 +193,12 @@ export default function MessageList() {
     draftOpenGuardRef.current = guard;
     return () => { guard.invalidate(); };
   }, []);
+
+  // Navigation updates the store synchronously, before passive-effect cleanup.
+  // An old response in that interval must not write into the newly selected tab.
+  const isCurrentListScope = useCallback(() => mailViewScopeMatches(useStore.getState(), {
+    authEpoch, selectedAccountId, selectedFolder, messagesRefreshToken,
+  }), [authEpoch, selectedAccountId, selectedFolder, messagesRefreshToken]);
 
   const isMobile = useMobile();
   const isUnified = selectedAccountId === null;
@@ -496,7 +503,7 @@ export default function MessageList() {
       // Without this guard, the unified inbox query fires before getAccounts()
       // resolves, finds no account IDs, and returns empty — causing the blank
       // "All Inboxes" on first load.
-      if (!accountsReady) return;
+      if (!accountsReady || !isCurrentListScope()) return;
       setLoadingMessages(true);
       setMessagesOffset(0);
       setHasMoreMessages(true);
@@ -524,7 +531,7 @@ export default function MessageList() {
         await refreshRequest.run(
           () => api.getMessages(params, { signal: controller.signal }),
           (data: { messages: StoreMessageRow[]; total: number }) => {
-            if (cancelled) return;
+            if (cancelled || !isCurrentListScope()) return;
             console.info(`[perf] messages load ${Date.now() - __t0}ms unified=${!selectedAccountId} count=${data.messages.length} total=${data.total}`);
             noteMailListLoaded();
             threadListGenerationRef.current += 1;
@@ -539,27 +546,27 @@ export default function MessageList() {
               setFolderSyncing(true);
               api.syncFolder(selectedAccountId, selectedFolder)
                 .catch(err => console.error('syncFolder failed:', toAppError(err).message))
-                .finally(() => { if (!cancelled) setFolderSyncing(false); });
+                .finally(() => { if (!cancelled && isCurrentListScope()) setFolderSyncing(false); });
             } else {
               setFolderSyncing(false);
             }
           },
         );
       } catch (err) {
-        if (cancelled || isAbortError(err)) return;
+        if (cancelled || !isCurrentListScope() || isAbortError(err)) return;
         console.error('Failed to load messages:', err);
         setFolderSyncing(false);
       } finally {
-        if (!cancelled) setLoadingMessages(false);
+        if (!cancelled && isCurrentListScope()) setLoadingMessages(false);
       }
     };
     run();
     return () => { cancelled = true; controller.abort(); refreshRequest.invalidate(); };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, scrollMode, accountsReady, unifiedInboxAccountKey, messagesRefreshToken, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, isCurrentListScope]);
 
   // Load next page (called by scroll or button)
   const loadMore = useCallback(async () => {
-    if (loadingMessages || !hasMoreMessages) return;
+    if (loadingMessages || !hasMoreMessages || !isCurrentListScope()) return;
     setLoadingMessages(true);
     const signal = listAbortRef.current?.signal;
     try {
@@ -579,6 +586,7 @@ export default function MessageList() {
       await refreshRequest.run(
         () => api.getMessages(params, { signal }),
         (data: { messages: StoreMessageRow[]; total: number }) => {
+          if (!isCurrentListScope()) return;
           appendMessages(applyDeleteGuard(applyReadGuard(data.messages)));
           setMessagesOffset(currentOffset + data.messages.length);
           setHasMoreMessages(currentOffset + data.messages.length < data.total);
@@ -587,9 +595,9 @@ export default function MessageList() {
     } catch (err) {
       if (!isAbortError(err)) console.error('Failed to load more messages:', err);
     } finally {
-      if (!signal?.aborted) setLoadingMessages(false);
+      if (!signal?.aborted && isCurrentListScope()) setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, refreshRequest]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, hasMoreMessages, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, appendMessages, setHasMoreMessages, setLoadingMessages, setMessagesOffset, refreshRequest, isCurrentListScope]);
 
   useEffect(() => {
     if (!loadingMessages && !searchInProgress && pendingLiveRefreshRef.current) {
@@ -603,7 +611,7 @@ export default function MessageList() {
   useEffect(() => {
     let active = true;
     const epoch = useStore.getState().authEpoch;
-    const isCurrent = () => active && useStore.getState().authEpoch === epoch;
+    const isCurrent = () => active && useStore.getState().authEpoch === epoch && isCurrentListScope();
     const run = async () => {
       if (!isCurrent()) return;
       if (useStore.getState().loadingMessages || useStore.getState().isSearching) {
@@ -669,11 +677,12 @@ export default function MessageList() {
       refresh.dispose();
       window.removeEventListener('inboxora:refresh', handler);
     };
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, isCurrentListScope]);
 
   // Search
   useEffect(() => {
     clearTimeout(searchTimer.current);
+    setSearchLoadingMore(false);
     if (!searchQuery.trim()) {
       setIsSearching(false);
       setSearchResults([]);
@@ -687,19 +696,19 @@ export default function MessageList() {
     searchTimer.current = setTimeout(async () => {
       try {
         const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, limit: searchPageSize, folder: searchFolder });
-        if (searchSeq.current !== seq) return;
+        if (searchSeq.current !== seq || !isCurrentListScope()) return;
         noteMailListLoaded();
         searchFetchedOffsetRef.current = data.messages.length;
         setSearchResults(applyReadGuard(data.messages));
         setSearchHasMore(data.messages.length === searchPageSize);
       } catch (err) {
-        if (searchSeq.current === seq) console.error('Search failed:', err);
+        if (searchSeq.current === seq && isCurrentListScope()) console.error('Search failed:', err);
       } finally {
-        if (searchSeq.current === seq) setIsSearching(false);
+        if (searchSeq.current === seq && isCurrentListScope()) setIsSearching(false);
       }
     }, 300);
     return () => { clearTimeout(searchTimer.current); searchSeq.current += 1; };
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults, isCurrentListScope]);
 
   // Re-run an active search (and refresh the folder view) after inbox rules run, since
   // rules can move messages out of the searched folder and a search snapshot would
@@ -717,14 +726,14 @@ export default function MessageList() {
   }, []);
 
   const loadMoreSearch = useCallback(async () => {
-    if (searchLoadingMore) return;
+    if (searchLoadingMore || !isCurrentListScope()) return;
     const qSnapshot = searchQuery; // capture before async gap
     setSearchLoadingMore(true);
     try {
       const offset = searchFetchedOffsetRef.current;
       const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
       // Discard results if the query changed while we were fetching
-      if (useStore.getState().searchQuery !== qSnapshot) return;
+      if (useStore.getState().searchQuery !== qSnapshot || !isCurrentListScope()) return;
       searchFetchedOffsetRef.current = offset + data.messages.length;
       const current = useStore.getState().searchResults;
       useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages)] });
@@ -732,16 +741,16 @@ export default function MessageList() {
     } catch (err) {
       console.error('Search load more failed:', err);
     } finally {
-      setSearchLoadingMore(false);
+      if (isCurrentListScope()) setSearchLoadingMore(false);
     }
-  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard]);
+  }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchLoadingMore, applyReadGuard, isCurrentListScope]);
 
   const prefetchSearchAfterRemoval = useCallback(async (offset: number) => {
     const qSnapshot = useStore.getState().searchQuery;
-    if (!qSnapshot.trim()) return;
+    if (!qSnapshot.trim() || !isCurrentListScope()) return;
     try {
       const data = await api.search(qSnapshot, selectedAccountId || undefined, { offset, limit: searchPageSize, folder: searchFolder });
-      if (useStore.getState().searchQuery !== qSnapshot) return;
+      if (useStore.getState().searchQuery !== qSnapshot || !isCurrentListScope()) return;
       searchFetchedOffsetRef.current = Math.max(searchFetchedOffsetRef.current, offset + data.messages.length);
       const additions = applyReadGuard(data.messages);
       if (!additions.length) {
@@ -757,7 +766,7 @@ export default function MessageList() {
     } catch (err) {
       console.error('Search prefetch after delete failed:', err);
     }
-  }, [selectedAccountId, searchFolder, searchPageSize, applyReadGuard]);
+  }, [selectedAccountId, searchFolder, searchPageSize, applyReadGuard, isCurrentListScope]);
 
   // Infinite scroll + scroll-to-top visibility
   const handleScroll = useCallback(() => {
@@ -777,7 +786,7 @@ export default function MessageList() {
 
   // Load a specific page (paginated mode)
   const loadPage = useCallback(async (pageNum: number) => {
-    if (loadingMessages) return;
+    if (loadingMessages || !isCurrentListScope()) return;
     setLoadingMessages(true);
     setCurrentPage(pageNum);
     const signal = listAbortRef.current?.signal;
@@ -790,6 +799,7 @@ export default function MessageList() {
       await refreshRequest.run(
         () => api.getMessages(params, { signal }),
         (data: { messages: StoreMessageRow[]; total: number }) => {
+          if (!isCurrentListScope()) return;
           noteMailListLoaded();
           threadListGenerationRef.current += 1;
           setMessagesTotal(data.total);
@@ -803,9 +813,9 @@ export default function MessageList() {
     } catch (err) {
       if (!isAbortError(err)) console.error('Failed to load page:', err);
     } finally {
-      if (!signal?.aborted) setLoadingMessages(false);
+      if (!signal?.aborted && isCurrentListScope()) setLoadingMessages(false);
     }
-  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest]);
+  }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, pageSize, loadingMessages, threadedView, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setExpandedThreadId, setHasMoreMessages, setLoadingMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, isCurrentListScope]);
 
   const handleSync = async () => {
     if (syncing) return;
