@@ -45,6 +45,14 @@ rollback, completed-task idempotency and an existing `57014` checkpoint progress
 completion. Existing migration/restart tests remain active.
 
 
+The same dev build updates the direct `undici` dependency to 6.29.0 after the
+required CI audit found a high-severity upstream vulnerability in 6.28.0. This
+stays on the existing major version. Safe-fetch regressions and the unchanged
+high-severity audit gate verify the update; no forced major upgrades or audit
+exclusions are introduced. Existing moderate advisories in other dependencies
+remain outside this storage follow-up and are not reported as resolved.
+
+
 ## Mail status and provider collection consistency
 
 Read/unread and star actions share a PostgreSQL-backed intent queue across Microsoft Graph, Gmail API and IMAP, including Gmail over IMAP. The latest explicit click owns its generation. Bulk requests persist every member before the first provider call; a bounded immediate slice runs while the worker owns the remainder. Responses distinguish confirmed, pending and failed IDs. The client requests fresh evidence after uncertainty instead of retaining an optimistic flag indefinitely, and old responses cannot overwrite another session or a newer click.

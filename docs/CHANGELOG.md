@@ -90,6 +90,10 @@ finalized below and dated with its publication date.
 - Mail merge now accepts the same transport-aware JSON request window as normal and scheduled sending instead of the global 1 MB cap. Per-account attachment and message limits still apply; a live API regression checks attachment parsing without dispatching mail.
 - The PostgreSQL CardDAV contact-preservation fixture now mocks privilege discovery and rejects unexpected DNS/HTTP access, removing network-dependent CI timeouts without relaxing its data-safety assertions. Application behavior is unchanged.
 
+### Security
+
+- Update the backend HTTP client to `undici` 6.29.0, covering GHSA-rfgv-xxqx-mfg5 and related upstream fixes. Keep the existing high-severity dependency-audit gate enabled; no HTTP/provider policy changes.
+
 ## [4.1.2] - 2026-09-28
 
 ### Changed
