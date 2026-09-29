@@ -13,6 +13,7 @@ import { api } from '../utils/api.ts';
 import { useStore } from '../store/index.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { useCompactLayout } from '../hooks/useCompactLayout.ts';
+import InlineEditor from './accountUi/InlineEditor.tsx';
 import { Button, Dialog, PanelResizeHandle, inputStyle as sharedInputStyle } from './ui.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import { beginPanelResize } from '../utils/panelWidth.ts';
@@ -826,14 +827,14 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     failureKey: code => providerFailureKey(code) ?? 'contacts.addressBooks.lastSyncFailed',
   });
   const selectedBook = addressBooks.find(book => book.id === selectedAddressBookId);
-  const bookControls = <div className="contacts-book-controls">
+  const bookControls = <div className="contacts-book-controls" style={phone ? { display: 'contents' } : undefined}>
     <BookSelectionPanel books={addressBooks} selected={selectedAddressBookIds} onChange={bookPresentation.setSelected}
       collapsed={bookPresentation.collapsed} onCollapse={bookPresentation.setCollapsed}
       open={booksOpen} onOpen={() => setBooksOpen(true)} onClose={() => setBooksOpen(false)} hideTrigger={phone}
       loading={!bookPresentation.ready} failed={bookPresentation.failed}/>
     {/* One entry point into the manager: a compact icon, because a labelled button competed with the book
         strip for the little room the header has. The panel it opens is the full manager. */}
-    <button
+    {!phone && <button
       type="button"
       data-testid="contacts-manage-books"
       aria-label={t('contacts.booksManager.manage')}
@@ -854,7 +855,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
         <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5" />
         <path d="M12 3v7l2.5-1.5L17 10V3" />
       </svg>
-    </button>
+    </button>}
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} style={{ display: 'none' }} />
     <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} style={{ display: 'none' }} />
     {importNotice && <p role="status" data-testid="contacts-import-result" style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-tertiary)' }}>{importNotice}</p>}
@@ -946,7 +947,8 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
   />;
 
   // Rendered by both layouts: the address-book menu is shared, so its dialog must be too.
-  const bookNameDialog = bookDialog && <Dialog
+  const BookEditorSurface = settingsOnly ? InlineEditor : Dialog;
+  const bookNameDialog = bookDialog && <BookEditorSurface
     title={t(bookDialog.mode === 'create' ? 'contacts.addressBooks.create' : 'contacts.addressBooks.renameTitle')}
     closeLabel={t('common.close')}
     busy={bookSaving}
@@ -989,7 +991,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
         </>
       )}
     </div>
-  </Dialog>;
+  </BookEditorSurface>;
   const searchControl = <div className="contacts-search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.4-4.4" /></svg>
     <input type="search" value={search} onChange={onSearchChange} aria-label={t('contacts.search')} placeholder={t('contacts.search')} style={{ ...sharedInputStyle, paddingLeft: 30 }} />
@@ -1183,7 +1185,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     {importNotice && <p role="status">{importNotice}</p>}
     <input ref={importInputRef} type="file" accept=".csv,text/csv" onChange={importGoogleCsv} hidden />
     <input ref={importVCardRef} type="file" accept=".vcf,text/vcard" onChange={importVCardFile} hidden />
-    {booksManager}{bookNameDialog}
+    {bookDialog ? bookNameDialog : booksManager}
   </section>;
 
   // ── Mobile layout ─────────────────────────────────────────────────────────
@@ -1203,6 +1205,7 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
           subtitle={mobilePanel === 'detail' ? undefined : t('accountUi.selectedOf', { selected: selectedAddressBookIds.length, total: addressBooks.filter(book => book.visible !== false).length })}
         >
           <HeaderAction icon="books" label={t('contacts.addressBooks.label')} data-testid="contacts-address-books" onClick={() => setBooksOpen(true)} />
+          <HeaderAction icon="settings" label={t('contacts.booksManager.manage')} data-testid="contacts-manage-books-mobile" onClick={openBookSettings} />
           <HeaderAction icon="add" label={t('contacts.new')} data-testid="contacts-header-new" onClick={startNew} disabled={inForm} />
         </MobileModuleHeader>}
         {!phone && <div className="contacts-compact-heading">

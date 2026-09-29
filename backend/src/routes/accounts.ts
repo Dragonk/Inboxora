@@ -1,3 +1,7 @@
+import { resolveMailTransportForSync } from '../services/mailTransportTarget.js';
+import { syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from '../services/providers/google/gmailMailSync.js';
+import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
+import { mailIndexDiagnostics } from '../services/mailIndexDiagnostics.js';
 import { Router } from 'express';
 import type { Response } from 'express';
 import { query, type DbRow } from '../services/db.js';
@@ -916,27 +920,44 @@ router.get('/:id/folders', async (req, res) => {
   res.json(result.rows);
 });
 
-router.post('/:id/reindex', async (req, res) => {
-  try {
-    const result = await query<EmailAccountRow>(
-      "SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND protocol = 'imap'",
-      [req.params.id, req.session.userId]
-    );
-    if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
+router.get('/:id/index-status', async (req, res) => {
+  const status = await mailIndexDiagnostics(req.session.userId!, req.params.id, imapManager.backfillAllRunning.has(req.params.id));
+  if (!status) return res.status(404).json({ error: 'Account not found' });
+  res.json(status);
+});
 
-    const account = result.rows[0];
-    const alreadyRunning = imapManager.backfillAllRunning.has(account.id);
-    if (!alreadyRunning) {
-      imapManager.backfillAllFolders(account).catch(err =>
-        console.error(`Manual reindex error for ${account.email_address}:`, err.message)
-      );
+router.post('/:id/reindex', async (req, res) => {
+  const result = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true', [req.params.id, req.session.userId]);
+  const account = result.rows[0];
+  if (!account) return res.status(404).json({ error: 'Account not found or disabled' });
+  const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+  if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
+  const alreadyRunning = target.kind === 'imap' && imapManager.backfillAllRunning.has(account.id);
+  if (alreadyRunning) return res.json({ ok: true, alreadyRunning: true });
+  await query('UPDATE email_accounts SET reindex_requested_at = NOW(), reindex_error = NULL WHERE id = $1 AND user_id = $2', [account.id, req.session.userId]);
+  // Native requests survive process restarts in email_accounts and are consumed
+  // by the next leased message run. Never route an API-only account through IMAP.
+  const run = async () => {
+    if (target.kind === 'gmail') {
+      const input = { userId: req.session.userId!, accountId: account.id, connectionId: target.connectionId, config: target.config };
+      await syncGmailMailLabelsForAccount(input); await syncGmailMailMessagesForAccount(input);
+    } else if (target.kind === 'graph') {
+      const input = { userId: req.session.userId!, accountId: account.id, connectionId: target.connectionId, config: target.config };
+      await syncGraphMailFoldersForAccount(input); await syncGraphMailMessagesForAccount(input);
+    } else {
+      await imapManager.backfillAllFolders(account);
+      await query('UPDATE email_accounts SET reindex_completed_at = NOW() WHERE id = $1', [account.id]);
     }
-    res.json({ ok: true, alreadyRunning });
-  } catch (caught) {
-    const err = toAppError(caught);
-    console.error('POST /accounts/:id/reindex error:', err.message);
-    res.status(500).json({ error: 'Failed to start reindex' });
-  }
+  };
+  void run().catch(async (caught: unknown) => {
+    const error = toAppError(caught);
+    // An active native lease will consume this request on its next pass.
+    if (error.code !== 'SYNC_ALREADY_RUNNING') {
+      console.error('Account reindex failed:', account.id, error.code || error.name);
+      await query('UPDATE email_accounts SET reindex_error = $2 WHERE id = $1', [account.id, error.code || 'REINDEX_FAILED']).catch(console.error);
+    }
+  });
+  res.status(202).json({ ok: true, alreadyRunning: false });
 });
 
 export default router;

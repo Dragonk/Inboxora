@@ -7,10 +7,9 @@ async function openBooks(page: any) {
     { id: 'book-private', name: 'Prywatna', source: 'local', visible: true, read_only: false },
   ] } }));
   await navigateModule(page, 'contacts');
-  await page.getByTestId('contacts-manage-books').click();
+  await page.getByTestId(page.viewportSize().width < 768 ? 'contacts-manage-books-mobile' : 'contacts-manage-books').click();
   const manager = page.getByTestId('contacts-books-manager');
   await expect(manager).toBeVisible();
-  await page.getByRole('tab').nth(1).click();
   return manager;
 }
 

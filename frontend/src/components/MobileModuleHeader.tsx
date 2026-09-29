@@ -23,7 +23,7 @@ export function MobileModuleHeader({ leading = null, title = '', subtitle = unde
   </>, host);
 }
 
-export type HeaderActionIcon = 'back' | 'previous' | 'next' | 'unread' | 'sync' | 'select' | 'close' | 'compose' | 'add' | 'books' | 'calendars' | 'agenda';
+export type HeaderActionIcon = 'back' | 'previous' | 'next' | 'unread' | 'sync' | 'select' | 'close' | 'compose' | 'add' | 'books' | 'calendars' | 'agenda' | 'settings';
 
 export interface HeaderActionProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon: HeaderActionIcon;
@@ -33,6 +33,7 @@ export interface HeaderActionProps extends ButtonHTMLAttributes<HTMLButtonElemen
 
 export function HeaderAction({ icon, label, ...props }: HeaderActionProps) {
   const paths: Record<HeaderActionIcon, ReactNode> = {
+    settings: <><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--bg-secondary)"/><circle cx="15" cy="17" r="3" fill="var(--bg-secondary)"/></>,
     back: <path d="m15 18-6-6 6-6"/>,
     previous: <path d="m18 15-6-6-6 6"/>,
     next: <path d="m6 9 6 6 6-6"/>,

@@ -1,3 +1,4 @@
+import { calendarSenders, calendarSenderValue } from '../utils/calendarSenders.ts';
 import { useCalendarColorPreview } from './accountUi/calendarPreview.ts';
 import { readableText } from './accountUi/model.ts';
 import { safeHttpUrl } from '../utils/contactLinks.ts';
@@ -93,7 +94,7 @@ function resolveDateLocale(language: string): string {
   return DATE_LOCALE_OVERRIDES[language] || language.replace('_', '-');
 }
 
-const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)), recurrence: { frequency: 'none' as const, interval: 1, byWeekday: [] as number[], end: 'never' as const, until: '', count: 1 } });
+const emptyForm = (calendarId = '', date = new Date(), inviteAccountId = '', inviteAliasId = '') => ({ calendarId, summary: '', description: '', location: '', url: '', organizer: '', attendees: [], sendInvites: false, inviteAccountId, inviteAliasId, allDay: false, startsAt: toDateTimeLocal(date), endsAt: toDateTimeLocal(new Date(date.getTime() + 3600000)), recurrence: { frequency: 'none' as const, interval: 1, byWeekday: [] as number[], end: 'never' as const, until: '', count: 1 } });
 function iso(date: Date) { return date.toISOString(); }
 function calendarDays(anchor: Date, weekStartsOn = 1) {
   const { start } = monthRange(anchor); const first = new Date(start); first.setDate(first.getDate() - ((first.getDay() - weekStartsOn + 7) % 7));
@@ -124,6 +125,8 @@ export default function CalendarPage({ isActive = true }) {
   const calendarWorkHoursStart = useStore((state: StoreState) => state.calendarWorkHoursStart);
   const calendarWorkHoursEnd = useStore((state: StoreState) => state.calendarWorkHoursEnd);
   // Sender preselected for invitations (Settings → Calendar).
+  const calendarShowAgenda = useStore((state: StoreState) => state.calendarShowAgenda);
+  const calendarInviteAliasId = useStore((state: StoreState) => state.calendarInviteAliasId);
   const calendarInviteAccountId = useStore((state: StoreState) => state.calendarInviteAccountId);
   const visibleCalendarIds = useStore((state: StoreState) => state.visibleCalendarIds);
   const setSelectedMessage = useStore((state: StoreState) => state.setSelectedMessage);
@@ -258,23 +261,24 @@ export default function CalendarPage({ isActive = true }) {
     setPreview(null);
   }, [invitation, isActive, isMobile]);
   const writable = calendars.filter(calendar => !calendar.read_only);
-  const senderAccounts = accounts.filter(account => account.enabled && account.smtp_host);
+  const senderAccounts = accounts.filter(account => calendarSenders([account]).length > 0);
   const openCreate = (date = anchor) => {
     if (!writable.length) return;
     invitation.reset();
     // The sender chosen in Settings → Calendar is preselected. A default whose
     // account can no longer send is ignored rather than carried as a dead value.
-    const defaultInviteAccountId = senderAccounts.some(account => account.id === calendarInviteAccountId) ? calendarInviteAccountId : '';
+    const defaultSender = calendarSenders(senderAccounts).find(sender => sender.value === calendarSenderValue(calendarInviteAccountId, calendarInviteAliasId));
+    const defaultInviteAccountId = defaultSender?.accountId || '';
     setSeriesSnapshot(null);
     setOccurrenceSnapshot(null);
-    setForm({ ...emptyForm(writable[0]?.id || '', date, defaultInviteAccountId), mode: 'create' });
+    setForm({ ...emptyForm(writable[0]?.id || '', date, defaultInviteAccountId, defaultSender?.aliasId || ''), mode: 'create' });
   };
   const openEdit = (event: CalendarFormEvent) => {
     invitation.reset();
     const id = String(event.series_id || event.id);
     const recurring = Boolean(event.recurring && event.recurrence_id);
     const outboxId = typeof event.cancellation_outbox_id === 'string' ? event.cancellation_outbox_id : null;
-    const opened: CalendarEventFormState = { mode: 'edit', ...event, id, seriesId: event.series_id ? String(event.series_id) : undefined, editScope: recurring ? 'single' : undefined, recurrenceId: recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', cancellationDelivery: outboxId ? { outboxId, status: null } : null, allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) };
+    const opened: CalendarEventFormState = { mode: 'edit', ...event, id, seriesId: event.series_id ? String(event.series_id) : undefined, editScope: recurring ? 'single' : undefined, recurrenceId: recurring ? event.recurrence_id : undefined, calendarId: event.calendar_id || '', summary: event.summary || '', description: event.description || '', location: event.location || '', url: event.url || '', organizer: event.organizer || '', attendees: Array.isArray(event.attendees) ? event.attendees : [], sendInvites: Boolean(event.invite_account_id && event.attendees?.length), inviteAccountId: event.invite_account_id || '', inviteAliasId: typeof event.invite_alias_id === 'string' ? event.invite_alias_id : '', cancellationDelivery: outboxId ? { outboxId, status: null } : null, allDay: Boolean(event.all_day), startsAt: event.all_day ? String(event.starts_at).slice(0, 10) : toDateTimeLocal(event.starts_at), endsAt: event.all_day ? String(event.ends_at).slice(0, 10) : toDateTimeLocal(event.ends_at) };
     setForm(opened);
     setSeriesSnapshot(null);
     setOccurrenceSnapshot(recurring ? editableSnapshot(opened) : null);
@@ -295,7 +299,7 @@ export default function CalendarPage({ isActive = true }) {
           organizer: String(masterRecord.organizer ?? ''),
           attendees: Array.isArray(masterRecord.attendees) ? masterRecord.attendees as string[] : [],
           sendInvites: Boolean(masterRecord.invite_account_id && Array.isArray(masterRecord.attendees) && masterRecord.attendees.length),
-          inviteAccountId: String(masterRecord.invite_account_id ?? ''),
+          inviteAccountId: String(masterRecord.invite_account_id ?? ''), inviteAliasId: String(masterRecord.invite_alias_id ?? ''),
           allDay,
           startsAt: allDay ? String(masterRecord.starts_at ?? '').slice(0, 10) : toDateTimeLocal(masterRecord.starts_at),
           endsAt: allDay ? String(masterRecord.ends_at ?? '').slice(0, 10) : toDateTimeLocal(masterRecord.ends_at),
@@ -325,7 +329,7 @@ export default function CalendarPage({ isActive = true }) {
     summary: source.summary ?? '', description: source.description ?? '', location: source.location ?? '',
     url: source.url ?? '', organizer: source.organizer ?? '',
     attendees: Array.isArray(source.attendees) ? source.attendees : [],
-    sendInvites: Boolean(source.sendInvites), inviteAccountId: source.inviteAccountId ?? '',
+    sendInvites: Boolean(source.sendInvites), inviteAccountId: source.inviteAccountId ?? '', inviteAliasId: source.inviteAliasId ?? '',
     allDay: Boolean(source.allDay), startsAt: source.startsAt ?? '', endsAt: source.endsAt ?? '',
   });
   const changeEditScope = (scope: 'single' | 'following' | 'series') => {
@@ -523,8 +527,8 @@ export default function CalendarPage({ isActive = true }) {
         {view === 'agenda' ? <CalendarAgenda {...agendaProps} monthly /> : <CalendarGrid days={days} dayEventsFor={dayEventsFor} view={view} anchor={anchor} isMobile={isMobile} locale={locale} onSelectDay={selectDay} openCreate={openCreate} openEdit={openEvent} openContextMenu={(event, x, y, trigger) => setContextMenu({ event, x, y, triggerRef: { current: trigger } })} t={t} calendarWorkHoursStart={calendarWorkHoursStart} calendarWorkHoursEnd={calendarWorkHoursEnd} />}
       </div>
     </main>
-    {!compact && <PanelResizeHandle testId="calendar-agenda-resize" onMouseDown={handleAgendaResizeMouseDown} />}
-    {!compact && <aside className="calendar-agenda" aria-label={t('calendar.dayAgenda')}><CalendarAgenda {...agendaProps} /></aside>}
+    {!compact && calendarShowAgenda && <PanelResizeHandle testId="calendar-agenda-resize" onMouseDown={handleAgendaResizeMouseDown} />}
+    {!compact && calendarShowAgenda && <aside className="calendar-agenda" aria-label={t('calendar.dayAgenda')}><CalendarAgenda {...agendaProps} /></aside>}
     {/* Narrow screens show both calendar panels as the same bottom sheet the
         contact and mail lists use, instead of two differently placed drawers. */}
     {compact && dayPanelOpen && <Dialog title={t('calendar.dayAgenda')} closeLabel={t('calendar.close')} onClose={() => setDayPanelOpen(false)} testId="calendar-day-sheet" className="calendar-day-dialog ui-sheet"><CalendarAgenda {...agendaProps} /></Dialog>}
@@ -786,7 +790,7 @@ function EventDialog({ form, error, calendars, accounts, saving, seriesReady, on
       <div className="calendar-description"><span className="calendar-description-label">{t('calendar.description')}</span><RichTextEditor value={form.description} onChange={(html: string) => onChange('description', html)} placeholder={t('calendar.descriptionPlaceholder')} label={t('calendar.description')} testId="calendar-event-description" /></div>
       <div className="calendar-invites ui-form"><label className="ui-check"><input type="checkbox" checked={form.sendInvites} onChange={e => onChange('sendInvites', e.target.checked)} />{t('calendar.sendInvites')}</label>
         {form.sendInvites && <><label>{t('calendar.attendees')}<input value={attendeeValue} onChange={e => onChange('attendees', e.target.value.split(',').map(email => email.trim()).filter(Boolean))} placeholder={t('calendar.attendeesPlaceholder')} /></label>
-          <label>{t('calendar.senderAccount')}<select value={form.inviteAccountId} onChange={e => onChange('inviteAccountId', e.target.value)}><option value="">{t('calendar.chooseSender')}</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}</select></label>
+          <label>{t('calendar.senderAccount')}<select value={calendarSenderValue(form.inviteAccountId || '', form.inviteAliasId)} onChange={e => { const sender = calendarSenders(accounts).find(item => item.value === e.target.value); onChange('inviteAccountId', sender?.accountId || ''); onChange('inviteAliasId', sender?.aliasId || ''); }}><option value="">{t('calendar.chooseSender')}</option>{calendarSenders(accounts).map(sender => <option key={sender.value} value={sender.value}>{sender.label}</option>)}</select></label>
           {!accounts.length && <p>{t('calendar.noSenderAccounts')}</p>}</>}
       </div>
     </div>

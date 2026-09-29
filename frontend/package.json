@@ -30,7 +30,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --import tsx --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\" \"*.test.ts\" \"packages/**/*.test.cjs\"",
-    "test:i18n": "node --import tsx --test src/locales/i18n.test.ts src/locales/i18n-source.test.ts",
+    "test:i18n": "node --import tsx --test src/locales/i18n.test.ts src/locales/i18n-source.test.ts packages/native-shell/i18n.test.cjs",
     "typecheck": "tsc --noEmit",
     "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
     "typecheck:watch": "tsc --noEmit --watch",
@@ -43,7 +43,8 @@
     "android:sync": "npm run native:prepare && node packages/scripts/sync-android.cjs",
     "android:dist": "npm run android:sync && node packages/scripts/build-android.cjs && node packages/scripts/collect-android-artifacts.cjs",
     "test:e2e": "playwright test",
-    "docs:screenshots": "DOCS_SCREENSHOTS=1 playwright test e2e/docs-screenshots.spec.ts --project=chromium-desktop --project=chromium-mobile-390"
+    "docs:screenshots": "DOCS_SCREENSHOTS=1 playwright test e2e/docs-screenshots.spec.ts --project=chromium-desktop --project=chromium-mobile-390",
+    "native:locales": "node packages/scripts/generate-native-locales.cjs"
   },
   "build": {
     "appId": "io.github.dragonk.inboxora",
@@ -110,7 +111,52 @@
       "desktop": {
         "entry": {
           "Name": "Inboxora",
-          "StartupWMClass": "Inboxora"
+          "StartupWMClass": "Inboxora",
+          "Actions": "Compose;Calendar;Contacts;"
+        },
+        "desktopActions": {
+          "Compose": {
+            "Name": "Compose",
+            "Name[en]": "Compose",
+            "Name[pl]": "Napisz",
+            "Name[de]": "Verfassen",
+            "Name[cs]": "Napsat",
+            "Name[fr]": "Composer",
+            "Name[es]": "Redactar",
+            "Name[it]": "Scrivi",
+            "Name[ru]": "Написать",
+            "Name[zh_CN]": "撰写",
+            "Exec": "/opt/Inboxora/Inboxora --inboxora-action=new-mail",
+            "Icon": "Inboxora"
+          },
+          "Calendar": {
+            "Name": "Calendar",
+            "Name[en]": "Calendar",
+            "Name[pl]": "Kalendarz",
+            "Name[de]": "Kalender",
+            "Name[cs]": "Kalendář",
+            "Name[fr]": "Calendrier",
+            "Name[es]": "Agenda",
+            "Name[it]": "Calendario",
+            "Name[ru]": "Календарь",
+            "Name[zh_CN]": "日历",
+            "Exec": "/opt/Inboxora/Inboxora --inboxora-action=open-calendar",
+            "Icon": "Inboxora"
+          },
+          "Contacts": {
+            "Name": "Contacts",
+            "Name[en]": "Contacts",
+            "Name[pl]": "Kontakty",
+            "Name[de]": "Kontakte",
+            "Name[cs]": "Kontakty",
+            "Name[fr]": "Contacts",
+            "Name[es]": "Contactos",
+            "Name[it]": "Contatti",
+            "Name[ru]": "Контакты",
+            "Name[zh_CN]": "联系人",
+            "Exec": "/opt/Inboxora/Inboxora --inboxora-action=open-contacts",
+            "Icon": "Inboxora"
+          }
         }
       }
     },

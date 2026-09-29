@@ -7,6 +7,69 @@ stale thread/read state, makes returning to recently visited mailboxes feel imme
 repairs Microsoft Graph legacy-alias visibility, bounds several sources of database
 growth, and adds administrator controls for mail-body warming and data retention.
 
+## Development updates after 4.1.2
+
+The following changes are in `dev`; they are **not part of the already published
+4.1.2 binaries**. The application version is unchanged pending the next release.
+
+Settings now group Accounts, Calendars and Contacts under **General**. Calendar
+appearance lives in **Appearance → Calendar**, between Layout and Fonts/Language,
+including the desktop agenda switch. The preferred invitation sender lives in
+**Calendars** and supports eligible SMTP/API mailboxes and their aliases.
+Accounts expose General, Services/Servers, Folder mappings, Aliases and Diagnostics
+inside one editor. Resource editors stay inside settings, with separate row-level
+Edit/Delete actions. Rules and Antispam reuse shared theme-aware controls.
+
+**DAV upgrade:** apply `0162_settings_mail_diagnostics.sql`, then
+`0163_unified_dav_accounts.sql`, then `0164_calendar_invitation_aliases.sql` through
+the normal migration runner before the updated backend starts accepting requests.
+Startup then links existing CalDAV and CardDAV sources to logical accounts, before
+starting their schedulers. The migration is idempotent and preserves source,
+calendar, address-book, event and contact identifiers and local presentation.
+Only matching usernames, decrypted credentials and a recognized server scope (or
+an exact canonical URL) are merged. Different or unprovable identities remain
+separate accounts. A source whose credential cannot be decrypted is not merged
+with another source. Keep the existing encryption key and take the normal database
+backup before upgrading; do not downgrade the application without reviewing the
+new service-enable settings.
+
+Turning a DAV service off pauses synchronization without deleting its data.
+Renaming an account does not resume a previously paused source. Adding a connection
+performs read-only discovery and allows either or both supported services.
+Diagnostics → Sync also discovers newly added resources, including an initially
+empty CalDAV home. Disconnecting an account removes its local mirrors, not remote
+collections; deleting an individual remote resource remains a separate, confirmed
+operation and still requires server-derived permission.
+
+Reindexing Gmail and Microsoft API mailboxes no longer goes through IMAP. Native
+reindex requests are stored and consumed under the provider worker's lease; their
+status is visible in account diagnostics. An interrupted IMAP reindex is shown as
+failed after restart so it can be retried, rather than remaining queued forever.
+Selecting an invitation alias stores its identity, not just the visible label.
+Deleted or changed aliases are refused rather than silently replaced with the
+primary mailbox. Provider-managed calendar invitations still use that provider's
+own invitation flow.
+
+New-mail notifications open the addressed message. Scheduled-message notifications
+open the exact queue item even when it is outside the loaded page. Cancelling a
+scheduled message uses an application confirmation dialog. Refresh has an outlined
+button, and contact settings no longer consume a separate mobile toolbar row.
+
+Native server-setup screens, menus, notification actions and launcher shortcuts
+have copy for all nine supported languages. Shortcuts expose Compose, Calendar and
+Contacts, while existing Compose/Sync links remain valid. The language selected in
+Inboxora is reused by native surfaces, including background notifications. These
+native-shell changes require rebuilding/updating the desktop or Android application;
+updating only the Docker containers cannot replace an installed native binary.
+Android shortcuts use dynamic launcher entries so their labels can change with the
+application language. Installed Linux launcher actions contain all nine translations;
+the desktop environment selects their labels using its own locale.
+
+Regression coverage includes PostgreSQL migration/ownership, preservation of paused
+DAV sources and local data, concurrent reindex leases, owned invitation aliases,
+provider-only sending, DAV discovery failure modes, and generated native locale
+consistency. Browser coverage checks the revised settings and queue interactions.
+
 ## Highlights
 
 - **Faster mailbox navigation.** Recently visited unified, Gmail, Microsoft Graph and IMAP

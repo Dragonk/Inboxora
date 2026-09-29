@@ -34,7 +34,7 @@ function isLinuxPackagePath(filePath: string | null | undefined) {
   return /\.(deb|rpm)$/i.test(String(filePath || ''));
 }
 
-type NativeAction = 'new-mail' | 'open-message' | 'reply-message' | 'delete-message' | 'star-message' | 'sync';
+type NativeAction = 'new-mail' | 'open-message' | 'reply-message' | 'delete-message' | 'star-message' | 'sync' | 'open-calendar' | 'open-contacts';
 
 interface NativeComposeData {
   to?: string | string[];
@@ -84,6 +84,8 @@ function nativeActionFrom(value: unknown): NativeAction | null {
     case 'reply-message':
     case 'delete-message':
     case 'star-message':
+    case 'open-calendar':
+    case 'open-contacts':
     case 'sync':
       return value;
     default:
@@ -114,7 +116,7 @@ function parseNativeActionPayload(value: unknown): NativeActionPayload | null {
 }
 
 export default function ElectronNotificationBridge() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const addNotification = useStore((state: StoreState) => state.addNotification);
   const openCompose = useStore((state: StoreState) => state.openCompose);
   const setSelectedAccount = useStore((state: StoreState) => state.setSelectedAccount);
@@ -134,6 +136,11 @@ export default function ElectronNotificationBridge() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!nativeBridgeReady) return;
+    void window.inboxoraNative?.setLanguage?.(i18n.resolvedLanguage || i18n.language)?.catch(() => {});
+  }, [nativeBridgeReady, i18n, i18n.language, i18n.resolvedLanguage]);
 
   useEffect(() => {
     if (!nativeBridgeReady) return undefined;
@@ -334,6 +341,14 @@ export default function ElectronNotificationBridge() {
       lastActionRef.current = { action, time: now };
 
       try {
+        if (action === 'open-calendar' || action === 'open-contacts') {
+          const state = useStore.getState();
+          if (!state.user || state.isLocked) return;
+          state.setShowAdmin(false);
+          if (action === 'open-calendar') state.setShowCalendar(true);
+          else state.setShowContacts(true);
+          return;
+        }
         if (action === 'new-mail') {
           openCompose(payload.composeData);
           return;

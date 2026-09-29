@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from Inboxora locale catalogs. Do not edit. -->
+<resources>
+    <string name="native_connect_title" formatted="false">Connect Inboxora</string>
+    <string name="native_host_description" formatted="false">Enter the address of your Inboxora server.</string>
+    <string name="native_host_label" formatted="false">Inboxora server</string>
+    <string name="native_continue" formatted="false">Continue</string>
+    <string name="native_host_unavailable" formatted="false">Server unavailable</string>
+    <string name="native_host_unavailable_description" formatted="false">Inboxora could not reach the configured server. Check the address or choose a different server.</string>
+    <string name="native_change_host" formatted="false">Change server</string>
+    <string name="native_host_save_failed" formatted="false">Could not save the server address. Please try again.</string>
+    <string name="native_invalid_host" formatted="false">Enter a valid server address beginning with https:// or http://.</string>
+    <string name="native_host_https_required" formatted="false">Public servers must use HTTPS. HTTP is allowed only for localhost and private IP addresses.</string>
+    <string name="native_timeout" formatted="false">The app did not respond. Please try again.</string>
+    <string name="native_http_title" formatted="false">Unencrypted connection</string>
+    <string name="native_http_message" formatted="false">Traffic to this Inboxora server is not encrypted.</string>
+    <string name="native_http_detail" formatted="false">Anyone who can observe this network could read or change your session cookie and email data. Continue only on a private network you trust.</string>
+    <string name="native_http_allow" formatted="false">Use unencrypted connection</string>
+    <string name="native_http_cancelled" formatted="false">The unencrypted server address was not saved.</string>
+    <string name="native_new_mail" formatted="false">New mail</string>
+    <string name="native_new_mail_body" formatted="false">You have new mail.</string>
+    <string name="native_new_mail_count" formatted="false">New messages: {{count}}</string>
+    <string name="native_channel_description" formatted="false">New mail notifications from Inboxora.</string>
+    <string name="native_file" formatted="false">File</string>
+    <string name="native_edit_menu" formatted="false">Edit</string>
+    <string name="native_view_menu" formatted="false">View</string>
+    <string name="native_window_menu" formatted="false">Window</string>
+    <string name="native_help" formatted="false">Help</string>
+    <string name="native_redo" formatted="false">Redo</string>
+    <string name="native_cut" formatted="false">Cut</string>
+    <string name="native_paste" formatted="false">Paste</string>
+    <string name="native_paste_match" formatted="false">Paste and match style</string>
+    <string name="native_full_screen" formatted="false">Toggle full screen</string>
+    <string name="native_minimize" formatted="false">Minimize</string>
+    <string name="native_zoom" formatted="false">Zoom</string>
+    <string name="native_bring_to_front" formatted="false">Bring all to front</string>
+    <string name="native_learn_more" formatted="false">Learn more</string>
+    <string name="native_report_issue" formatted="false">Report an issue</string>
+    <string name="native_check_updates" formatted="false">Check for updates</string>
+    <string name="native_about" formatted="false">About {{name}}</string>
+    <string name="native_hide_app" formatted="false">Hide Inboxora</string>
+    <string name="native_show_app" formatted="false">Show Inboxora</string>
+    <string name="native_hide_others" formatted="false">Hide others</string>
+    <string name="native_show_all" formatted="false">Show all</string>
+    <string name="native_quit" formatted="false">Quit</string>
+    <string name="native_open_link" formatted="false">Open link</string>
+    <string name="native_copy_link" formatted="false">Copy link</string>
+    <string name="native_copy_image_address" formatted="false">Copy image address</string>
+    <string name="native_compose" formatted="false">Compose</string>
+    <string name="native_calendar" formatted="false">Calendar</string>
+    <string name="native_contacts" formatted="false">Contacts</string>
+    <string name="native_sync" formatted="false">Sync</string>
+    <string name="native_reply" formatted="false">Reply</string>
+    <string name="native_delete" formatted="false">Delete</string>
+    <string name="native_star" formatted="false">Star</string>
+    <string name="native_cancel" formatted="false">Cancel</string>
+    <string name="native_copy" formatted="false">Copy</string>
+    <string name="native_undo" formatted="false">Undo</string>
+    <string name="native_select_all" formatted="false">Select all</string>
+    <string name="native_reload" formatted="false">Refresh</string>
+    <string name="native_close" formatted="false">Close</string>
+    <string name="native_no_subject" formatted="false">(no subject)</string>
+    <string name="native_preferences" formatted="false">Account settings</string>
+    <string name="native_services" formatted="false">Services</string>
+</resources>

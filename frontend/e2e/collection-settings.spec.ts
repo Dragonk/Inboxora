@@ -52,7 +52,7 @@ test('contact settings use the current non-dialog manager shell', async ({ page,
     ? route.fulfill({ json: { ok: true } })
     : route.fulfill({ json: { addressBookIds: [] } }));
   await navigateModule(page, 'contacts');
-  await page.getByTestId('contacts-manage-books').click();
+  await page.getByTestId(page.viewportSize().width < 768 ? 'contacts-manage-books-mobile' : 'contacts-manage-books').click();
   await expect(page.getByTestId('contacts-books-manager')).toBeVisible();
   await expect(page.getByTestId('contacts-books-manager')).not.toHaveAttribute('role', 'dialog');
   await page.getByRole('tab').nth(1).click();

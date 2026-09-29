@@ -36,8 +36,8 @@ export function Check({ mixed = false, className = '', ...props }: InputHTMLAttr
   useEffect(() => { if (ref.current) ref.current.indeterminate = mixed; }, [mixed]);
   return <input {...props} ref={ref} type="checkbox" aria-checked={mixed ? 'mixed' : Boolean(props.checked)} className={`au-check ${className}`}/>;
 }
-export function Switch({ checked, label, onChange, disabled = false }: { checked: boolean; label: string; onChange: (checked: boolean) => void; disabled?: boolean }) {
-  return <button type="button" role="switch" aria-checked={checked} aria-label={label} className="au-switch" disabled={disabled} onClick={() => onChange(!checked)}><span/></button>;
+export function Switch({ checked, label, onChange, disabled = false, ...props }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onChange'> & { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return <button {...props} type="button" role="switch" aria-checked={checked} aria-label={label} className="au-switch" disabled={disabled} onClick={() => onChange(!checked)}><span/></button>;
 }
 export function IconButton({ label, icon, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; icon: string }) {
   return <button {...props} type="button" className={`au-icon-button ${props.className ?? ''}`} title={label} aria-label={label}><Icon name={icon}/></button>;

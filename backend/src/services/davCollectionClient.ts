@@ -174,7 +174,7 @@ async function propfind(input: DavCollectionInput, propertyXml: string): Promise
   return davCollectionRequest(input, { method: 'PROPFIND', headers: { Depth: '0', 'Content-Type': 'application/xml; charset=utf-8' }, body: `<propfind xmlns="DAV:"><prop>${propertyXml}</prop></propfind>` });
 }
 
-function ownProperties(raw: string, url: string): Record<string, unknown> {
+export function ownProperties(raw: string, url: string): Record<string, unknown> {
   const entries = responses(raw, true);
   if (entries.length !== 1 || normalizeDavCollectionUrl(resolveDavHref(text(entries[0].href), url)) !== normalizeDavCollectionUrl(url)) throw new Error('DAV response does not identify the requested collection');
   return properties(entries[0], true);

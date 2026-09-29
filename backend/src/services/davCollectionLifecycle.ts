@@ -36,8 +36,8 @@ async function sourceRevision(client: DbClient, userId: string, kind: DavCollect
   const found = await client.query<{ revision: string }>(kind === 'calendar'
     ? `SELECT md5(jsonb_build_array(kind, url, username, password, enabled)::text) AS revision
          FROM calendar_import_sources WHERE id = $1 AND user_id = $2 AND enabled = true FOR SHARE`
-    : `SELECT md5(jsonb_build_array(config->'serverUrl', config->'username', config->'password', config->'dupMode')::text) AS revision
-         FROM user_integrations WHERE id = $1 AND user_id = $2 AND provider = 'carddav' FOR SHARE`, [sourceId, userId]);
+    : `SELECT md5(jsonb_build_array(config->'serverUrl', config->'username', config->'password', config->'dupMode', config->'enabled')::text) AS revision
+         FROM user_integrations WHERE id = $1 AND user_id = $2 AND provider = 'carddav' AND COALESCE(config->>'enabled', 'true') <> 'false' FOR SHARE`, [sourceId, userId]);
   if (!found.rows[0]) throw new Error('DAV source was removed or disabled');
   return found.rows[0].revision;
 }

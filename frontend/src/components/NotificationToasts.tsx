@@ -236,12 +236,14 @@ function Toast({ notification, onDismiss, isMobile }: { notification: ToastNotif
           </svg>
         )}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>
+      <button type="button" className="notification-toast-content" disabled={!notification.onAction}
+        onClick={() => { notification.onAction?.(); dismiss(); }}
+        style={{ flex: 1, minWidth: 0, padding: 0, border: 0, background: 'none', textAlign: 'start', cursor: notification.onAction ? 'pointer' : 'default' }}>
+        <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>
           {notification.title}
-        </div>
-        <div style={{
-          fontSize: 12, color: 'var(--text-tertiary)',
+        </span>
+        <span style={{
+          display: 'block', fontSize: 12, color: 'var(--text-tertiary)',
           overflow: notification.allowWrap ? 'visible' : 'hidden',
           textOverflow: notification.allowWrap ? 'clip' : 'ellipsis',
           whiteSpace: notification.allowWrap ? 'pre-wrap' : 'nowrap',
@@ -249,8 +251,8 @@ function Toast({ notification, onDismiss, isMobile }: { notification: ToastNotif
           overflowWrap: notification.allowWrap ? 'anywhere' : undefined,
         }}>
           {notification.body}
-        </div>
-      </div>
+        </span>
+      </button>
       {notification.onAction && (
         <button
           onClick={() => {

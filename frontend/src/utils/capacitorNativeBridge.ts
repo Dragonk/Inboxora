@@ -55,6 +55,12 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
     window.inboxoraNative = {
       ...existingBridge,
       platform: 'android',
+      getLanguage: existingBridge.getLanguage || (async () => {
+        try { return await getPlugin().getLanguage() as { language?: string }; } catch { return null; }
+      }),
+      setLanguage: existingBridge.setLanguage || (async language => {
+        try { return await getPlugin().setLanguage({ language }); } catch { return null; }
+      }),
       getHost: async () => {
         const result = await callNative<{ host?: string | null }>('getHost', undefined, {});
         return result?.host || null;

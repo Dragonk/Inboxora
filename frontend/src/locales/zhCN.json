@@ -127,9 +127,7 @@
       "reindex": "重新索引以供搜索",
       "reindexing": "正在索引邮件...",
       "reindexProgress": "已索引 {{synced}} / {{total}} 封邮件",
-      "reindexError": "无法启动重新索引",
       "syncFolders": "同步文件夹",
-      "syncFoldersError": "文件夹同步失败",
       "unifiedInboxSection": "统一收件箱",
       "unifiedInboxEnabled": "包含在统一收件箱中",
       "unifiedInboxEnabledDesc": "在“所有收件箱”、统一搜索和分类计数中显示此账户的邮件。",
@@ -962,7 +960,7 @@
       "ai": "AI 助手",
       "aiActions": "AI 操作",
       "categories": "分类",
-      "groupAccountMail": "账户与邮件",
+      "groupAccountMail": "常规",
       "groupDisplay": "显示",
       "groupSecurityIntegrations": "安全与集成",
       "groupAdmin": "管理",
@@ -2041,12 +2039,14 @@
     "maturity": "模型{{level}} · {{count}} 条训练邮件",
     "maturityDetail": "{{spam}} 封垃圾邮件 / {{ham}} 封正常邮件可用样本（{{events}} 条反馈事件）",
     "enable": "启用反垃圾邮件",
-    "disable": "停用反垃圾邮件",
     "retrainNow": "立即重新训练",
     "enableAccount": "对此帐户自动分类",
     "enableAccountDesc": "默认关闭。手动标记始终参与训练。",
     "trustedAuthservId": "受信任的 authserv-id",
-    "trustedAuthservIdDesc": "仅统计该系统的 Authentication-Results。留空 = 全部忽略。"
+    "trustedAuthservIdDesc": "仅统计该系统的 Authentication-Results。留空 = 全部忽略。",
+    "maturityMature": "已训练",
+    "maturityFresh": "正在学习",
+    "maturityInsufficient": "样本不足"
   },
   "todoist": {
     "title": "创建 Todoist 任务",
@@ -2082,7 +2082,6 @@
     "noCalendarsDiscovered": "尚未发现日历。",
     "searchSources": "搜索来源或日历",
     "serviceDisabled": "日历服务已禁用。",
-    "providerManagedHint": "日历的创建、重命名和删除由服务提供商管理。请在“设置 → 账户”中配置账户服务。",
     "nativeCalendarReconsent": "{{provider}} 需要日历管理权限。请重新连接账户以继续。",
     "nativeCalendarName": "日历名称",
     "nativeCalendarCreate": "创建日历",
@@ -2145,7 +2144,6 @@
     "save": "保存",
     "panel": "日历面板",
     "calendars": "日历",
-    "manageSources": "管理来源",
     "firstDayOfWeek": "一周的第一天",
     "monday": "星期一",
     "sunday": "星期日",
@@ -2223,7 +2221,7 @@
     "workHoursEndDescription": "工作时间高亮显示的结束小时。",
     "defaultInviteAccount": "日历邀请的默认发件账户",
     "defaultInviteAccountNone": "无默认 — 每个事件单独选择",
-    "defaultInviteAccountDescription": "邀请参与者时预先选择的 SMTP 账户。",
+    "defaultInviteAccountDescription": "邀请活动参与者时默认选择的账户或别名。",
     "openSourceMessage": "打开原始邮件",
     "subscribeTitle": "日历订阅",
     "subscribeDescription": "订阅已发布的 ICS 或 webcal 日历。订阅为只读，并按计划刷新。",
@@ -2266,7 +2264,8 @@
     "providerSyncPartial": "{{provider}} 日历：{{calendars}} 个日历，新增 {{created}}，更新 {{updated}}，删除 {{deleted}}；{{failed}} 项失败。",
     "importIcs": "导入 .ics 文件",
     "importDone": "已导入 {{count}} 个日程。",
-    "importProtected": "{{count}} 个日程保持不变，因为 Inboxora 已发送其邀请。"
+    "importProtected": "{{count}} 个日程保持不变，因为 Inboxora 已发送其邀请。",
+    "showAgendaDescription": "在桌面端日历右侧显示所选日期的日程。"
   },
   "mailFolders": {
     "inbox": "收件箱",
@@ -2385,7 +2384,6 @@
     }
   },
   "accountUi": {
-    "accounts": "账户",
     "accountSettings": "账户设置",
     "calendarAccounts": "日历账户",
     "contactAccounts": "联系人账户",
@@ -2521,7 +2519,6 @@
     "operationPending": "远程操作尚未确认。请勿使用新的请求标识重复执行。",
     "targetUnavailable": "此账户或资源已不可用。请返回列表并刷新。",
     "deleteLocalWarning": "这将从 Inboxora 删除该资源及其内容。此操作无法撤销。",
-    "providerDeletionUnavailable": "无法在服务商处删除此集合。默认、系统和只读集合无法在此删除。",
     "deleteRemoteWarning": "这将删除服务商处的资源及其内容，不等同于隐藏或断开连接。",
     "removeAccountHint": "此账户的所有已同步邮件将从 Inboxora 移除，但不会删除服务商处的邮箱。",
     "intervalMinutes_zero": "分钟：{{count}}",
@@ -2634,5 +2631,34 @@
     "pendingBody": "邮件服务提供商尚未确认此更改。系统将再次检查邮箱的当前状态。",
     "failedTitle": "更改失败",
     "failedBody": "邮件服务提供商无法应用此更改。已恢复之前的状态。"
+  },
+  "settingsIndex": {
+    "status": "索引状态",
+    "running": "正在建立索引",
+    "pending": "等待建立索引",
+    "messages": "已索引邮件",
+    "folders": "已发现文件夹",
+    "folderSync": "上次成功同步文件夹"
+  },
+  "davAccount": {
+    "title": "DAV 账户",
+    "addTitle": "添加 DAV 账户",
+    "description": "连接 DAV 服务器上的日历和通讯录。",
+    "discover": "检测服务",
+    "discoverFirst": "请先输入连接信息并检测服务。",
+    "pauseHint": "关闭服务会暂停其同步。现有日历、联系人和本地设置均会保留。",
+    "removeTitle": "断开 DAV 账户",
+    "removeDescription": "要断开“{{name}}”并从 Inboxora 移除其本地日历和通讯录吗？DAV 服务器上的内容不会被删除。",
+    "invalidUrl": "请输入有效的 DAV 服务器地址。",
+    "httpsRequired": "请使用 HTTPS。HTTP 仅适用于管理员允许的私有主机。",
+    "hostBlocked": "连接策略已阻止此服务器。",
+    "authFailed": "DAV 服务器拒绝了这些凭据。请检查用户名、密码和权限。",
+    "discoveryFailed": "无法验证 DAV 服务。请检查服务器后重试。设置未更改。",
+    "unsupported": "此地址未发现日历或联系人服务。",
+    "serviceUnavailable": "此账户不支持所选服务。请重新检测服务。",
+    "alreadyConnected": "此资源已通过其他账户连接。请在该账户中管理。",
+    "changed": "此账户已在其他位置修改。请返回并重新打开后再保存。",
+    "operationPending": "DAV 资源操作仍在等待确认。请先检查结果，再修改凭据或断开账户。",
+    "invalidSettings": "请检查连接设置和同步间隔。"
   }
 }

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from Inboxora locale catalogs. Do not edit. -->
+<resources>
+    <string name="native_connect_title" formatted="false">连接 Inboxora</string>
+    <string name="native_host_description" formatted="false">请输入您的 Inboxora 服务器地址。</string>
+    <string name="native_host_label" formatted="false">Inboxora 服务器</string>
+    <string name="native_continue" formatted="false">继续</string>
+    <string name="native_host_unavailable" formatted="false">服务器不可用</string>
+    <string name="native_host_unavailable_description" formatted="false">Inboxora 无法连接到配置的服务器。请检查地址或选择其他服务器。</string>
+    <string name="native_change_host" formatted="false">更改服务器</string>
+    <string name="native_host_save_failed" formatted="false">无法保存服务器地址。请重试。</string>
+    <string name="native_invalid_host" formatted="false">请输入以 https:// 或 http:// 开头的有效服务器地址。</string>
+    <string name="native_host_https_required" formatted="false">公共服务器必须使用 HTTPS。HTTP 仅允许用于 localhost 和私有 IP 地址。</string>
+    <string name="native_timeout" formatted="false">应用未响应。请重试。</string>
+    <string name="native_http_title" formatted="false">未加密的连接</string>
+    <string name="native_http_message" formatted="false">与此 Inboxora 服务器之间的通信未加密。</string>
+    <string name="native_http_detail" formatted="false">能够监视此网络的人可能读取或修改您的会话 Cookie 和邮件数据。请仅在受信任的私有网络中继续。</string>
+    <string name="native_http_allow" formatted="false">使用未加密的连接</string>
+    <string name="native_http_cancelled" formatted="false">未保存未加密的服务器地址。</string>
+    <string name="native_new_mail" formatted="false">新邮件</string>
+    <string name="native_new_mail_body" formatted="false">您有新邮件。</string>
+    <string name="native_new_mail_count" formatted="false">新邮件：{{count}}</string>
+    <string name="native_channel_description" formatted="false">Inboxora 新邮件通知。</string>
+    <string name="native_file" formatted="false">文件</string>
+    <string name="native_edit_menu" formatted="false">编辑</string>
+    <string name="native_view_menu" formatted="false">视图</string>
+    <string name="native_window_menu" formatted="false">窗口</string>
+    <string name="native_help" formatted="false">帮助</string>
+    <string name="native_redo" formatted="false">重做</string>
+    <string name="native_cut" formatted="false">剪切</string>
+    <string name="native_paste" formatted="false">粘贴</string>
+    <string name="native_paste_match" formatted="false">粘贴并匹配样式</string>
+    <string name="native_full_screen" formatted="false">切换全屏</string>
+    <string name="native_minimize" formatted="false">最小化</string>
+    <string name="native_zoom" formatted="false">缩放</string>
+    <string name="native_bring_to_front" formatted="false">全部置于前端</string>
+    <string name="native_learn_more" formatted="false">了解更多</string>
+    <string name="native_report_issue" formatted="false">报告问题</string>
+    <string name="native_check_updates" formatted="false">检查更新</string>
+    <string name="native_about" formatted="false">关于 {{name}}</string>
+    <string name="native_hide_app" formatted="false">隐藏 Inboxora</string>
+    <string name="native_show_app" formatted="false">显示 Inboxora</string>
+    <string name="native_hide_others" formatted="false">隐藏其他</string>
+    <string name="native_show_all" formatted="false">显示全部</string>
+    <string name="native_quit" formatted="false">退出</string>
+    <string name="native_open_link" formatted="false">打开链接</string>
+    <string name="native_copy_link" formatted="false">复制链接</string>
+    <string name="native_copy_image_address" formatted="false">复制图片地址</string>
+    <string name="native_compose" formatted="false">撰写</string>
+    <string name="native_calendar" formatted="false">日历</string>
+    <string name="native_contacts" formatted="false">联系人</string>
+    <string name="native_sync" formatted="false">同步</string>
+    <string name="native_reply" formatted="false">回复</string>
+    <string name="native_delete" formatted="false">删除</string>
+    <string name="native_star" formatted="false">加星标</string>
+    <string name="native_cancel" formatted="false">取消</string>
+    <string name="native_copy" formatted="false">复制</string>
+    <string name="native_undo" formatted="false">撤销</string>
+    <string name="native_select_all" formatted="false">全选</string>
+    <string name="native_reload" formatted="false">刷新</string>
+    <string name="native_close" formatted="false">关闭</string>
+    <string name="native_no_subject" formatted="false">（无主题）</string>
+    <string name="native_preferences" formatted="false">账户设置</string>
+    <string name="native_services" formatted="false">服务</string>
+</resources>

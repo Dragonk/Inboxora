@@ -130,6 +130,8 @@ interface InboxoraNativeBridge {
   // 'electron' only in the Inboxora Electron shell; Capacitor Android omits it.
   shell?: string;
   platform?: string;
+  getLanguage?(): Promise<{ language?: string } | null>;
+  setLanguage?(language: string): Promise<unknown>;
   getHost?(): Promise<unknown>;
   saveHost?(host: string): Promise<unknown>;
   resetHost?(): Promise<unknown>;

@@ -228,6 +228,10 @@ export interface StoreState {
   setMobileNavigationPosition: (mobileNavigationPosition: string) => void;
   mobileSidebarSwipeEnabled: boolean;
   setMobileSidebarSwipeEnabled: (mobileSidebarSwipeEnabled: boolean) => void;
+  calendarShowAgenda: boolean;
+  setCalendarShowAgenda: (show: boolean) => void;
+  calendarInviteAliasId: string;
+  setCalendarInviteSender: (accountId: string, aliasId: string) => void;
   calendarInviteAccountId: string;
   setCalendarInviteAccountId: (calendarInviteAccountId: string | null) => void;
   calendarWorkDays: number[];
@@ -586,7 +590,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(identityChanged ? { authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
+      ...(identityChanged ? { calendarInviteAccountId: '', calendarInviteAliasId: '', calendarShowAgenda: true, authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
       ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
@@ -1096,11 +1100,19 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
   // The SMTP account the new-event dialog preselects for calendar invitations.
   // Empty means "no default": the dialog leaves the sender picker unselected.
+  calendarShowAgenda: true,
+  setCalendarShowAgenda: (calendarShowAgenda: boolean) => {
+    set({ calendarShowAgenda }); schedulePrefSave({ calendarShowAgenda });
+  },
+  calendarInviteAliasId: '',
+  setCalendarInviteSender: (calendarInviteAccountId: string, calendarInviteAliasId: string) => {
+    const next = { calendarInviteAccountId, calendarInviteAliasId: calendarInviteAccountId ? calendarInviteAliasId : '' };
+    set(next); schedulePrefSave(next);
+  },
   calendarInviteAccountId: '',
   setCalendarInviteAccountId: (calendarInviteAccountId: string | null) =>{
     const value = typeof calendarInviteAccountId === 'string' ? calendarInviteAccountId : '';
-    set({ calendarInviteAccountId: value });
-    schedulePrefSave({ calendarInviteAccountId: value });
+    get().setCalendarInviteSender(value, '');
   },
   calendarWorkDays: [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays],
   setCalendarWorkDays: (calendarWorkDays: number[]) =>{
@@ -1838,6 +1850,9 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (typeof prefs.mobileSidebarSwipeEnabled === 'boolean') {
         set({ mobileSidebarSwipeEnabled: prefs.mobileSidebarSwipeEnabled });
       }
+      set({ calendarShowAgenda: prefs.calendarShowAgenda !== false,
+        calendarInviteAliasId: typeof prefs.calendarInviteAliasId === 'string' ? prefs.calendarInviteAliasId : '',
+        calendarInviteAccountId: typeof prefs.calendarInviteAccountId === 'string' ? prefs.calendarInviteAccountId : '' });
       if (typeof prefs.calendarInviteAccountId === 'string') {
         set({ calendarInviteAccountId: prefs.calendarInviteAccountId });
       }

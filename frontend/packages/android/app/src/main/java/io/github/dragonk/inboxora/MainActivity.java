@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(InboxoraNativePlugin.class);
         super.onCreate(savedInstanceState);
+        InboxoraNativeLocale.publishShortcuts(this);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
@@ -35,6 +36,12 @@ public class MainActivity extends BridgeActivity {
         }
 
         handleNativeIntent(getIntent());
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        InboxoraNativeLocale.publishShortcuts(this);
     }
 
     @Override
@@ -65,6 +72,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        lastHandledIntentKey = null;
         setIntent(intent);
         handleNativeIntent(intent);
     }
@@ -142,6 +150,11 @@ public class MainActivity extends BridgeActivity {
 
             if ("compose".equalsIgnoreCase(route)) {
                 InboxoraNativePlugin.sendComposeAction();
+                return;
+            }
+
+            if ("calendar".equalsIgnoreCase(route) || "contacts".equalsIgnoreCase(route)) {
+                InboxoraNativePlugin.sendNavigationAction(route.toLowerCase(java.util.Locale.ROOT));
                 return;
             }
 

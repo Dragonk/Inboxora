@@ -215,10 +215,8 @@ test('cancellation conflict refreshes current state and never reports a cancelle
     cancellations++; rows[0].state = 'sending';
     return route.fulfill({ status: 409, json: { error: 'The message is already being delivered', code: 'SCHEDULE_CONFLICT' } });
   });
-  page.on('dialog', dialog => dialog.accept());
   await page.getByTestId('scheduled-cancel-queued-1').click();
-  const confirm = page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true });
-  if (await confirm.count()) await confirm.click();
+  await page.getByTestId('scheduled-confirmation').getByRole('button', { name: 'Cancel delivery', exact: true }).click();
   await expect.poll(() => cancellations).toBe(1);
   await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Sending');
   await expect(page.getByTestId('scheduled-item-queued-1')).not.toContainText('Cancelled');
@@ -262,7 +260,7 @@ test('a late pause response after session expiration cannot reopen the queued ed
     await expect.poll(() => started).toBe(true);
     // Expire through the real API client's 401 handler while the pause acknowledgement is held.
     await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
-    await page.getByTestId('scheduled-refresh').click();
+    await page.evaluate(() => window.dispatchEvent(new Event('inboxora:scheduled-changed')));
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   } finally { release(); }
   await expect.poll(() => completed).toBe(true);
@@ -609,17 +607,20 @@ test('uncertain dismissal confirms without cancellation or resend and retains on
   await expect(page.getByTestId('scheduled-edit-queued-1')).toHaveCount(0);
   await expect(page.getByTestId('scheduled-reschedule-queued-1')).toHaveCount(0);
   await expect(page.getByTestId('scheduled-cancel-queued-1')).toHaveCount(0);
-  page.once('dialog', async dialog => {
-    expect(dialog.message()).toMatch(/already.*deliver/i);
-    expect(dialog.message()).toMatch(/recall/i);
-    expect(dialog.message()).toMatch(/retr/i);
-    await dialog.dismiss();
-  });
+  let nativeDialogs = 0;
+  page.on('dialog', async dialog => { nativeDialogs++; await dialog.dismiss(); });
   await page.getByTestId('scheduled-dismiss-queued-1').click();
+  const confirmation = page.getByTestId('scheduled-confirmation');
+  await expect(confirmation).toContainText(/already.*deliver/i);
+  await expect(confirmation).toContainText(/recall/i);
+  await expect(confirmation).toContainText(/retr/i);
   expect(writes).toHaveLength(0);
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(confirmation).toHaveCount(0);
+  expect(nativeDialogs).toBe(0);
   await expect(page.getByTestId('scheduled-dismiss-queued-1')).toBeEnabled();
-  page.once('dialog', dialog => dialog.accept());
   await page.getByTestId('scheduled-dismiss-queued-1').click();
+  await page.getByTestId('scheduled-confirmation').getByRole('button', { name: 'Dismiss', exact: true }).click();
   await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Dismissed');
   expect(writes).toEqual([{ url: '/api/mail/scheduled/queued-1/dismiss', body: { revision: 1 } }]);
   await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Queued fixture');
@@ -647,11 +648,11 @@ test('late uncertain dismissal acknowledgement is fenced after session expiratio
     await gate; await route.fulfill({ json: { ...rows[0], state: 'dismissed', revision: 2 } }); completed = true;
   });
   try {
-    page.once('dialog', dialog => dialog.accept());
     await page.getByTestId('scheduled-dismiss-queued-1').click();
+    await page.getByTestId('scheduled-confirmation').getByRole('button', { name: 'Dismiss', exact: true }).click();
     await expect.poll(() => writes.length).toBe(1);
     await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => route.fulfill({ status: 401, json: { error: 'Session expired' } }));
-    await page.getByTestId('scheduled-refresh').click();
+    await page.evaluate(() => window.dispatchEvent(new Event('inboxora:scheduled-changed')));
     await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   } finally { release(); }
   await expect.poll(() => completed).toBe(true);
@@ -948,3 +949,45 @@ for (const outcome of ['success', 'conflict', 'lost response', 'logout'] as cons
     expect(deliveries).toBe(0); expect(enqueues).toBe(0);
   });
 }
+
+test('scheduled confirmation toast opens its exact item outside the first page without pausing or sending', async ({ page, fixtureApi }) => {
+  await fixtureApi;
+  const rows: Summary[] = [];
+  await boot(page, rows);
+  const target = pending({ id: 'toast-target', mode: 'schedule', subject: 'Queued fixture', scheduledAt: '2030-01-15T12:45:00.000Z' });
+  let enqueues = 0; let summaryReads = 0;
+  const sideEffects: string[] = [];
+  page.on('request', request => {
+    if (request.method() !== 'GET' && /\/api\/mail\/(?:scheduled\/[^/]+\/(?:edit|cancel|dismiss|reschedule)|send)$/.test(new URL(request.url()).pathname)) sideEffects.push(request.url());
+  });
+  await page.route(/\/api\/mail\/scheduled(?:\?.*)?$/, route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: new URL(route.request().url()).searchParams.has('page') ? { items: [], nextCursor: null } : rows });
+    enqueues++; rows.push(target); return route.fulfill({ json: target });
+  });
+  await page.route('**/api/mail/scheduled/toast-target/summary', route => {
+    summaryReads++; return route.fulfill({ json: target });
+  });
+  await compose(page);
+  await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-schedule').click();
+  await selectSchedule(page); await page.getByTestId('schedule-confirm').click();
+  await expect.poll(() => enqueues).toBe(1);
+  await expect(page.getByTestId('compose-from')).toHaveCount(0);
+  const toast = page.locator('button.notification-toast-content').filter({ hasText: 'Queued fixture' });
+  await expect(toast).toBeVisible();
+  if ((page.viewportSize()?.width ?? 1280) >= 768) {
+    const position = await toast.evaluate(element => {
+      const container = element.parentElement?.parentElement;
+      if (!container) throw new Error('Missing notification container');
+      const style = getComputedStyle(container);
+      return { position: style.position, bottom: style.bottom, right: style.right };
+    });
+    expect(position).toEqual({ position: 'fixed', bottom: '24px', right: '24px' });
+  }
+  await toast.click();
+  await expect(page.getByTestId('scheduled-view')).toBeVisible();
+  await expect(page.getByTestId('scheduled-edit-toast-target')).toBeVisible();
+  await expect(page.getByTestId('scheduled-preview')).toContainText('Queued fixture');
+  await expect.poll(() => summaryReads).toBeGreaterThan(0);
+  expect(enqueues).toBe(1); expect(sideEffects).toEqual([]);
+  await expect(page.getByTestId('compose-from')).toHaveCount(0);
+});

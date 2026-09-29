@@ -377,7 +377,7 @@ export async function resolveDavSource(input: {
     const row = scoped.rows[0];
     const config = row?.config;
     const username = typeof config?.username === 'string' ? config.username : '';
-    const password = decrypt(config?.password);
+    const password = typeof config?.password === 'string' ? decrypt(config.password) : '';
     if (row?.collection_url && username && password) return { kind: 'carddav', collectionUrl: row.collection_url, username, password, allowPrivate };
     return null;
   }
@@ -391,7 +391,7 @@ export async function resolveDavSource(input: {
   );
   const config = result.rows[0]?.config;
   const username = typeof config?.username === 'string' ? config.username : '';
-  const password = decrypt(config?.password);
+  const password = typeof config?.password === 'string' ? decrypt(config.password) : '';
   if (!username || !password) return null;
   return { kind: 'carddav', collectionUrl, username, password, allowPrivate };
 }

@@ -49,7 +49,8 @@ test('remote collection deletion is explicitly confirmed and never detaches the 
   assert.match(source, /remote=\{deleting.source !== 'local'\}/);
   assert.match(source, /onConfirm=\{confirmDelete\}/);
   assert.match(source, /api.addressBooks.remove\(item.id, \{ confirmName: item.name, idempotencyKey: item.idempotencyKey \}\)/);
-  assert.match(source, /collectionDeletionAllowed\(editing.book.deletion\)/);
+  assert.match(source, /deletionBlocked=/);
+  assert.match(source, /collectionDeletionAllowed\(book.deletion\)/);
   assert.match(source, /editing.book.deletion\?\.reason/);
   assert.match(source, /if \(current\(\) && confirmed\)/);
   assert.match(source, /sendRemoteDelete\(\{ id: book.id, name: deleting.name,/);

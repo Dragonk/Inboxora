@@ -8,6 +8,9 @@ const distIndex = path.join(root, 'dist', 'index.html');
 const distHostUnavailable = path.join(root, 'dist', 'host-unavailable.html');
 
 fs.copyFileSync(shellIndex, distIndex);
+for (const name of ['locales.js', 'setup-i18n.js', 'appearance.css']) {
+  fs.copyFileSync(path.join(root, 'packages', 'native-shell', name), path.join(root, 'dist', name));
+}
 
 const hostUnavailableHtml = fs
   .readFileSync(shellHostUnavailable, 'utf8')

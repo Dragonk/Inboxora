@@ -3108,6 +3108,7 @@ export class ImapManager {
           console.log(`Folder sync for ${logAccount(account)}: dropped ${paths.length} folder(s) no longer on the server (${paths.join(', ')}) and ${dropped.rowCount} cached message(s)`);
         }
       }
+      await query('UPDATE email_accounts SET last_folder_sync = NOW() WHERE id = $1 AND user_id = $2', [account.id, account.user_id]);
     } catch (caught) {
       const err = toAppError(caught);
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);

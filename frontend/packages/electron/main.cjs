@@ -1,7 +1,8 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, shell, dialog, Notification, session, clipboard } = require('electron');
 const { execFileSync, spawn, spawnSync } = require('child_process');
 const os = require('os');
-const { createHash } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
+const { normalizeLanguage, text: nativeText } = require('../native-shell/i18n.cjs');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
@@ -79,7 +80,10 @@ let updateInfo = null;
 let downloadedUpdate = null;
 let pendingUpdateDownloadUrl = null;
 let updateDownloadsInitialized = false;
-let nextNativeActionId = 1;
+function getNativeLanguage() {
+  return normalizeLanguage(readConfig().language || (app.isReady() ? app.getLocale() : 'en'));
+}
+function nt(key, values) { return nativeText(getNativeLanguage(), key, values); }
 
 function isAllowedExternalUrl(url) {
   try {
@@ -860,18 +864,18 @@ function showNewMailNotification({ title, body, count, messageId, accountId, fol
     return { shown: false, reason: 'unsupported' };
   }
 
-  const normalizedTitle = cleanNotificationText(title, 'New mail');
-  const normalizedBody = cleanNotificationText(body, 'No subject');
+  const normalizedTitle = cleanNotificationText(title, nt('newMail'));
+  const normalizedBody = cleanNotificationText(body, nt('noSubject'));
   const notification = new Notification({
     title: normalizedTitle,
-    body: count > 1 ? `${normalizedBody}\n${count} new messages` : normalizedBody,
+    body: count > 1 ? `${normalizedBody}\n${nt('newMailCount', { count })}` : normalizedBody,
     icon: getIconPath(),
     silent: true,
     ...(process.platform !== 'linux' ? {
       actions: [
-        { type: 'button', text: 'Reply' },
-        { type: 'button', text: 'Delete' },
-        { type: 'button', text: 'Star' },
+        { type: 'button', text: nt('reply') },
+        { type: 'button', text: nt('delete') },
+        { type: 'button', text: nt('star') },
       ],
     } : {}),
   });
@@ -1490,18 +1494,17 @@ function parseNativeActionArg(args = []) {
   if (!actionArg) return null;
 
   const action = actionArg.slice(NATIVE_ACTION_ARG.length);
-  if (['new-mail', 'sync'].includes(action)) return action;
+  if (['new-mail', 'open-calendar', 'open-contacts', 'sync'].includes(action)) return action;
   return null;
 }
 
 function createNativeActionPayload(action, data = {}) {
   const payload = {
     ...data,
-    id: nextNativeActionId,
+    id: randomUUID(),
     action,
     createdAt: Date.now(),
   };
-  nextNativeActionId += 1;
   pendingNativeActions.set(payload.id, payload);
   return payload;
 }
@@ -1532,11 +1535,13 @@ function sendNativeAction(action, data = {}) {
 function nativeActionMenuItems() {
   return [
     {
-      label: 'New Mail',
+      label: nt('compose'),
       click: () => sendNativeAction('new-mail'),
     },
+    { label: nt('calendar'), click: () => sendNativeAction('open-calendar') },
+    { label: nt('contacts'), click: () => sendNativeAction('open-contacts') },
     {
-      label: 'Sync',
+      label: nt('sync'),
       click: () => sendNativeAction('sync'),
     },
   ];
@@ -1551,7 +1556,7 @@ function changeInboxoraHost() {
 function fileMenuItems() {
   return [
     {
-      label: 'Change Inboxora Host',
+      label: nt('changeHost'),
       accelerator: 'CmdOrCtrl+,',
       click: changeInboxoraHost,
     },
@@ -1560,30 +1565,30 @@ function fileMenuItems() {
 
 function editMenuItems() {
   return [
-    { label: 'Undo', accelerator: 'CmdOrCtrl+Z', role: 'undo' },
-    { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', role: 'redo' },
+    { label: nt('undo'), accelerator: 'CmdOrCtrl+Z', role: 'undo' },
+    { label: nt('redo'), accelerator: 'Shift+CmdOrCtrl+Z', role: 'redo' },
     { type: 'separator' },
-    { label: 'Cut', accelerator: 'CmdOrCtrl+X', role: 'cut' },
-    { label: 'Copy', accelerator: 'CmdOrCtrl+C', role: 'copy' },
-    { label: 'Paste', accelerator: 'CmdOrCtrl+V', role: 'paste' },
-    { label: 'Paste and Match Style', accelerator: 'Shift+CmdOrCtrl+V', role: 'pasteAndMatchStyle' },
-    { label: 'Delete', role: 'delete' },
+    { label: nt('cut'), accelerator: 'CmdOrCtrl+X', role: 'cut' },
+    { label: nt('copy'), accelerator: 'CmdOrCtrl+C', role: 'copy' },
+    { label: nt('paste'), accelerator: 'CmdOrCtrl+V', role: 'paste' },
+    { label: nt('pasteMatch'), accelerator: 'Shift+CmdOrCtrl+V', role: 'pasteAndMatchStyle' },
+    { label: nt('delete'), role: 'delete' },
     { type: 'separator' },
-    { label: 'Select All', accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
+    { label: nt('selectAll'), accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
   ];
 }
 
 function viewMenuItems() {
   return [
     {
-      label: 'Reload',
+      label: nt('reload'),
       accelerator: 'CmdOrCtrl+R',
       click(_item, focusedWindow) {
         if (focusedWindow) focusedWindow.reload();
       },
     },
     {
-      label: 'Toggle Full Screen',
+      label: nt('fullScreen'),
       accelerator: process.platform === 'darwin' ? 'Ctrl+Command+F' : 'F11',
       click(_item, focusedWindow) {
         if (!focusedWindow) return;
@@ -1596,38 +1601,38 @@ function viewMenuItems() {
 function windowMenuItems() {
   if (process.platform === 'darwin') {
     return [
-      { label: 'Close', accelerator: 'CmdOrCtrl+W', role: 'close' },
-      { label: 'Minimize', accelerator: 'CmdOrCtrl+M', role: 'minimize' },
-      { label: 'Zoom', role: 'zoom' },
+      { label: nt('close'), accelerator: 'CmdOrCtrl+W', role: 'close' },
+      { label: nt('minimize'), accelerator: 'CmdOrCtrl+M', role: 'minimize' },
+      { label: nt('zoom'), role: 'zoom' },
       { type: 'separator' },
-      { label: 'Bring All to Front', role: 'front' },
+      { label: nt('bringToFront'), role: 'front' },
     ];
   }
 
   return [
-    { label: 'Minimize', accelerator: 'CmdOrCtrl+M', role: 'minimize' },
-    { label: 'Close', accelerator: 'CmdOrCtrl+W', role: 'close' },
+    { label: nt('minimize'), accelerator: 'CmdOrCtrl+M', role: 'minimize' },
+    { label: nt('close'), accelerator: 'CmdOrCtrl+W', role: 'close' },
   ];
 }
 
 function helpMenuItems() {
   return [
     {
-      label: 'Learn More',
+      label: nt('learnMore'),
       click: () => shell.openExternal('https://github.com/Dragonk/Inboxora'),
     },
     { type: 'separator' },
     {
-      label: 'Help',
+      label: nt('help'),
       click: () => shell.openExternal('https://github.com/Dragonk/Inboxora/docs'),
     },
     {
-      label: 'Report Issue',
+      label: nt('reportIssue'),
       click: () => shell.openExternal('https://github.com/Dragonk/Inboxora/issues'),
     },
     { type: 'separator' },
     {
-      label: 'Check For Updates',
+      label: nt('checkUpdates'),
       click: () => checkForUpdates(true),
     },
   ];
@@ -1640,42 +1645,42 @@ function buildDarwinMenuTemplate() {
     {
       label: name,
       submenu: [
-        { label: `About ${name}`, role: 'about' },
+        { label: nt('about', { name }), role: 'about' },
         { type: 'separator' },
         {
-          label: 'Preferences',
+          label: nt('preferences'),
           accelerator: 'Command+,',
           click: changeInboxoraHost,
         },
-        { label: 'Services', role: 'services', submenu: [] },
+        { label: nt('services'), role: 'services', submenu: [] },
         { type: 'separator' },
-        { label: `Hide ${name}`, accelerator: 'Command+H', role: 'hide' },
-        { label: 'Hide Others', accelerator: 'Command+Alt+H', role: 'hideOthers' },
-        { label: 'Show All', role: 'unhide' },
+        { label: nt('hideApp'), accelerator: 'Command+H', role: 'hide' },
+        { label: nt('hideOthers'), accelerator: 'Command+Alt+H', role: 'hideOthers' },
+        { label: nt('showAll'), role: 'unhide' },
         { type: 'separator' },
-        { label: `Quit ${name}`, accelerator: 'Command+Q', role: 'quit' },
+        { label: nt('quit'), accelerator: 'Command+Q', role: 'quit' },
       ],
     },
     {
-      label: 'File',
+      label: nt('file'),
       id: 'file',
       submenu: fileMenuItems(),
     },
     {
-      label: 'Edit',
+      label: nt('editMenu'),
       submenu: editMenuItems(),
     },
     {
-      label: 'View',
+      label: nt('viewMenu'),
       submenu: viewMenuItems(),
     },
     {
-      label: 'Window',
+      label: nt('windowMenu'),
       role: 'window',
       submenu: windowMenuItems(),
     },
     {
-      label: 'Help',
+      label: nt('help'),
       role: 'help',
       submenu: helpMenuItems(),
     },
@@ -1760,23 +1765,23 @@ function showContextMenu(webContents, params) {
 
   if (params.isEditable) {
     template.push(
-      { label: 'Cut', role: 'cut' },
-      { label: 'Copy', role: 'copy', enabled: hasSelection },
-      { label: 'Paste', role: 'paste' },
+      { label: nt('cut'), role: 'cut' },
+      { label: nt('copy'), role: 'copy', enabled: hasSelection },
+      { label: nt('paste'), role: 'paste' },
       { type: 'separator' },
-      { label: 'Select All', role: 'selectAll' },
+      { label: nt('selectAll'), role: 'selectAll' },
     );
   } else {
     if (hasLink) {
       template.push(
         {
-          label: 'Open Link',
+          label: nt('openLink'),
           click: () => {
             if (isAllowedExternalUrl(params.linkURL)) shell.openExternal(params.linkURL);
           },
         },
         {
-          label: 'Copy Link',
+          label: nt('copyLink'),
           click: () => clipboard.writeText(params.linkURL),
         },
       );
@@ -1785,7 +1790,7 @@ function showContextMenu(webContents, params) {
     if (hasImage) {
       if (template.length > 0) template.push({ type: 'separator' });
       template.push({
-        label: 'Copy Image Address',
+        label: nt('copyImageAddress'),
         click: () => clipboard.writeText(params.srcURL),
       });
     }
@@ -1793,8 +1798,8 @@ function showContextMenu(webContents, params) {
     if (hasSelection) {
       if (template.length > 0) template.push({ type: 'separator' });
       template.push(
-        { label: 'Copy', role: 'copy' },
-        { label: 'Select All', role: 'selectAll' },
+        { label: nt('copy'), role: 'copy' },
+        { label: nt('selectAll'), role: 'selectAll' },
       );
     }
   }
@@ -1871,7 +1876,7 @@ function refreshTrayMenu() {
     ...nativeActionMenuItems(),
     { type: 'separator' },
     {
-      label: isWindowVisible ? 'Hide Inboxora' : 'Show Inboxora',
+      label: nt(isWindowVisible ? 'hideApp' : 'showApp'),
       click: () => {
         if (isWindowVisible) {
           saveWindowBounds();
@@ -1883,7 +1888,7 @@ function refreshTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Change Inboxora Host',
+      label: nt('changeHost'),
       click: () => {
         clearHost();
         showMainWindow();
@@ -1892,7 +1897,7 @@ function refreshTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Quit',
+      label: nt('quit'),
       click: () => app.quit(),
     },
   ]));
@@ -1922,23 +1927,14 @@ function setupTaskbarTasks() {
   if (process.platform !== 'win32') return;
 
   app.setUserTasks([
-    {
-      program: process.execPath,
-      arguments: `${NATIVE_ACTION_ARG}new-mail`,
-      iconPath: getWindowIconPath(),
-      iconIndex: 0,
-      title: 'New Mail',
-      description: 'Compose a new Inboxora message',
-    },
-    {
-      program: process.execPath,
-      arguments: `${NATIVE_ACTION_ARG}sync`,
-      iconPath: getWindowIconPath(),
-      iconIndex: 0,
-      title: 'Sync',
-      description: 'Sync Inboxora mail',
-    },
-  ]);
+    ['new-mail', 'compose'], ['open-calendar', 'calendar'], ['open-contacts', 'contacts'],
+  ].map(([action, key]) => ({
+    program: process.execPath,
+    arguments: `${NATIVE_ACTION_ARG}${action}`,
+    iconPath: getWindowIconPath(), iconIndex: 0,
+    title: nt(key), description: `${nt(key)} · Inboxora`,
+  })));
+
 }
 
 function createWindow() {
@@ -2159,23 +2155,47 @@ function assertTrustedIpcSender(event) {
   }
 }
 
+// Read-only setup metadata may also be read by the two bundled local pages.
+// Writes belong exclusively to the authenticated application's top-level frame.
+ipcMain.handle('inboxora:language:get', (event) => {
+  assertTrustedIpcSender(event);
+  const frame = event.senderFrame;
+  if (!frame || frame !== mainWindow.webContents.mainFrame) throw new Error('Untrusted IPC sender');
+  const localPages = ['index.html', 'host-unavailable.html'].map(name => pathToFileURL(path.join(__dirname, '..', 'native-shell', name)).href);
+  if (!localPages.includes(frame.url)) assertTrustedAppSender(event);
+  return { language: getNativeLanguage(), theme: getTitlebarTheme() };
+});
+ipcMain.handle('inboxora:language:set', (event, language) => {
+  assertTrustedAppSender(event);
+  if (event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Untrusted IPC sender');
+  if (typeof language !== 'string' || language.length > 24) throw new Error('Invalid language');
+  const normalized = normalizeLanguage(language);
+  if (readConfig().language !== normalized) {
+    writeConfig({ ...readConfig(), language: normalized });
+    setupMenu(); refreshTrayMenu(); setupDockMenu(); setupTaskbarTasks();
+  }
+  return { language: normalized };
+});
+
 ipcMain.handle('inboxora:getHost', () => readHost());
 
 ipcMain.handle('inboxora:saveHost', async (_event, host) => {
-  const normalized = normalizeHost(host);
+  let normalized;
+  try { normalized = normalizeHost(host); }
+  catch (error) { throw new Error(nt(String(error?.message || '').includes('Public') ? 'hostHttpsRequired' : 'invalidHost')); }
   if (new URL(normalized).protocol === 'http:') {
     const result = await dialog.showMessageBox(mainWindow, {
       type: 'warning',
-      buttons: ['Use unencrypted connection', 'Cancel'],
+      buttons: [nt('httpAllow'), nt('cancel')],
       defaultId: 1,
       cancelId: 1,
       noLink: true,
-      title: 'Unencrypted Inboxora connection',
-      message: 'Traffic to this Inboxora server is not encrypted.',
-      detail: 'Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.',
+      title: nt('httpTitle'),
+      message: nt('httpMessage'),
+      detail: nt('httpDetail'),
     });
     if (result.response !== 0) {
-      throw new Error('The unencrypted Inboxora host was not saved.');
+      throw new Error(nt('httpCancelled'));
     }
   }
 

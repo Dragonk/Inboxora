@@ -138,6 +138,7 @@ jobs:
           REQUIRE_SEND_POSTGRES: "1"
           REQUIRE_DEFAULT_RECIPIENTS_POSTGRES: "1"
           REQUIRE_SCHEDULED_MAIL_POSTGRES: "1"
+          ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         # `providerSchemaUpgrade.integration.test.ts` creates and drops a database of
         # its own, so the role needs CREATEDB (the service user has it) and this job
         # must not share its database with another.
@@ -186,6 +187,7 @@ jobs:
             src/services/providerSchemaUpgrade.integration.test.ts \
             src/services/contactProviderEmailMigration.test.ts \
             src/services/addressBookPresentation.integration.test.ts \
+            src/services/settingsUnification.integration.test.ts \
             src/services/accountProviderDiagnostics.integration.test.ts \
             src/services/calendarCollectionMutation.integration.test.ts \
             src/services/calendarCollectionFence.integration.test.ts \

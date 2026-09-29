@@ -175,13 +175,18 @@ async function resolvePrincipal(serverUrl: string, creds: DavCredentials): Promi
 
 // Discover every address book on the server for these credentials.
 // Returns [{ url, displayName }].
-export async function discoverAddressBookSnapshot({ serverUrl, username, password, allowPrivate = false }: { serverUrl: string; username: string; password: string; allowPrivate?: boolean }): Promise<DavCollectionSnapshot> {
+export async function discoverAddressBookSnapshot({ serverUrl, username, password, allowPrivate = false, homeSetUrl }: { serverUrl: string; username: string; password: string; allowPrivate?: boolean; homeSetUrl?: string }): Promise<DavCollectionSnapshot> {
   await assertHostAllowed(serverUrl, allowPrivate);
   const creds = { username, password, allowPrivate };
 
-  const principal = await resolvePrincipal(serverUrl, creds);
-  const homeSet = await propfindHref(principal, '<C:addressbook-home-set/>', 'addressbook-home-set', creds)
-    || principal;
+  // Unified DAV discovery may find CardDAV through another service's well-known
+  // endpoint. Retain the stable source URL while using that verified home set.
+  let homeSet: string;
+  if (homeSetUrl) homeSet = resolveDavHref(homeSetUrl, serverUrl);
+  else {
+    const principal = await resolvePrincipal(serverUrl, creds);
+    homeSet = await propfindHref(principal, '<C:addressbook-home-set/>', 'addressbook-home-set', creds) || principal;
+  }
 
   // Enumerate collections under the home set (Depth: 1).
   const body = `<?xml version="1.0" encoding="utf-8"?>

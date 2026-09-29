@@ -30,8 +30,8 @@ test('confirmed cancellation removes list and preview immediately even when subs
   await page.getByTestId('scheduled-item-cancel').getByRole('button').click();
   await expect(page.getByTestId('scheduled-preview')).toBeVisible();
   server.failList = true;
-  page.once('dialog', dialog => dialog.accept());
   await page.getByTestId('scheduled-cancel-cancel').click();
+  await page.getByTestId('scheduled-confirmation').getByRole('button', { name: 'Cancel delivery', exact: true }).click();
   await expect(page.getByTestId('scheduled-item-cancel')).toHaveCount(0);
   await expect(page.getByTestId('scheduled-preview')).toHaveCount(0);
   await expect(page.getByTestId('scheduled-item-keep')).toBeVisible();
@@ -52,8 +52,8 @@ test('a worker winning cancellation keeps the sending entry visible and does not
     server.rows[0].state = 'sending';
     return route.fulfill({ status: 409, json: { code: 'SCHEDULE_CHANGED', error: 'Submission already started' } });
   });
-  page.once('dialog', dialog => dialog.accept());
   await page.getByTestId('scheduled-cancel-deadline').click();
+  await page.getByTestId('scheduled-confirmation').getByRole('button', { name: 'Cancel delivery', exact: true }).click();
   await expect(page.getByTestId('scheduled-item-deadline')).toContainText('Sending');
   await expect(page.getByTestId('scheduled-view').getByRole('alert')).toContainText('delivery has started');
   await expect(page.getByTestId('scheduled-cancel-deadline')).toHaveCount(0);

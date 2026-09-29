@@ -5,7 +5,7 @@ import { executeSend } from '../services/sendMail.js';
 import { previewScheduledMail, scheduledMailAttachment } from '../services/scheduledMailPreview.js';
 import { attachmentDisposition } from '../utils/contentDisposition.js';
 import { ScheduledMailError, cancelScheduledMail, dismissScheduledMail, editScheduledMail, enqueueScheduledMail,
-  acknowledgeSentMail, enqueueMailMerge, listScheduledMail, pageScheduledMail, rescheduleMail, updateScheduledMail } from '../services/scheduledMail.js';
+  getScheduledSummary, acknowledgeSentMail, enqueueMailMerge, listScheduledMail, pageScheduledMail, rescheduleMail, updateScheduledMail } from '../services/scheduledMail.js';
 
 const router = Router();
 // Frozen previews and viewed-status receipts belong to this authenticated session only.
@@ -23,6 +23,7 @@ function handle(action: (req: Request) => Promise<unknown>) {
 }
 router.get('/scheduled', handle(req => req.query.page === '1'
   ? pageScheduledMail(req.session.userId!, req.query.cursor) : listScheduledMail(req.session.userId!)));
+router.get('/scheduled/:id/summary', handle(req => getScheduledSummary(req.session.userId!, String(req.params.id))));
 router.get('/scheduled/:id', handle(req => previewScheduledMail(req.session.userId!, String(req.params.id))));
 router.get('/scheduled/:id/attachments/:index', async (req, res) => {
   try {

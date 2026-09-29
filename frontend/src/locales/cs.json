@@ -40,7 +40,7 @@
       "ai": "Asistent AI",
       "aiActions": "Akce AI",
       "categories": "Kategorie",
-      "groupAccountMail": "Účet a pošta",
+      "groupAccountMail": "Obecné",
       "groupDisplay": "Zobrazení",
       "groupSecurityIntegrations": "Zabezpečení a integrace",
       "groupAdmin": "Správa",
@@ -247,9 +247,7 @@
       "reindex": "Znovu indexovat pro vyhledávání",
       "reindexing": "Indexování zpráv…",
       "reindexProgress": "Indexováno {{synced}} z {{total}} zpráv",
-      "reindexError": "Opětovné indexování se nepodařilo spustit",
       "syncFolders": "Synchronizovat složky",
-      "syncFoldersError": "Synchronizace složek se nezdařila",
       "unifiedInboxSection": "Sjednocená Doručená pošta",
       "unifiedInboxEnabled": "Zahrnout do sjednocené Doručené pošty",
       "unifiedInboxEnabledDesc": "Zobrazovat zprávy z tohoto účtu ve Všech doručených, sjednoceném vyhledávání a počtech kategorií.",
@@ -2041,12 +2039,14 @@
     "maturity": "Model {{level}} · {{count}} trénovacích zpráv",
     "maturityDetail": "{{spam}} spam / {{ham}} ham použitelných vzorků ({{events}} událostí zpětné vazby)",
     "enable": "Zapnout antispam",
-    "disable": "Vypnout antispam",
     "retrainNow": "Přeučit",
     "enableAccount": "Automaticky klasifikovat na tomto účtu",
     "enableAccountDesc": "Ve výchozím stavu vypnuto. Ruční označení vždy trénují.",
     "trustedAuthservId": "Důvěryhodné authserv-id",
-    "trustedAuthservIdDesc": "Počítají se pouze Authentication-Results tohoto systému. Prázdné = ignorovat vše."
+    "trustedAuthservIdDesc": "Počítají se pouze Authentication-Results tohoto systému. Prázdné = ignorovat vše.",
+    "maturityMature": "Natrénovaný",
+    "maturityFresh": "Učí se",
+    "maturityInsufficient": "Nedostatek vzorků"
   },
   "todoist": {
     "title": "Vytvořit úkol v Todoistu",
@@ -2084,7 +2084,6 @@
     "noCalendarsDiscovered": "Zatím nebyly nalezeny žádné kalendáře.",
     "searchSources": "Hledat zdroje nebo kalendáře",
     "serviceDisabled": "Služba kalendáře je vypnutá.",
-    "providerManagedHint": "Vytváření, přejmenování a mazání kalendářů spravuje poskytovatel. Služby účtu nastavíte v Nastavení → Účty.",
     "nativeCalendarReconsent": "{{provider}} potřebuje oprávnění ke správě kalendářů. Pokračujte opětovným připojením účtu.",
     "nativeCalendarName": "Název kalendáře",
     "nativeCalendarCreate": "Vytvořit kalendář",
@@ -2147,7 +2146,6 @@
     "save": "Uložit",
     "panel": "Panel kalendáře",
     "calendars": "Kalendáře",
-    "manageSources": "Spravovat zdroje",
     "firstDayOfWeek": "První den týdne",
     "monday": "Pondělí",
     "sunday": "Neděle",
@@ -2225,7 +2223,7 @@
     "workHoursEndDescription": "Poslední hodina zvýraznění pracovního dne.",
     "defaultInviteAccount": "Výchozí odesílatel pozvánek",
     "defaultInviteAccountNone": "Žádný výchozí — volit u každé události",
-    "defaultInviteAccountDescription": "Účet SMTP předvybraný při zvání účastníků na událost.",
+    "defaultInviteAccountDescription": "Účet nebo alias předvolený při zvaní účastníků události.",
     "openSourceMessage": "Otevřít původní zprávu",
     "subscribeTitle": "Odběry kalendářů",
     "subscribeDescription": "Odebírejte zveřejněný kalendář ICS nebo webcal. Odběry jsou jen pro čtení a obnovují se podle plánu.",
@@ -2266,7 +2264,8 @@
     "providerSyncPartial": "Kalendář {{provider}}: {{calendars}} kalendářů, přidáno {{created}}, aktualizováno {{updated}}, odebráno {{deleted}}; počet selhání: {{failed}}.",
     "importIcs": "Importovat soubor .ics",
     "importDone": "Importováno {{count}} událostí.",
-    "importProtected": "{{count}} událostí zůstalo nezměněno, protože Inboxora rozeslala jejich pozvánky."
+    "importProtected": "{{count}} událostí zůstalo nezměněno, protože Inboxora rozeslala jejich pozvánky.",
+    "showAgendaDescription": "Zobrazovat přehled vybraného dne napravo od kalendáře na počítači."
   },
   "mailFolders": {
     "inbox": "Doručená pošta",
@@ -2385,7 +2384,6 @@
     }
   },
   "accountUi": {
-    "accounts": "Účty",
     "accountSettings": "Nastavení účtu",
     "calendarAccounts": "Účty kalendářů",
     "contactAccounts": "Účty kontaktů",
@@ -2521,7 +2519,6 @@
     "operationPending": "Vzdálená operace dosud není potvrzena. Neopakujte ji s novým identifikátorem požadavku.",
     "targetUnavailable": "Tento účet nebo zdroj již není dostupný. Vraťte se do seznamu a obnovte jej.",
     "deleteLocalWarning": "Tímto se odstraní zdroj a jeho obsah z Inboxora. Tuto operaci nelze vrátit zpět.",
-    "providerDeletionUnavailable": "Tuto kolekci nelze u poskytovatele odstranit. Výchozí, systémové a pouze pro čtení určené kolekce zde nelze odstranit.",
     "deleteRemoteWarning": "Tímto se odstraní zdroj včetně obsahu u poskytovatele. Nejde o skrytí ani odpojení.",
     "removeAccountHint": "Všechny synchronizované zprávy tohoto účtu budou odstraněny z Inboxora. Schránka u poskytovatele se nesmaže.",
     "intervalMinutes_zero": "Minuty: {{count}}",
@@ -2634,5 +2631,34 @@
     "pendingBody": "Poskytovatel e-mailu tuto změnu zatím nepotvrdil. Aktuální stav schránky bude znovu zkontrolován.",
     "failedTitle": "Změna se nezdařila",
     "failedBody": "Poskytovatel e-mailu nemohl tuto změnu provést. Byl obnoven předchozí stav."
+  },
+  "settingsIndex": {
+    "status": "Stav indexu",
+    "running": "Probíhá indexování",
+    "pending": "Čeká na indexování",
+    "messages": "Indexované zprávy",
+    "folders": "Nalezené složky",
+    "folderSync": "Poslední úspěšná synchronizace složek"
+  },
+  "davAccount": {
+    "title": "Účet DAV",
+    "addTitle": "Přidat účet DAV",
+    "description": "Připojte kalendáře a adresáře ze serveru DAV.",
+    "discover": "Zjistit služby",
+    "discoverFirst": "Nejprve zadejte údaje připojení a zjistěte dostupné služby.",
+    "pauseHint": "Vypnutí služby pozastaví její synchronizaci. Stávající kalendáře, kontakty a místní nastavení zůstanou zachovány.",
+    "removeTitle": "Odpojit účet DAV",
+    "removeDescription": "Odpojit „{{name}}“ a odstranit jeho místní kalendáře a adresáře z Inboxora? Na serveru DAV se nic nesmaže.",
+    "invalidUrl": "Zadejte platnou adresu serveru DAV.",
+    "httpsRequired": "Použijte HTTPS. HTTP je povoleno pouze pro soukromé servery schválené správcem.",
+    "hostBlocked": "Tento server je blokován zásadami připojení.",
+    "authFailed": "Server DAV odmítl přihlašovací údaje. Zkontrolujte jméno, heslo a oprávnění.",
+    "discoveryFailed": "Služby DAV se nepodařilo ověřit. Zkontrolujte server a zkuste to znovu. Nastavení se nezměnilo.",
+    "unsupported": "Na této adrese nebyla nalezena služba kalendářů ani kontaktů.",
+    "serviceUnavailable": "Vybraná služba není na tomto účtu dostupná. Znovu zjistěte služby.",
+    "alreadyConnected": "Tento zdroj je již připojen přes jiný účet. Spravujte jej v nastavení tohoto účtu.",
+    "changed": "Tento účet byl změněn jinde. Před uložením se vraťte a znovu jej otevřete.",
+    "operationPending": "Operace se zdrojem DAV stále čeká na potvrzení. Před změnou přihlašovacích údajů nebo odpojením ověřte výsledek.",
+    "invalidSettings": "Zkontrolujte údaje připojení a interval synchronizace."
   }
 }

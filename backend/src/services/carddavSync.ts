@@ -76,7 +76,7 @@ async function claimCardavSourceLease(userId: string, sourceId: string): Promise
     `INSERT INTO carddav_source_sync_leases (integration_id, owner, generation, lease_expires_at)
        SELECT id, $3, 1, NOW() + make_interval(secs => $4)
          FROM user_integrations
-        WHERE id = $1 AND user_id = $2 AND provider = 'carddav'
+        WHERE id = $1 AND user_id = $2 AND provider = 'carddav' AND COALESCE(config->>'enabled','true') <> 'false'
      ON CONFLICT (integration_id) DO UPDATE
        SET owner = EXCLUDED.owner,
            generation = carddav_source_sync_leases.generation + 1,
@@ -127,6 +127,7 @@ async function assertCardavSourceLease(
        FROM carddav_source_sync_leases lease
        JOIN user_integrations source ON source.id = lease.integration_id
       WHERE lease.integration_id = $1 AND source.user_id = $2 AND source.provider = 'carddav'
+        AND COALESCE(source.config->>'enabled','true') <> 'false'
         AND lease.owner = $3 AND lease.generation = $4 AND lease.lease_expires_at > NOW()
       FOR UPDATE OF lease`,
     [sourceId, userId, lease.owner, lease.generation],
@@ -420,7 +421,8 @@ async function syncOneCardavSource(userId: string, source: CardavSourceConfig): 
         `SELECT id, external_url, updated_at::text AS revision FROM address_books WHERE user_id = $1 AND source = 'carddav'
           AND source_connection_id = $2`, [userId, sourceConnectionId])).rows;
     });
-    const snapshot = await discoverAddressBookSnapshot({ serverUrl: config.serverUrl, ...creds });
+    const snapshot = await discoverAddressBookSnapshot({ serverUrl: config.serverUrl, ...creds,
+      ...(typeof config.homeSetUrl === 'string' ? { homeSetUrl: config.homeSetUrl } : {}) });
     const books = snapshot.collections;
     const present = new Set(snapshot.resourceUrls.map(normalizeDavCollectionUrl));
     const home = normalizeDavCollectionUrl(snapshot.homeUrl);
@@ -492,7 +494,7 @@ export async function syncUser(userId: string, sourceId?: string | null) {
     const legacy = await getCardavConfig(userId, sourceId);
     if (legacy) sources = [{ id: sourceId ?? `legacy:${userId}`, label: null, config: legacy }];
   }
-  const selected = sourceId ? sources.filter(source => source.id === sourceId) : sources;
+  const selected = sources.filter(source => source.config.enabled !== false && (!sourceId || source.id === sourceId));
   if (selected.length === 0) return { ok: false, error: 'not connected' };
   // Each source is independently single-flight. A `sync all` joins the same
   // flights as timers and source-specific API calls, so it cannot drop B because A runs.
@@ -538,9 +540,9 @@ export function stopCardavUserSources(userId: string) {
 
 export async function startCardavScheduler() {
   try {
-    const rows = await query<{ id: string; user_id: string; config?: { serverUrl?: string | null; intervalMin?: number | null } | null }>("SELECT id, user_id, config FROM user_integrations WHERE provider = 'carddav'");
+    const rows = await query<{ id: string; user_id: string; config?: { serverUrl?: string | null; intervalMin?: number | null; enabled?: boolean } | null }>("SELECT id, user_id, config FROM user_integrations WHERE provider = 'carddav'");
     for (const row of rows.rows) {
-      if (row.config?.serverUrl) scheduleCardavUser(row.user_id, row.config?.intervalMin, row.id);
+      if (row.config?.serverUrl && row.config.enabled !== false) scheduleCardavUser(row.user_id, row.config?.intervalMin, row.id);
     }
     if (rows.rows.length) console.log(`CardDAV: scheduled sync for ${rows.rows.length} source(s)`);
   } catch (caught) {

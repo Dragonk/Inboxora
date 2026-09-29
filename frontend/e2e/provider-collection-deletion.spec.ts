@@ -14,10 +14,10 @@ test.beforeEach(async ({ page }) => {
 
 async function openBookSettings(page: Page, id: string) {
   await navigateModule(page, 'contacts');
-  await page.getByTestId('contacts-manage-books').click();
-  await page.getByRole('tab').nth(1).click();
-  await page.locator(`[data-resource-id="${id}"]`).getByRole('button').click();
-  return page.getByRole('dialog', { name: 'Ustawienia zasobu', exact: true });
+  await page.getByTestId(page.viewportSize()!.width < 768 ? 'contacts-manage-books-mobile' : 'contacts-manage-books').click();
+  const row = page.getByTestId('contacts-books-manager').locator(`[data-resource-id="${id}"]`);
+  await expect(row).toBeVisible();
+  return row;
 }
 
 for (const source of ['microsoft', 'carddav']) test(`${source} address book deletion requires confirmation, retains unknown outcome and checks the same intent`, async ({ page, fixtureApi }) => {
@@ -42,7 +42,7 @@ for (const source of ['microsoft', 'carddav']) test(`${source} address book dele
   const settings = await openBookSettings(page, 'provider-book');
   expect(capabilityReads).toContain(null);
   expect(capabilityReads).toContain('true');
-  await settings.getByRole('button', { name: 'Usuń zasób', exact: true }).click();
+  await settings.getByRole('button', { name: /^Usuń zasób:/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Usuń zasób', exact: true });
   await expect(dialog.getByText(/u dostawcy wraz z jego zawartością/)).toBeVisible();
   const remove = dialog.getByRole('button', { name: 'Usuń', exact: true });
@@ -55,7 +55,6 @@ for (const source of ['microsoft', 'carddav']) test(`${source} address book dele
   await expect(remove).toBeDisabled();
   await expect(dialog.getByText(/Operacja zdalna nie została jeszcze potwierdzona/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Anuluj', exact: true }).click();
-  await settings.getByRole('button', { name: 'Anuluj', exact: true }).click();
   await expect(page.locator('[data-resource-id="provider-book"]')).toBeVisible();
   await page.getByRole('button', { name: 'Sprawdź operację', exact: true }).click();
   await expect.poll(() => deletes.length).toBe(2);
@@ -72,8 +71,9 @@ test('unsupported provider book shows a disabled delete action and the capabilit
   ] } }));
   await page.goto('/');
   const settings = await openBookSettings(page, 'default-book');
-  await expect(settings.getByRole('button', { name: 'Usuń zasób', exact: true })).toBeDisabled();
-  await expect(settings.getByText('The primary address book cannot be deleted.', { exact: true })).toBeVisible();
+  await expect(settings.getByRole('button', { name: /^Usuń zasób:/ })).toBeDisabled();
+  await settings.locator('.au-resource-actions button').first().click();
+  await expect(page.locator('.admin-panel .au-inline-editor')).toContainText("Możliwość zapisu ograniczają uprawnienia nadane u źródła. To ustawienie nie może ich rozszerzyć.");
 });
 
 test('CalDAV uses the local collection route and restores the same unresolved intent after navigation', async ({ page, fixtureApi }) => {
@@ -103,11 +103,8 @@ test('CalDAV uses the local collection route and restores the same unresolved in
   await navigateModule(page, 'calendar');
   if (page.viewportSize()!.width < 768) await page.getByTestId('calendar-mobile-panel').click();
   await page.getByTestId('calendar-sidebar-manage-sources').click();
-  await page.getByRole('tab').nth(1).click();
   const manager = page.getByTestId('calendar-settings-manager');
-  await manager.locator('[data-resource-id="calendar-remote"]').getByRole('button').click();
-  const settings = page.getByRole('dialog', { name: 'Ustawienia zasobu', exact: true });
-  await settings.getByRole('button', { name: 'Usuń zasób', exact: true }).click();
+  await manager.locator('[data-resource-id="calendar-remote"]').getByRole('button', { name: /^Usuń zasób:/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Usuń zasób', exact: true });
   const remove = dialog.getByRole('button', { name: 'Usuń', exact: true });
   await dialog.getByRole('textbox').fill('Wrong name');
@@ -120,7 +117,6 @@ test('CalDAV uses the local collection route and restores the same unresolved in
   await expect(remove).toBeDisabled();
   await expect(dialog.getByText(/Operacja zdalna nie została jeszcze potwierdzona/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Anuluj', exact: true }).click();
-  await settings.getByRole('button', { name: 'Anuluj', exact: true }).click();
   await expect(manager.locator('[data-resource-id="calendar-remote"]')).toBeVisible();
   // Switching settings modules unmounts the controller; the durable browser intent survives.
   await page.getByTestId('admin-tab-contacts').click();
@@ -132,7 +128,6 @@ test('CalDAV uses the local collection route and restores the same unresolved in
   expect(deletes[0].idempotencyKey).toBeTruthy();
   expect(deletes[1]).toEqual(deletes[0]);
   await expect(manager.getByRole('button', { name: 'Sprawdź operację', exact: true })).toHaveCount(0);
-  await page.getByRole('tab').nth(1).click();
   await expect(manager.locator('[data-resource-id="calendar-remote"]')).toHaveCount(0);
   expect(capabilityReads).toContain(null); expect(capabilityReads).toContain('true');
   expect(forbidden).toEqual([]);

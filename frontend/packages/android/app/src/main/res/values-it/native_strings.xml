@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from Inboxora locale catalogs. Do not edit. -->
+<resources>
+    <string name="native_connect_title" formatted="false">Connetti Inboxora</string>
+    <string name="native_host_description" formatted="false">Inserisci l’indirizzo del tuo server Inboxora.</string>
+    <string name="native_host_label" formatted="false">Server Inboxora</string>
+    <string name="native_continue" formatted="false">Continua</string>
+    <string name="native_host_unavailable" formatted="false">Server non disponibile</string>
+    <string name="native_host_unavailable_description" formatted="false">Inboxora non riesce a raggiungere il server configurato. Controlla l’indirizzo o scegli un altro server.</string>
+    <string name="native_change_host" formatted="false">Cambia server</string>
+    <string name="native_host_save_failed" formatted="false">Impossibile salvare l’indirizzo del server. Riprova.</string>
+    <string name="native_invalid_host" formatted="false">Inserisci un indirizzo valido che inizi con https:// o http://.</string>
+    <string name="native_host_https_required" formatted="false">I server pubblici devono usare HTTPS. HTTP è consentito solo per localhost e indirizzi IP privati.</string>
+    <string name="native_timeout" formatted="false">L’app non ha risposto. Riprova.</string>
+    <string name="native_http_title" formatted="false">Connessione non crittografata</string>
+    <string name="native_http_message" formatted="false">Il traffico verso questo server Inboxora non è crittografato.</string>
+    <string name="native_http_detail" formatted="false">Chi può osservare questa rete potrebbe leggere o modificare il cookie di sessione e i dati della posta. Continua solo su una rete privata affidabile.</string>
+    <string name="native_http_allow" formatted="false">Usa connessione non crittografata</string>
+    <string name="native_http_cancelled" formatted="false">L’indirizzo del server non crittografato non è stato salvato.</string>
+    <string name="native_new_mail" formatted="false">Nuovo messaggio</string>
+    <string name="native_new_mail_body" formatted="false">Hai un nuovo messaggio.</string>
+    <string name="native_new_mail_count" formatted="false">Nuovi messaggi: {{count}}</string>
+    <string name="native_channel_description" formatted="false">Notifiche di nuovi messaggi da Inboxora.</string>
+    <string name="native_file" formatted="false">File</string>
+    <string name="native_edit_menu" formatted="false">Modifica</string>
+    <string name="native_view_menu" formatted="false">Visualizza</string>
+    <string name="native_window_menu" formatted="false">Finestra</string>
+    <string name="native_help" formatted="false">Aiuto</string>
+    <string name="native_redo" formatted="false">Ripeti</string>
+    <string name="native_cut" formatted="false">Taglia</string>
+    <string name="native_paste" formatted="false">Incolla</string>
+    <string name="native_paste_match" formatted="false">Incolla e adatta lo stile</string>
+    <string name="native_full_screen" formatted="false">Attiva o disattiva schermo intero</string>
+    <string name="native_minimize" formatted="false">Riduci a icona</string>
+    <string name="native_zoom" formatted="false">Ingrandisci</string>
+    <string name="native_bring_to_front" formatted="false">Porta tutto in primo piano</string>
+    <string name="native_learn_more" formatted="false">Scopri di più</string>
+    <string name="native_report_issue" formatted="false">Segnala un problema</string>
+    <string name="native_check_updates" formatted="false">Verifica aggiornamenti</string>
+    <string name="native_about" formatted="false">Informazioni su {{name}}</string>
+    <string name="native_hide_app" formatted="false">Nascondi Inboxora</string>
+    <string name="native_show_app" formatted="false">Mostra Inboxora</string>
+    <string name="native_hide_others" formatted="false">Nascondi le altre</string>
+    <string name="native_show_all" formatted="false">Mostra tutto</string>
+    <string name="native_quit" formatted="false">Esci</string>
+    <string name="native_open_link" formatted="false">Apri link</string>
+    <string name="native_copy_link" formatted="false">Copia link</string>
+    <string name="native_copy_image_address" formatted="false">Copia indirizzo immagine</string>
+    <string name="native_compose" formatted="false">Scrivi</string>
+    <string name="native_calendar" formatted="false">Calendario</string>
+    <string name="native_contacts" formatted="false">Contatti</string>
+    <string name="native_sync" formatted="false">Sincronizza</string>
+    <string name="native_reply" formatted="false">Rispondi</string>
+    <string name="native_delete" formatted="false">Elimina</string>
+    <string name="native_star" formatted="false">Segna con stella</string>
+    <string name="native_cancel" formatted="false">Annulla</string>
+    <string name="native_copy" formatted="false">Copia</string>
+    <string name="native_undo" formatted="false">Annulla</string>
+    <string name="native_select_all" formatted="false">Seleziona tutto</string>
+    <string name="native_reload" formatted="false">Aggiorna</string>
+    <string name="native_close" formatted="false">Chiudi</string>
+    <string name="native_no_subject" formatted="false">(nessun oggetto)</string>
+    <string name="native_preferences" formatted="false">Impostazioni account</string>
+    <string name="native_services" formatted="false">Servizi</string>
+</resources>

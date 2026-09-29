@@ -35,6 +35,8 @@ function subscribeNativeAction(callback) {
 contextBridge.exposeInMainWorld('inboxoraNative', {
   shell: 'electron',
   platform: process.platform,
+  getLanguage: () => ipcRenderer.invoke('inboxora:language:get'),
+  setLanguage: (language) => ipcRenderer.invoke('inboxora:language:set', language),
   getHost: () => ipcRenderer.invoke('inboxora:getHost'),
   saveHost: (host) => ipcRenderer.invoke('inboxora:saveHost', host),
   resetHost: () => ipcRenderer.invoke('inboxora:resetHost'),

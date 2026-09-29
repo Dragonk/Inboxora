@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useStore } from '../../store/index.ts';
 
 export type SettingsTarget =
-  | { module: 'accounts'; accountId?: string; section?: 'general' | 'services' | 'servers' | 'diagnostics'; add?: boolean }
+  | { module: 'accounts'; accountId?: string; section?: 'general' | 'services' | 'servers' | 'diagnostics' | 'folders' | 'aliases'; add?: boolean }
   | { module: 'calendar'; section: 'accounts' | 'resources' | 'import'; accountId?: string; sourceId?: string; resourceId?: string }
   | { module: 'contacts'; section: 'accounts' | 'resources' | 'import'; accountId?: string; sourceId?: string; resourceId?: string }
   | { module: 'integrations'; provider?: 'google' | 'microsoft' };
