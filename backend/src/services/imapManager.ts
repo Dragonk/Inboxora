@@ -3112,6 +3112,9 @@ export class ImapManager {
     } catch (caught) {
       const err = toAppError(caught);
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
+      // Callers publish completion only after folder metadata and its timestamp
+      // are durable; their existing error boundaries keep background sync alive.
+      throw caught;
     }
   }
 
@@ -3743,7 +3746,7 @@ export class ImapManager {
             await query(
               'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
               [account.id, folder]
-            ).catch(() => {});
+            );
             return 'complete';
           }
           serverUids = await searchUids(bf, { all: true });
@@ -3828,7 +3831,7 @@ export class ImapManager {
                unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
            WHERE account_id = $1 AND path = $2`,
           [account.id, folder]
-        ).catch(() => {});
+        );
         return 'complete';
       }
 
@@ -4091,7 +4094,7 @@ export class ImapManager {
              unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
          WHERE account_id = $1 AND path = $2`,
         [account.id, folder]
-      ).catch(err => console.error(`Folder count update after backfill failed for ${logAccount(account)}/${folder}:`, err.message));
+      );
       this.broadcast({ type: 'backfill_complete', accountId: account.id }, account.user_id);
       // Backfill wrote rows the GTD tick's fingerprint can't detect (before==after); if this
       // folder is a designated GTD folder and any row changed, nudge GTD section clients. One emit per

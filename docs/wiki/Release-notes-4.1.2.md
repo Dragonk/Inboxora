@@ -59,6 +59,8 @@ Delayed preference reads no longer revert a newly chosen agenda setting or sende
 alias. Notification lookups yield to subsequent manual navigation, locking or
 session changes. Diagnostics cannot report a failed or incomplete IMAP backfill
 as complete, and pending actions cannot lock controls after switching accounts.
+Failed folder-count writes fail reindexing, including empty/already-cached mailboxes.
+A failed folder-sync timestamp write does not emit a successful folder-sync event.
 An unavailable invitation alias returns a recoverable validation/conflict response
 before any event is written. A failed DAV migration for one user is logged and
 retried on that user's next account access without preventing other users from

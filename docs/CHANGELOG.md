@@ -59,7 +59,7 @@ finalized below and dated with its publication date.
 
 ### Fixed
 - Preserve recent calendar agenda/sender choices during preference hydration, and keep manual navigation ahead of delayed notification lookups.
-- Report failed or incomplete IMAP reindexing without a false completion timestamp; keep diagnostics usable after account/session changes and retain client errors for unavailable invitation aliases.
+- Report failed or incomplete IMAP reindexing without a false completion timestamp; keep diagnostics usable after account/session changes and retain client errors for unavailable invitation aliases. Failed folder-count or synchronization-timestamp writes also prevent a success result.
 - Isolate DAV startup migration failures per user; apply late native language/theme responses once, update Android shortcuts off the UI thread, and retain visible keyboard focus in inline settings editors.
 - Save the default calendar invitation sender and alias instead of silently discarding the preference; route API-only invitations and reindex requests through their native provider transport.
 - Open the exact incoming or scheduled message from its notification, including scheduled entries outside the loaded page. Use an application confirmation dialog for removing scheduled mail and an outlined Refresh button.
