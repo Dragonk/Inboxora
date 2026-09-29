@@ -11,6 +11,7 @@ import { useStore } from '../store/index.ts';
 import { createComposeTransactionGuard } from '../utils/composeTransactionGuard.ts';
 import { isDefiniteQueueRejection } from '../utils/queuedSubmission.ts';
 import SchedulePicker from './SchedulePicker.tsx';
+import { scheduledActionErrorKey } from '../utils/scheduledMail.ts';
 import { Button, Dialog } from './ui.tsx';
 import SendSplitButton from './SendSplitButton.tsx';
 import { api } from '../utils/api.ts';
@@ -1158,7 +1159,7 @@ export default function ComposeModal() {
         const queueError = toAppError(err);
         if (isDefiniteQueueRejection(queueError)) {
           frozenQueueRef.current = null; idempotencyKeyRef.current = null; setQueueRetry(false);
-          setError(t(queueError.status === 409 ? 'queue.conflict' : 'queue.actionError'));
+          setError(t(scheduledActionErrorKey(queueError)));
         } else { setQueueRetry(true); setError(t('queue.pendingAcknowledgement')); }
         setSending(false);
         window.dispatchEvent(new Event('inboxora:scheduled-changed'));
@@ -1216,6 +1217,9 @@ export default function ComposeModal() {
     mergeConfirmedRef.current = false;
     setShowMergeConfirm(true);
   };
+
+  const pausedNotice = composeData?.queuedMail && <div className="ui-alert" role="note" data-testid="compose-queue-paused"
+    style={{ flexShrink: 0, padding: '8px 14px', margin: 0, fontSize: 12 }}>{t('queue.editingNotice')}</div>;
 
   const scheduleControls = <>
     {autosavePending && !savingDraft && <button type="button" data-testid="compose-autosave-retry" onClick={() => void doSaveDraft({ silent: true })}>{t('queue.retryEnqueue')}</button>}
@@ -1423,7 +1427,7 @@ export default function ComposeModal() {
         if (isCurrentComposeSession()) {
           if (pausedSave) {
             const queueError = toAppError(err);
-            if (isDefiniteQueueRejection(queueError)) { frozenQueueRef.current = null; autosaveReceiptRef.current = null; setAutosavePending(false); setQueueRetry(false); if (queueError.status === 409) { queuedConflictRef.current = true; setQueuedConflict(true); } setError(t(queueError.status === 409 ? 'queue.conflict' : 'queue.actionError')); }
+            if (isDefiniteQueueRejection(queueError)) { frozenQueueRef.current = null; autosaveReceiptRef.current = null; setAutosavePending(false); setQueueRetry(false); if (queueError.status === 409) { queuedConflictRef.current = true; setQueuedConflict(true); } setError(t(scheduledActionErrorKey(queueError))); }
             else { if (!silent) setQueueRetry(true); setError(t('queue.pendingAcknowledgement')); }
           }
           else { setError(toAppError(err).message); console.error('Save draft failed:', toAppError(err).message); }
@@ -1635,6 +1639,7 @@ export default function ComposeModal() {
       }} />
       <div
         ref={composePanelRef}
+        data-testid="compose-editor"
         onKeyDown={handleKeyDown}
       onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
       onKeyDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && event.key !== 'Tab' && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
@@ -1695,6 +1700,7 @@ export default function ComposeModal() {
           </div>
         </div>
 
+        {pausedNotice}
         {/* Reply/Reply All toggle */}
         {isReply && (
           <div style={{
@@ -2245,6 +2251,7 @@ export default function ComposeModal() {
       )}
     <div
       ref={composeWindowRef}
+      data-testid="compose-editor"
       className="compose-window"
       onKeyDown={handleKeyDown}
       onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
@@ -2378,6 +2385,7 @@ export default function ComposeModal() {
         </div>
       </div>
 
+      {pausedNotice}
       {/* Bound expanded copy fields without pushing the editor or Send outside the viewport.
           Leave the ordinary From/To/Subject layout unchanged when both copy fields are closed.
           The rich toolbar remains a sibling so its dropdowns are not clipped. */}

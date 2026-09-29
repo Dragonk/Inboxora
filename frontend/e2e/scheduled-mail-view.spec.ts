@@ -12,7 +12,7 @@ test('overnight Sent is acknowledged without clicking, retained through refresh 
   if ((page.viewportSize()?.width ?? 1280) < 768) {
     const header = page.getByTestId('mobile-topbar');
     await expect(header.getByRole('heading')).toHaveCount(1);
-    await expect(header.getByRole('heading')).toHaveText('Scheduled / outbox');
+    await expect(header.getByRole('heading')).toHaveText('Scheduled');
     await expect(header.getByRole('button', { name: 'Unread only' })).toHaveCount(0);
   }
   const row = page.getByTestId('scheduled-item-overnight');
@@ -22,14 +22,14 @@ test('overnight Sent is acknowledged without clicking, retained through refresh 
   if ((page.viewportSize()?.width ?? 1280) >= 768) {
     const toggle = page.getByRole('button', { name: 'Toggle sidebar', exact: true });
     await toggle.click();
-    await expect(page.getByTestId('sidebar-scheduled')).toHaveAttribute('aria-label', 'Scheduled / outbox');
+    await expect(page.getByTestId('sidebar-scheduled')).toHaveAttribute('aria-label', 'Scheduled');
     await expect(row).toBeVisible();
     await toggle.click(); await expect(row).toBeVisible();
   }
   for (let i = 0; i < 3; i++) { await page.getByTestId('scheduled-refresh').click(); await page.clock.fastForward(6_000); await expect(row).toBeVisible(); }
   await row.getByRole('button').click();
   await expect(page.getByTestId('scheduled-preview')).toContainText('The message copy is unavailable');
-  if ((page.viewportSize()?.width ?? 0) < 768) await page.getByTestId('scheduled-back').click();
+  if (await page.getByTestId('scheduled-back').isVisible()) await page.getByTestId('scheduled-back').click();
   await expect(row).toBeVisible();
   await leaveQueue(page); await enterQueue(page);
   await expect(row).toHaveCount(0);
@@ -140,12 +140,12 @@ test('read-only preview retains the worker state, uses actual thread sources and
   await bootQueue(page, server); await enterQueue(page);
   await page.getByTestId('scheduled-item-reply').getByRole('button').click();
   await expect(page.getByTestId('scheduled-preview')).toContainText('milestones.txt');
-  await expect(page.frameLocator('iframe[title="Message preview"]').getByText('Safe queued reply')).toBeVisible();
-  await expect(page.locator('iframe[title="Message preview"]')).toHaveAttribute('sandbox', 'allow-same-origin');
+  await expect(page.frameLocator('[data-message-detail-body] iframe').getByText('Safe queued reply')).toBeVisible();
+  await expect(page.locator('[data-message-detail-body] iframe')).toHaveAttribute('sandbox', 'allow-same-origin');
   expect(server.previews).toEqual(['reply']); expect(server.mutations).toEqual([]); expect(server.rows[0].state).toBe('pending');
-  await page.getByText('Taylor Reed · Atlas planning', { exact: false }).click();
+  await page.locator('summary').filter({ hasText: 'Atlas planning' }).click();
   await expect.poll(() => server.bodyReads).toEqual([parent]);
-  await expect(page.frameLocator('iframe[title="Message preview"]').first().getByText('The real earlier message in the Atlas conversation.')).toBeVisible();
+  await expect(page.frameLocator('[data-message-detail-body] iframe').first().getByText('The real earlier message in the Atlas conversation.')).toBeVisible();
   expect(external).toEqual([]); expect(server.seenCalls).toEqual([]); expect(server.sendCalls).toBe(0);
   await page.getByTestId('scheduled-edit-reply').click();
   await expect(page.getByTestId('compose-from')).toHaveValue(`alias:work:${QUEUE_ACCOUNT}`);
@@ -248,7 +248,7 @@ test('Refresh retries a failed preview and discovers a Sent copy imported after 
   server.previewOverrides.set('overnight', { sentCopy: { id: sentId, accountId: QUEUE_ACCOUNT,
     subject: 'Imported Sent copy', fromEmail: 'alias@example.test', fromName: 'Work', date: '2020-01-15T12:00:00Z', snippet: 'Imported after sync' } });
   await page.getByTestId('scheduled-refresh').click();
-  await expect(page.frameLocator('iframe[title="Message preview"]').getByText('The real earlier message in the Atlas conversation.')).toBeVisible();
+  await expect(page.frameLocator('[data-message-detail-body] iframe').getByText('The real earlier message in the Atlas conversation.')).toBeVisible();
   expect(server.previews).toEqual(['overnight', 'overnight']); expect(server.bodyReads).toEqual([sentId]);
   expect(server.rows[0].state).toBe('sent'); expect(server.rows[0].revision).toBe(1);
   expect(server.mutations).toEqual([]); expect(server.sendCalls).toBe(0);

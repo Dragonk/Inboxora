@@ -1,3 +1,4 @@
+import { mailListPanelStyle, mailReaderPanelStyle } from './MailListPresentation.tsx';
 import ScheduledMail, { ScheduledDialogs, ScheduledUndo } from './ScheduledMail.tsx';
 import { useScheduledMail } from '../hooks/useScheduledMail.ts';
 import { requestMailRefresh, mailListNeedsRefresh } from '../utils/mailRefresh.ts';
@@ -956,7 +957,7 @@ export default function MailApp() {
           >
             <Sidebar onEditProfile={() => setMobileProfileOpen(true)} />
           </div>
-          {showScheduled && <ScheduledMail controller={scheduled} />}
+          {showScheduled && <ScheduledMail controller={scheduled} direction={currentLayoutDirection} compact={compactMail} onListResize={handleListResizeMouseDown} />}
           {showContacts && <div data-testid="mobile-contacts-page" style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
             <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
           </div>}
@@ -996,7 +997,7 @@ export default function MailApp() {
             minWidth: 0, flexDirection: currentLayoutDirection,
             height: '100%',
           }}>
-            {showScheduled && <ScheduledMail controller={scheduled} />}
+            {showScheduled && <ScheduledMail controller={scheduled} direction={currentLayoutDirection} compact={compactMail} onListResize={handleListResizeMouseDown} />}
             {showContacts && <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%' }}>
               <Suspense fallback={lazyFallback}><ContactsPage isActive={showContacts} /></Suspense>
             </div>}
@@ -1005,15 +1006,14 @@ export default function MailApp() {
             </div>}
             <div style={{ position: 'relative', display: showContacts || showCalendar || showScheduled ? 'none' : 'flex', flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', flexDirection: currentLayoutDirection }}>
               <div data-ce-reader-enabled={conversationReaderViewEnabled ? 'true' : 'false'} data-ce-reader-state={conversationReaderViewEnabled ? 'enabled' : 'disabled'} data-ce-conversation-id={conversationId || ''} data-ce-selected-message-id={selectedMessageId || ''} data-ce-resolution-error={conversationResolutionError ? 'true' : 'false'} style={{
-                display: compactMail && readerOpen ? 'none' : 'flex', flex: compactMail ? 1 : currentLayoutDirection === 'row' ? '0 0 var(--list-width)' : '1 1 50%',
-                width: compactMail ? '100%' : currentLayoutDirection === 'row' ? 'var(--list-width)' : '100%', minWidth: 0, overflow: 'hidden', height: '100%',
+                ...mailListPanelStyle(currentLayoutDirection, compactMail), display: compactMail && readerOpen ? 'none' : 'flex',
               }}>
                 <MessageList />
               </div>
               {!compactMail && currentLayoutDirection === 'row' && (
                 <PanelResizeHandle testId="mail-list-resize" onMouseDown={handleListResizeMouseDown} />
               )}
-              <div data-ce-reader-pane="true" style={{ flex: 1, minWidth: 0, overflow: 'hidden', height: '100%', display: compactMail && !readerOpen ? 'none' : 'flex', flexDirection: 'column' }}>
+              <div data-ce-reader-pane="true" style={{ ...mailReaderPanelStyle, display: compactMail && !readerOpen ? 'none' : 'flex' }}>
                 {compactMail && <div className="tablet-reader-back"><Button variant="ghost" onClick={closeReader} aria-label={t('common.back')}>‹ {t('common.back')}</Button></div>}
                 <MessagePane mode={conversationReaderViewEnabled && (conversationId || nativeThreadId) ? 'conversation' : 'single'} conversationId={conversationId} targetLogicalMessageId={targetLogicalMessageId} selectedConversationCopy={selectedConversationCopy} nativeThreadId={nativeThreadId} nativeFolder={nativeFolder} onReply={replyFromConversation} onNativeThreadUnavailable={handleNativeThreadUnavailable} onMobileBack={closeReader} />
               </div>

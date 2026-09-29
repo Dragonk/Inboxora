@@ -48,7 +48,8 @@ const expected: Record<string, Record<string, number>> = {
     'richTextEditor.orderedList': 2,
   },
   'CalendarPage.tsx': { 'calendar.invitationCancellationSent': 1, 'calendar.invitationCancellationStatus': 1 },
-  'MessagePane.tsx': { 'compose.cc': 4, 'message.forwardedMessage': 1, 'message.date': 2 },
+  'MessageHeaderCard.tsx': { 'compose.cc': 2 },
+  'MessagePane.tsx': { 'compose.cc': 2, 'message.forwardedMessage': 1, 'message.date': 2 },
   'Sidebar.tsx': { 'admin.cleanup.account': 3 },
   'MessageList.tsx': { 'messageList.searchHelp.example': 1 },
   'ElectronNotificationBridge.tsx': {

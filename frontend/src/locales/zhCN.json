@@ -2565,7 +2565,7 @@
     "retry": "重试"
   },
   "queue": {
-    "title": "计划发送 / 发件箱",
+    "title": "已计划",
     "scheduleSend": "计划发送",
     "startMailMerge": "发送邮件合并",
     "sendOptions": "发送选项",
@@ -2612,11 +2612,10 @@
       "dismissed": "已移出队列",
       "cancelled": "已取消"
     },
-    "pausedAvailable": "发送已暂停。当前撰写内容未改变。稍后打开“计划发送 / 发件箱”即可编辑已暂停的邮件。",
+    "pausedAvailable": "发送已暂停。当前撰写内容未改变。稍后打开“已计划”即可编辑已暂停的邮件。",
     "hour": "小时",
     "minute": "分钟",
     "recipientCount": "收件人：{{count}}",
-    "attachments": "附件",
     "threadContext": "此会话中的先前邮件",
     "sourceUnavailable": "原始邮件不可用。您排队中的回复仍显示在下方。",
     "previewUnavailable": "邮件副本不可用。投递状态仍显示在上方。",
@@ -2625,7 +2624,8 @@
     "seenError": "无法保存状态已查看的记录。下次访问时可能会再次显示此结果。",
     "loadMore": "加载更多",
     "deliveryError": "投递错误：{{code}}",
-    "previewTitle": "邮件预览",
-    "recipientsUnavailable": "收件人信息不可用"
+    "recipientsUnavailable": "收件人信息不可用",
+    "editingNotice": "编辑期间发送已暂停。保存不会恢复发送；完成后请选择“发送”或“计划发送”。",
+    "resumeFromEditor": "请在已打开的编辑窗口中完成修改，然后发送或安排发送更新后的邮件。"
   }
 }

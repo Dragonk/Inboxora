@@ -5,17 +5,21 @@ import 'express-async-errors';
 import { listeningPort } from '../test/net.js';
 import { mockSession } from '../test/http.js';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), preview: vi.fn(), seen: vi.fn(), edit: vi.fn(), page: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), preview: vi.fn(), attachment: vi.fn(), seen: vi.fn(), edit: vi.fn(), page: vi.fn() }));
 vi.mock('../services/db.js', () => ({ query: mocks.query }));
 vi.mock('../services/sendMail.js', () => ({ executeSend: vi.fn(() => { throw new Error('Transport is forbidden in route tests'); }) }));
-vi.mock('../services/scheduledMailPreview.js', () => ({ previewScheduledMail: mocks.preview }));
+vi.mock('../services/scheduledMailPreview.js', () => ({ previewScheduledMail: mocks.preview, scheduledMailAttachment: mocks.attachment }));
 vi.mock('../services/scheduledMail.js', () => ({
-  ScheduledMailError: class extends Error {},
+  ScheduledMailError: class extends Error {
+    constructor(public status: number, public code: string, message: string) { super(message); }
+  },
   acknowledgeSentMail: mocks.seen, editScheduledMail: mocks.edit, pageScheduledMail: mocks.page,
   listScheduledMail: vi.fn(), enqueueScheduledMail: vi.fn(), enqueueMailMerge: vi.fn(),
   cancelScheduledMail: vi.fn(), dismissScheduledMail: vi.fn(), rescheduleMail: vi.fn(), updateScheduledMail: vi.fn(),
 }));
 import router from './scheduledMail.js';
+import { ScheduledMailError } from '../services/scheduledMail.js';
+import { attachmentDisposition } from '../utils/contentDisposition.js';
 
 describe('scheduled preview and visibility HTTP authorization', () => {
   let server: Server; let base: string;
@@ -37,11 +41,12 @@ describe('scheduled preview and visibility HTTP authorization', () => {
     mocks.seen.mockResolvedValue({ id: 'queued' });
     mocks.page.mockResolvedValue({ items: [], nextCursor: null });
   });
-  it.each([['GET', '/queued'], ['POST', '/queued/seen'], ['GET', '?page=1']])('rejects unauthenticated %s %s before reading or acknowledging anything', async (method, path) => {
+  it.each([['GET', '/queued'], ['POST', '/queued/seen'], ['GET', '?page=1'], ['GET', '/queued/attachments/0?revision=1']])('rejects unauthenticated %s %s before reading or acknowledging anything', async (method, path) => {
     const response = await fetch(base + path, { method });
     expect(response.status).toBe(401);
     expect(mocks.preview).not.toHaveBeenCalled(); expect(mocks.seen).not.toHaveBeenCalled();
     expect(mocks.edit).not.toHaveBeenCalled(); expect(mocks.page).not.toHaveBeenCalled();
+    expect(mocks.attachment).not.toHaveBeenCalled();
   });
   it('rejects a revoked session at the real authentication middleware', async () => {
     mocks.query.mockResolvedValue({ rows: [] });
@@ -68,5 +73,26 @@ describe('scheduled preview and visibility HTTP authorization', () => {
     expect(response.status).toBe(200);
     expect(mocks.page).toHaveBeenCalledExactlyOnceWith('session-owner', 'cursor-value');
     expect(mocks.seen).not.toHaveBeenCalled(); expect(mocks.edit).not.toHaveBeenCalled();
+  });
+  it.each(['report.html', '../文書"\r\nX-Injected: yes\\file.html'])('forces frozen bytes to a safe private download for %s', async filename => {
+    const bytes = Buffer.from('<script>alert("untrusted")</script>\u0000\u00ff');
+    mocks.attachment.mockResolvedValue({ filename, content: bytes });
+    const response = await fetch(base + '/queued/attachments/2?revision=7&userId=foreign-owner',
+      { headers: { 'x-test-session': 'session-owner' } });
+    expect(response.status).toBe(200);
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+    expect(response.headers.get('content-type')).toBe('application/octet-stream');
+    expect(response.headers.get('content-disposition')).toBe(attachmentDisposition(filename));
+    expect(response.headers.get('x-injected')).toBeNull();
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(mocks.attachment).toHaveBeenCalledExactlyOnceWith('session-owner', 'queued', '2', '7');
+    expect(mocks.edit).not.toHaveBeenCalled(); expect(mocks.seen).not.toHaveBeenCalled();
+  });
+  it.each([[400, 'SCHEDULE_INVALID'], [404, 'SCHEDULE_MISSING'], [409, 'SCHEDULE_CHANGED']])('returns attachment failure %s without bytes', async (status, code) => {
+    mocks.attachment.mockRejectedValue(new ScheduledMailError(Number(status), String(code), 'Unavailable'));
+    const response = await fetch(base + '/queued/attachments/0?revision=1', { headers: { 'x-test-session': 'session-owner' } });
+    expect(response.status).toBe(status); expect(await response.json()).toEqual({ code, error: 'Unavailable' });
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
   });
 });

@@ -35,10 +35,25 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('html')).toHaveAttribute('data-inboxora-surface', theme);
     await capture(page, info, `${theme}-queue-list`);
     await page.getByTestId('scheduled-item-atlas').getByRole('button').click();
-    await expect(page.frameLocator('iframe[title="Message preview"]').getByText('Hi Taylor,')).toBeVisible();
+    await expect(page.frameLocator('[data-message-detail-body] iframe').getByText('Hi Taylor,')).toBeVisible();
     await expect(page.getByTestId('scheduled-preview')).toContainText('milestones.txt');
     expect(server.mutations).toEqual([]);
+    const sender = await page.locator('[data-message-header-sender]').boundingBox();
+    const date = await page.locator('[data-message-header-date]').boundingBox();
+    if (!sender || !date) throw new Error('Missing shared message metadata');
+    const overlapX = Math.min(sender.x + sender.width, date.x + date.width) - Math.max(sender.x, date.x);
+    const overlapY = Math.min(sender.y + sender.height, date.y + date.height) - Math.max(sender.y, date.y);
+    expect(overlapX <= 1 || overlapY <= 1).toBe(true);
+    const preview = page.getByTestId('scheduled-preview');
+    await preview.evaluate(element => { element.scrollTop = 0; });
     await capture(page, info, `${theme}-queue-preview`);
+    if ((page.viewportSize()?.height ?? 900) < 500) {
+      await preview.locator('[data-message-detail-body]').scrollIntoViewIfNeeded();
+      await expect(preview.locator('[data-message-detail-body] iframe')).toBeVisible();
+      await capture(page, info, `${theme}-queue-body-scrolled`);
+      await preview.evaluate(element => { element.scrollTop = 0; });
+    }
+
     const reschedule = page.getByTestId('scheduled-reschedule-atlas'); await reschedule.click();
     const schedule = await dialogFits(page, 'schedule-dialog');
     await expect(schedule.getByRole('heading', { name: 'Reschedule', exact: true })).toBeVisible();

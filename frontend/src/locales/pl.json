@@ -2565,7 +2565,7 @@
     "retry": "Spróbuj ponownie"
   },
   "queue": {
-    "title": "Zaplanowane / do wysłania",
+    "title": "Zaplanowane",
     "scheduleSend": "Zaplanuj wysłanie",
     "startMailMerge": "Wyślij korespondencję seryjną",
     "sendOptions": "Opcje wysyłania",
@@ -2612,11 +2612,10 @@
       "dismissed": "Usunięta z kolejki",
       "cancelled": "Anulowano"
     },
-    "pausedAvailable": "Wysyłka wstrzymana. Bieżąca wiadomość pozostaje bez zmian. Później otwórz Zaplanowane / do wysłania, aby edytować wstrzymaną wiadomość.",
+    "pausedAvailable": "Wysyłka wstrzymana. Bieżąca wiadomość pozostaje bez zmian. Później otwórz Zaplanowane, aby edytować wstrzymaną wiadomość.",
     "hour": "Godzina",
     "minute": "Minuta",
     "recipientCount": "Odbiorcy: {{count}}",
-    "attachments": "Załączniki",
     "threadContext": "Wcześniejsze wiadomości w tym wątku",
     "sourceUnavailable": "Wiadomość źródłowa jest niedostępna. Zaplanowaną odpowiedź nadal możesz zobaczyć poniżej.",
     "previewUnavailable": "Kopia wiadomości jest niedostępna. Jej status wysyłki jest widoczny powyżej.",
@@ -2625,7 +2624,8 @@
     "seenError": "Nie udało się zapisać obejrzenia statusu. Wpis może pojawić się ponownie podczas następnej wizyty.",
     "loadMore": "Wczytaj więcej",
     "deliveryError": "Błąd wysyłki: {{code}}",
-    "previewTitle": "Podgląd wiadomości",
-    "recipientsUnavailable": "Dane odbiorców są niedostępne"
+    "recipientsUnavailable": "Dane odbiorców są niedostępne",
+    "editingNotice": "Wysyłka jest wstrzymana podczas edycji. Zapis nie wznawia wysyłki; gdy skończysz, wybierz Wyślij lub Zaplanuj wysłanie.",
+    "resumeFromEditor": "Dokończ edycję w otwartym oknie, a następnie wyślij lub zaplanuj zmienioną wiadomość."
   }
 }

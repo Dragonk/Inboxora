@@ -7,7 +7,6 @@ import { useStore } from '../store/index.ts';
 const ConversationReader = lazy(() => import('./ConversationReader.tsx'));
 import type { ConversationReplyPayload } from './ConversationReader.tsx';
 import { api } from '../utils/api.ts';
-import { format } from 'date-fns';
 import { shortcutBus } from '../utils/shortcutBus.ts';
 import { getEffectiveShortcuts, parseModKey, modCompactLabel } from '../utils/defaultShortcuts.ts';
 import { useMobile } from '../hooks/useMobile.ts';
@@ -46,7 +45,7 @@ if (USE_DIV_RENDER) {
   ({ injectEmailStyles, removeEmailStyles } = await import('../utils/emailStyleRegistry.ts'));
 }
 import MessageHeaderModal from './MessageHeaderModal.tsx';
-import { MessageAvatar } from './MessagePresentation.tsx';
+import MessageHeaderCard from './MessageHeaderCard.tsx';
 import MessageToolbar from './MessageToolbar.tsx';
 import { MobileModuleHeader, HeaderAction } from './MobileModuleHeader.tsx';
 import { renderMarkdown } from '../utils/renderMarkdown.ts';
@@ -1990,149 +1989,7 @@ ${bodyContent}
       <div style={{ padding: isMobile ? '12px 0 0' : '24px 28px 0' }}>
 
         {/* Sender card — subject lives here as the card header */}
-        <div className="msg-card" style={{
-          marginBottom: isMobile ? 12 : 24,
-          marginLeft: isMobile ? 0 : undefined,
-          marginRight: isMobile ? 0 : undefined,
-          background: 'var(--bg-elevated)',
-          borderRadius: isMobile ? 0 : 10,
-          border: isMobile ? 'none' : '1px solid var(--border-subtle)',
-          borderBottom: '1px solid var(--border-subtle)',
-          borderLeft: message?.account_color ? `3px solid ${message.account_color}` : undefined,
-          overflow: 'hidden',
-          boxShadow: isMobile ? 'none' : 'var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,0.04)',
-        }}>
-          {/* Subject */}
-          <div style={{
-            padding: '14px 16px 12px',
-            borderBottom: '1px solid var(--border-subtle)',
-            fontSize: 19, fontWeight: 600,
-            color: 'var(--text-primary)', lineHeight: 1.3,
-            fontFamily: 'var(--font-display)',
-          }}>
-            {(() => {
-              const paneSubject = resolvedSubject || message.subject;
-              return (paneSubject && paneSubject !== '(no subject)')
-                ? paneSubject
-                : t('message.noSubject');
-            })()}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px' }}>
-            {/* Avatar */}
-            <MessageAvatar
-              email={message.from_email}
-              name={message.from_name}
-              size={40}
-              hasContactPhoto={message.has_contact_photo}
-            />
-
-            {/* Sender info */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {isMobile ? (
-                <>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {message.from_name || message.from_email}
-                  </div>
-                  {message.from_name && (
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {message.from_email}
-                    </div>
-                  )}
-                  {body?.senderEmail && (
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <span>{t('message.via')} </span>
-                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <span>{t('message.to')} </span>
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      {toList.length > 0
-                        ? toList.map((r: { name?: string | null; email?: string | null }, i: number) => (
-                            <span key={i}>{r.name || r.email}{i < toList.length - 1 ? ', ' : ''}</span>
-                          ))
-                        : (asText(message.account_email) || asText(message.account_name) || '')}
-                    </span>
-                  </div>
-                  {ccList.length > 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <span>{t('compose.cc')} </span>
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {ccList.map((r: { name?: string | null; email?: string | null }, i: number) => (
-                          <span key={i}>{r.name || r.email}{i < ccList.length - 1 ? ', ' : ''}</span>
-                        ))}
-                      </span>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {message.from_name || message.from_email}
-                    </span>
-                    {message.from_name && (
-                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                        &lt;{message.from_email}&gt;
-                      </span>
-                    )}
-                  </div>
-                  {body?.senderEmail && (
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
-                      <span>{t('message.via')} </span>
-                      <span style={{ color: 'var(--text-secondary)' }}>{body.senderName ? `${body.senderName} <${body.senderEmail}>` : body.senderEmail}</span>
-                    </div>
-                  )}
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
-                    <span>{t('message.to')} </span>
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      {toList.length > 0
-                        ? toList.map((r, i) => (
-                            <span key={i}>
-                              {r.name ? `${r.name} <${r.email}>` : r.email}
-                              {i < toList.length - 1 ? ', ' : ''}
-                            </span>
-                          ))
-                        : (asText(message.account_email) || asText(message.account_name) || '')}
-                    </span>
-                  </div>
-                  {ccList.length > 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                      <span>{t('compose.cc')} </span>
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {ccList.map((r, i) => (
-                          <span key={i}>
-                            {r.name ? `${r.name} <${r.email}>` : r.email}
-                            {i < ccList.length - 1 ? ', ' : ''}
-                          </span>
-                        ))}
-                      </span>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Date + account */}
-            <div style={{ flexShrink: 0, textAlign: 'right' }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
-                {message.date ? format(new Date(message.date), isMobile ? 'MMM d, h:mm a' : 'MMM d, yyyy h:mm a') : ''}
-              </div>
-              <div style={{
-                fontSize: 11, marginTop: 4,
-                display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end',
-              }}>
-                <div style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: message.account_color || 'var(--accent)',
-                }} />
-                <span style={{ color: 'var(--text-tertiary)' }}>{message.account_name}</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
+        <MessageHeaderCard message={{ ...message, account_email: asText(message.account_email), account_name: asText(message.account_name) }} subject={resolvedSubject} isMobile={isMobile} toList={toList} ccList={ccList} body={body} />
 
         {/* Shared physical-copy detail preserves the native attachment → notices → body order. */}
         <div style={{ padding: isMobile ? '0 0 16px' : '0 28px 24px' }}>

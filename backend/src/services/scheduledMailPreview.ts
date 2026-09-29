@@ -70,3 +70,27 @@ export async function previewScheduledMail(userId: string, id: string) {
     })) }, context,
     contextMissing: !context.length && Boolean(message.replyToMessageId || message.inReplyTo || message.replyParentMessageId) };
 }
+
+/** Read one materialized frozen attachment at exactly the displayed revision.
+ * This read cannot pause, claim, acknowledge or otherwise mutate the queue.
+ */
+export async function scheduledMailAttachment(userId: string, id: string, indexValue: unknown, revisionValue: unknown) {
+  requireScheduledId(id);
+  if (typeof indexValue !== 'string' || !/^(0|[1-9]\d*)$/.test(indexValue) || !Number.isSafeInteger(Number(indexValue))
+    || typeof revisionValue !== 'string' || !/^[1-9]\d*$/.test(revisionValue) || !Number.isSafeInteger(Number(revisionValue))) {
+    throw new ScheduledMailError(400, 'SCHEDULE_INVALID', 'A valid attachment index and current revision are required');
+  }
+  const row = (await query<{ state: string; revision: number; payload: Partial<PreparedSend> }>(
+    'SELECT state,revision,payload FROM scheduled_mail WHERE id=$1 AND user_id=$2', [id, userId])).rows[0];
+  if (!row || ['cancelled', 'dismissed', 'sent'].includes(row.state) || !row.payload.payload) {
+    throw new ScheduledMailError(404, 'SCHEDULE_MISSING', 'Scheduled attachment is not available');
+  }
+  if (row.revision !== Number(revisionValue)) {
+    throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed. Refresh the queue.');
+  }
+  const attachment = row.payload.payload.attachments?.[Number(indexValue)];
+  if (!attachment || typeof attachment.content !== 'string') {
+    throw new ScheduledMailError(404, 'SCHEDULE_MISSING', 'Scheduled attachment is not available');
+  }
+  return { filename: attachment.filename, content: Buffer.from(attachment.content, 'base64') };
+}

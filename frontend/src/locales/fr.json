@@ -2565,7 +2565,7 @@
     "retry": "Réessayer"
   },
   "queue": {
-    "title": "Planifiés / boîte d’envoi",
+    "title": "Planifiés",
     "scheduleSend": "Planifier l’envoi",
     "startMailMerge": "Envoyer le publipostage",
     "sendOptions": "Options d’envoi",
@@ -2612,11 +2612,10 @@
       "dismissed": "Retiré",
       "cancelled": "Annulé"
     },
-    "pausedAvailable": "Envoi mis en pause. Votre rédaction actuelle est conservée. Ouvrez ensuite Planifiés / boîte d’envoi pour modifier le message en pause.",
+    "pausedAvailable": "Envoi mis en pause. Votre rédaction actuelle est conservée. Ouvrez ensuite Planifiés pour modifier le message en pause.",
     "hour": "Heure",
     "minute": "Minute",
     "recipientCount": "Destinataires : {{count}}",
-    "attachments": "Pièces jointes",
     "threadContext": "Messages précédents de cette conversation",
     "sourceUnavailable": "Le message d’origine est indisponible. Votre réponse en attente reste visible ci-dessous.",
     "previewUnavailable": "La copie du message est indisponible. Son état de livraison reste affiché ci-dessus.",
@@ -2625,7 +2624,8 @@
     "seenError": "Impossible d’enregistrer la consultation de l’état. Ce résultat peut réapparaître lors de votre prochaine visite.",
     "loadMore": "Charger plus",
     "deliveryError": "Erreur de livraison : {{code}}",
-    "previewTitle": "Aperçu du message",
-    "recipientsUnavailable": "Informations sur les destinataires indisponibles"
+    "recipientsUnavailable": "Informations sur les destinataires indisponibles",
+    "editingNotice": "L’envoi est suspendu pendant la modification. Enregistrer ne le reprend pas ; choisissez Envoyer ou Planifier l’envoi lorsque vous avez terminé.",
+    "resumeFromEditor": "Terminez la modification dans la fenêtre ouverte, puis envoyez ou planifiez le message modifié."
   }
 }

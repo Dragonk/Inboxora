@@ -18,6 +18,8 @@ interface ToolbarButtonProps {
   style?: CSSProperties;
   action?: string;
   targetId?: string;
+  disabled?: boolean;
+  'data-testid'?: string;
 }
 
 interface MenuItemProps { icon: ToolbarIconName; label: React.ReactNode; onClick?: () => void; danger?: boolean }
@@ -77,14 +79,14 @@ function Icon({ name, filled = false }: { name: ToolbarIconName; filled?: boolea
   }
 }
 
-export function ToolbarButton({ children, onClick, title, danger = false, style = undefined, action = undefined, targetId = undefined }: ToolbarButtonProps) {
+export function ToolbarButton({ children, onClick, title, danger = false, style = undefined, action = undefined, targetId = undefined, disabled, 'data-testid': testId }: ToolbarButtonProps) {
   const [hovered, setHovered] = useState(false);
-  return <button type="button" onClick={onClick} title={title} data-message-action={action} data-action-target-id={targetId}
+  return <button type="button" disabled={disabled} data-testid={testId} onClick={onClick} title={title} data-message-action={action} data-action-target-id={targetId}
     className="btn-press" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{
       background: hovered ? (danger ? 'rgba(248,113,113,0.1)' : 'var(--bg-tertiary)') : 'transparent',
       border: `1px solid ${hovered ? (danger ? 'rgba(248,113,113,0.3)' : 'var(--border)') : 'transparent'}`,
       borderRadius: 6, padding: '6px 8px', color: danger ? (hovered ? 'var(--red)' : 'var(--text-tertiary)') : 'var(--text-secondary)',
-      cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.1s', ...style,
+      cursor: disabled ? 'default' : 'pointer', opacity: disabled ? .5 : 1, fontSize: 13, display: 'flex', alignItems: 'center', gap: 5, transition: 'all 0.1s', ...style,
     }}>{children}</button>;
 }
 
@@ -126,10 +128,7 @@ export default function MessageToolbar({
   const menuStyle: CSSProperties = { position: 'absolute', top: 'calc(100% + 4px)', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', zIndex: 200, boxShadow: 'var(--shadow-popover, 0 4px 20px rgba(0,0,0,.4))' };
   const primaryReply = defaultReplyAll ? onReplyAll : onReply;
 
-  return <div className={className} data-testid="message-pane-toolbar" data-conversation-message-actions={targetId ? 'true' : undefined} data-conversation-message-scroll-anchor={scrollAnchorId || undefined} data-action-target-id={targetId} style={{
-    padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6,
-    flexShrink: 0, flexWrap: 'wrap', minWidth: 0, overflow: 'visible', ...style,
-  }} onClick={event => event.stopPropagation()}>
+  return <MessageToolbarSurface className={className} targetId={targetId} scrollAnchorId={scrollAnchorId} style={style}>
     <div style={{ position: 'relative', display: 'flex' }}>
       <ToolbarButton action={defaultReplyAll ? 'reply-all' : 'reply'} targetId={targetId} onClick={stop(primaryReply)} style={{ borderRadius: '6px 0 0 6px' }} title={title(defaultReplyAll ? 'message.replyAll' : 'message.reply', defaultReplyAll ? 'replyAll' : 'reply')}>
         <Icon name={defaultReplyAll ? 'reply-all' : 'reply'}/>
@@ -176,5 +175,17 @@ export default function MessageToolbar({
     </>}
     {onStar && <ToolbarButton action="star" targetId={targetId} onClick={stop(onStar)} title={t('message.star')}><Icon name="star" filled={isStarred}/></ToolbarButton>}
     {onDelete && <ToolbarButton action="delete" targetId={targetId} onClick={stop(onDelete)} title={t('message.delete')} danger><Icon name="delete"/></ToolbarButton>}
+  </MessageToolbarSurface>;
+}
+
+/** Shared action strip; callers own the action semantics and message identity. */
+export function MessageToolbarSurface({ children, className = '', targetId, scrollAnchorId, style }: {
+  children: React.ReactNode; className?: string; targetId?: string; scrollAnchorId?: string; style?: CSSProperties;
+}) {
+  return <div className={className} data-testid="message-pane-toolbar" data-conversation-message-actions={targetId ? 'true' : undefined} data-conversation-message-scroll-anchor={scrollAnchorId || undefined} data-action-target-id={targetId} style={{
+    padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: 6,
+    flexShrink: 0, flexWrap: 'wrap', minWidth: 0, overflow: 'visible', ...style,
+  }} onClick={event => event.stopPropagation()}>
+    {children}
   </div>;
 }

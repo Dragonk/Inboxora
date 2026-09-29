@@ -1,3 +1,4 @@
+import { MailListHeader, MailListTitle, MailRowHeading, MailRowSubject, MailRowSender, MailRowDate, MailRowAvatar, MailRowSelection, mailRowStyle, mailListSurfaceStyle } from './MailListPresentation.tsx';
 import { noteMailListLoaded, requestMailRefresh } from '../utils/mailRefresh.ts';
 import { createCoalescedTask } from '../utils/coalescedTask.ts';
 import { readMailWindow } from '../utils/mailWindow.ts';
@@ -12,7 +13,6 @@ import { useTranslation } from 'react-i18next';
 import { useStore, selectSelectedMessageMid } from '../store/index.ts';
 import { api, isAbortError } from '../utils/api.ts';
 import { LAYOUTS, localizedLayout, normalizeLayout } from '../layouts.ts';
-import { senderColor } from '../themes.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.ts';
 import { useSwipeRow } from '../hooks/useSwipeRow.ts';
@@ -2858,20 +2858,7 @@ export default function MessageList() {
   // Conversation Engine changes server-side identity/data; it never replaces this shell.
 
   return (
-    <div style={{
-      // The list always fills the column its shell allocates: in row layouts that
-      // column is the shared --list-width pane, in the stacked (column) layout the
-      // shell hands it the full width. A percentage flex basis here would shrink
-      // the stacked list to a fraction of the width instead of the full screen.
-      width: '100%',
-      minWidth: 0,
-      flex: 1,
-      borderRight: (isMobile || isColumn) ? 'none' : '1px solid var(--border-subtle)',
-      borderBottom: (!isMobile && isColumn) ? '1px solid var(--border-subtle)' : 'none',
-      display: 'flex', flexDirection: 'column',
-      height: '100%',
-      background: 'var(--bg-primary)',
-    }}>
+    <div style={mailListSurfaceStyle(isMobile, isColumn)}>
 
       {isMobile && mailListActive && <MobileModuleHeader title={label} subtitle={[selectedAccount?.name, headerUnread > 0 ? `${headerUnread} · ${t('messageList.unread')}` : null].filter(Boolean).join(' · ')}>
         <HeaderAction icon="unread" label={unreadOnly ? t('messageList.showAll') : t('messageList.unreadOnly')} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(value => !value)} />
@@ -2881,20 +2868,10 @@ export default function MessageList() {
       </MobileModuleHeader>}
 
       {/* ── Desktop header ──────────────────────────────────────────────── */}
-      {!isMobile && <div style={{
-        padding: '14px 16px 10px', borderBottom: '1px solid var(--border-subtle)',
-        boxShadow: listScrolled ? '0 1px 10px rgba(0,0,0,0.2)' : 'none',
-        transition: 'box-shadow 0.2s ease',
-      }}>
+      {!isMobile && <MailListHeader scrolled={listScrolled}>
         {/* Title row: label + count + sync (always fits) */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: isNarrow ? 6 : 10 }}>
-          <h2 style={{
-            margin: 0, fontSize: 15, fontWeight: 600,
-            color: 'var(--text-primary)',
-            flex: 1, minWidth: 0,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            display: 'flex', alignItems: 'center',
-          }}>
+          <MailListTitle>
             {isUnified && !searchQuery ? (
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
@@ -2906,7 +2883,7 @@ export default function MessageList() {
                 <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
               </svg>
             ) : label}
-          </h2>
+          </MailListTitle>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
             {messagesTotal > 0 && !searchQuery && (
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
@@ -3270,7 +3247,7 @@ export default function MessageList() {
             </div>
           )}
         </div>}
-      </div>}
+      </MailListHeader>}
 
       {/* Mobile search bar (rendered outside the scrollable list so it stays pinned).
           Still suppressed inside the Electron shell, where DesktopTitleBar owns the
@@ -4531,9 +4508,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
         onContextMenu={!isMobile ? (e => onContextMenu?.(e, message)) : undefined}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
-          padding: '11px 14px', cursor: 'pointer',
-          background: rowBg, transition: 'background 0.1s',
-          position: 'relative',
+          ...mailRowStyle(rowBg, true),
           willChange: isMobile ? 'transform' : undefined,
         }}
       >
@@ -4573,28 +4548,8 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
             Display mode uses the tinted-avatar recipe from the mock-up: color+'22' fill,
             1.5px color+'55' ring, colored initial. */}
         {showAvatar && (
-          <div
+          <MailRowAvatar email={message.from_email} name={message.from_name} checked={isChecked} checkbox={avatarAsCheckbox} interactive={!!selectionMode}
             onClick={selectionMode ? e => { e.stopPropagation(); onToggleSelect?.(message.id); } : undefined}
-            style={{
-              width: avatarAsCheckbox ? 30 : 36, height: avatarAsCheckbox ? 30 : 36, borderRadius: '50%', flexShrink: 0,
-              position: 'relative', overflow: 'hidden',
-              background: avatarAsCheckbox
-                ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
-                : `${senderColor(message.from_email || message.from_name)}22`,
-              border: avatarAsCheckbox && !isChecked
-                ? '2px solid var(--border)'
-                : `1.5px solid ${senderColor(message.from_email || message.from_name)}55`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: avatarAsCheckbox ? 13 : 14, fontWeight: 600,
-              color: avatarAsCheckbox
-                ? (isChecked ? 'white' : 'var(--text-tertiary)')
-                : senderColor(message.from_email || message.from_name),
-              marginTop: 1,
-              cursor: selectionMode ? 'pointer' : 'default',
-              transition: 'background 0.12s, border 0.12s',
-              userSelect: 'none',
-              boxSizing: 'border-box',
-            }}
           >
             {avatarAsCheckbox ? (
               isChecked ? (
@@ -4615,23 +4570,18 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 />
               </>
             )}
-          </div>
+          </MailRowAvatar>
         )}
 
         <div style={{ paddingLeft: (!hasAvatar && selectionMode) ? 22 : 0, flex: 1, minWidth: 0 }}>
           {/* Row 1: sender + badge + date */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+          <MailRowHeading sender={<div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
               {showAccount && (
                 <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: message.account_color || '#6366f1' }} />
               )}
-              <span style={{
-                fontSize: 13, fontWeight: unreadCount > 0 ? 600 : 400,
-                color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-              }}>
+              <MailRowSender unread={unreadCount > 0}>
                 {showParentDirection && <span style={{ marginRight: 4 }}><MessageDirection direction={parentDirection} label={isOutgoing ? t('conversation.outgoingMessage') : t('conversation.incomingMessage')} /></span>}{isOutgoing ? t('conversation.you') : (message.from_name || message.from_email || t('common.unknown', 'Unknown'))}
-              </span>
+              </MailRowSender>
               {isExpandableThread && (
                 <button
                   type="button"
@@ -4654,7 +4604,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   {messageCount}
                 </button>
               )}
-            </div>
+            </div>}>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8,
             }}>
@@ -4674,20 +4624,16 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                   </svg>
                 </button>
               )}
-              <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>{formatDate(message.date, i18n.resolvedLanguage || i18n.language)}</span>
+              <MailRowDate>{formatDate(message.date, i18n.resolvedLanguage || i18n.language)}</MailRowDate>
               {isMobile && !selectionMode && onContextMenu && (
                 <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
               )}
             </div>
-          </div>
+          </MailRowHeading>
           {/* Row 2: subject */}
-          <div data-thread-row-subject="true" style={{
-            fontSize: 13, fontWeight: unreadCount > 0 ? 500 : 400,
-            color: unreadCount > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2,
-          }}>
+          <MailRowSubject unread={unreadCount > 0} thread>
             {message.subject || t('common.noSubject')}
-          </div>
+          </MailRowSubject>
           {/* Row 3: snippet */}
           {showMessagePreviews && (
             <div style={{
@@ -4909,9 +4855,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         onDoubleClick={onOpenWindow ? (() => onOpenWindow(message)) : undefined}
         onContextMenu={!isMobile ? (e => onContextMenu?.(e, message)) : undefined}
         style={{
-          padding: 'var(--layout-row-py, 11px) var(--layout-row-px, 14px)',
-          cursor: 'pointer', background: bg, transition: 'background 0.1s',
-          position: 'relative',
+          ...mailRowStyle(bg),
           willChange: isMobile ? 'transform' : undefined,
           boxShadow: (selected && !selectionMode && !isMobile)
             ? `inset 0 0 0 1px ${selectedColor}22`
@@ -4920,11 +4864,7 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
       >
       {/* Selected row left accent rail */}
       {selected && !selectionMode && (
-        <div style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-          background: message.account_color || 'var(--accent)',
-          borderRadius: '0 2px 2px 0',
-        }} />
+        <MailRowSelection color={message.account_color} />
       )}
       {/* Left indicator: for narrow/mobile layouts show checkbox or unread dot.
           Wide layouts use the avatar area instead (see below). */}
@@ -4965,30 +4905,10 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
         {/* Sender avatar — desktop always, or opted-in on mobile (#213). Interactive (click-to-select,
             hover-to-checkbox) on desktop only; a plain display avatar on mobile. */}
         {showAvatar && (
-          <div
+          <MailRowAvatar email={message.from_email} name={message.from_name} checked={isChecked} checkbox={avatarAsCheckbox} interactive={hasInteractiveAvatar}
             onClick={hasInteractiveAvatar ? handleAvatarAreaClick : undefined}
             onMouseEnter={hasInteractiveAvatar ? () => setAvatarHovered(true) : undefined}
             onMouseLeave={hasInteractiveAvatar ? () => setAvatarHovered(false) : undefined}
-            style={{
-              width: avatarAsCheckbox ? 30 : 36, height: avatarAsCheckbox ? 30 : 36, borderRadius: '50%', flexShrink: 0,
-              position: 'relative', overflow: 'hidden',
-              background: avatarAsCheckbox
-                ? (isChecked ? 'var(--accent)' : 'var(--bg-tertiary)')
-                : `${senderColor(message.from_email || message.from_name)}22`,
-              border: avatarAsCheckbox && !isChecked
-                ? '2px solid var(--border)'
-                : `1.5px solid ${senderColor(message.from_email || message.from_name)}55`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: avatarAsCheckbox ? 13 : 14, fontWeight: 600,
-              color: avatarAsCheckbox
-                ? (isChecked ? 'white' : 'var(--text-tertiary)')
-                : senderColor(message.from_email || message.from_name),
-              marginTop: 1,
-              cursor: hasInteractiveAvatar ? 'pointer' : 'default',
-              transition: 'background 0.12s, border 0.12s',
-              userSelect: 'none',
-              boxSizing: 'border-box',
-            }}
           >
             {avatarAsCheckbox ? (
               isChecked ? (
@@ -5009,27 +4929,21 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 />
               </>
             )}
-          </div>
+          </MailRowAvatar>
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
         {/* Row 1: From + date */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+        <MailRowHeading sender={<div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
             {showAccount && (
               <div style={{
                 width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
                 background: message.account_color || '#6366f1',
               }} />
             )}
-            <span style={{
-              fontSize: 13, fontWeight: message.is_read ? 400 : 600,
-              color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              flex: 1, minWidth: 0,
-            }}>
+            <MailRowSender unread={!message.is_read} style={{ minWidth: 0 }}>
               {message.from_name || message.from_email || t('common.unknown')}
-            </span>
-          </div>
+            </MailRowSender>
+          </div>}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
             {message.has_attachments ? (
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2">
@@ -5046,24 +4960,19 @@ function MessageRow({ message, selected, lastViewed, isChecked, selectionMode, s
                 </svg>
               </button>
             )}
-            <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10.5, color: 'var(--text-tertiary)' }}>
+            <MailRowDate>
               {formatDate(message.date, i18n.resolvedLanguage || i18n.language)}
-            </span>
+            </MailRowDate>
             {isMobile && !selectionMode && onContextMenu && (
               <RowMenuButton label={t('message.more')} onOpen={e => onContextMenu(e, message)} />
             )}
           </div>
-        </div>
+        </MailRowHeading>
 
         {/* Row 2: Subject */}
-        <div style={{
-          fontSize: 13, fontWeight: message.is_read ? 400 : 500,
-          color: message.is_read ? 'var(--text-secondary)' : 'var(--text-primary)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          marginBottom: 3,
-        }}>
+        <MailRowSubject unread={!message.is_read}>
           {message.subject || t('message.noSubject')}
-        </div>
+        </MailRowSubject>
 
         {/* Row 3: Snippet */}
         {showMessagePreviews && (

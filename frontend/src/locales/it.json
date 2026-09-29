@@ -2565,7 +2565,7 @@
     "retry": "Riprova"
   },
   "queue": {
-    "title": "Programmati / posta in uscita",
+    "title": "Programmati",
     "scheduleSend": "Programma invio",
     "startMailMerge": "Invia stampa unione",
     "sendOptions": "Opzioni di invio",
@@ -2612,11 +2612,10 @@
       "dismissed": "Rimosso",
       "cancelled": "Annullato"
     },
-    "pausedAvailable": "Invio in pausa. La composizione attuale rimane invariata. Apri in seguito Programmati / posta in uscita per modificare il messaggio in pausa.",
+    "pausedAvailable": "Invio in pausa. La composizione attuale rimane invariata. Apri in seguito Programmati per modificare il messaggio in pausa.",
     "hour": "Ora",
     "minute": "Minuto",
     "recipientCount": "Destinatari: {{count}}",
-    "attachments": "Allegati",
     "threadContext": "Messaggi precedenti in questa conversazione",
     "sourceUnavailable": "Il messaggio originale non è disponibile. La risposta in coda resta visibile qui sotto.",
     "previewUnavailable": "La copia del messaggio non è disponibile. Lo stato di consegna resta visibile sopra.",
@@ -2625,7 +2624,8 @@
     "seenError": "Impossibile salvare la visualizzazione dello stato. Il risultato potrebbe riapparire alla prossima visita.",
     "loadMore": "Carica altri",
     "deliveryError": "Errore di consegna: {{code}}",
-    "previewTitle": "Anteprima del messaggio",
-    "recipientsUnavailable": "Dati dei destinatari non disponibili"
+    "recipientsUnavailable": "Dati dei destinatari non disponibili",
+    "editingNotice": "L’invio è sospeso durante la modifica. Il salvataggio non lo riavvia; al termine, scegli Invia o Programma invio.",
+    "resumeFromEditor": "Completa la modifica nella finestra aperta, quindi invia o programma il messaggio aggiornato."
   }
 }

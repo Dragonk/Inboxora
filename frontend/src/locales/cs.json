@@ -2565,7 +2565,7 @@
     "retry": "Zkusit znovu"
   },
   "queue": {
-    "title": "Naplánované / k odeslání",
+    "title": "Naplánované",
     "scheduleSend": "Naplánovat odeslání",
     "startMailMerge": "Odeslat hromadnou korespondenci",
     "sendOptions": "Možnosti odeslání",
@@ -2612,11 +2612,10 @@
       "dismissed": "Odstraněno",
       "cancelled": "Zrušeno"
     },
-    "pausedAvailable": "Odesílání pozastaveno. Rozepsaná zpráva zůstává beze změny. Pozastavenou zprávu můžete později upravit v Naplánované / k odeslání.",
+    "pausedAvailable": "Odesílání pozastaveno. Rozepsaná zpráva zůstává beze změny. Pozastavenou zprávu můžete později upravit v Naplánované.",
     "hour": "Hodina",
     "minute": "Minuta",
     "recipientCount": "Příjemci: {{count}}",
-    "attachments": "Přílohy",
     "threadContext": "Předchozí zprávy v tomto vlákně",
     "sourceUnavailable": "Původní zpráva není dostupná. Odpověď ve frontě je stále zobrazena níže.",
     "previewUnavailable": "Kopie zprávy není dostupná. Stav doručení je stále zobrazen výše.",
@@ -2625,7 +2624,8 @@
     "seenError": "Zobrazení stavu se nepodařilo uložit. Položka se může při další návštěvě znovu objevit.",
     "loadMore": "Načíst další",
     "deliveryError": "Chyba doručení: {{code}}",
-    "previewTitle": "Náhled zprávy",
-    "recipientsUnavailable": "Údaje o příjemcích nejsou dostupné"
+    "recipientsUnavailable": "Údaje o příjemcích nejsou dostupné",
+    "editingNotice": "Odesílání je během úprav pozastaveno. Uložení jej neobnoví; až budete připraveni, zvolte Odeslat nebo Naplánovat odeslání.",
+    "resumeFromEditor": "Dokončete úpravy v otevřeném editoru a poté upravenou zprávu odešlete nebo naplánujte."
   }
 }

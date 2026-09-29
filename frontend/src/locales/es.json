@@ -2565,7 +2565,7 @@
     "retry": "Reintentar"
   },
   "queue": {
-    "title": "Programados / bandeja de salida",
+    "title": "Programados",
     "scheduleSend": "Programar envío",
     "startMailMerge": "Enviar combinación de correspondencia",
     "sendOptions": "Opciones de envío",
@@ -2612,11 +2612,10 @@
       "dismissed": "Descartado",
       "cancelled": "Cancelado"
     },
-    "pausedAvailable": "Envío pausado. La redacción actual se conserva. Abre más tarde Programados / bandeja de salida para editar el mensaje pausado.",
+    "pausedAvailable": "Envío pausado. La redacción actual se conserva. Abre más tarde Programados para editar el mensaje pausado.",
     "hour": "Hora",
     "minute": "Minuto",
     "recipientCount": "Destinatarios: {{count}}",
-    "attachments": "Archivos adjuntos",
     "threadContext": "Mensajes anteriores de esta conversación",
     "sourceUnavailable": "El mensaje original no está disponible. Tu respuesta en cola sigue disponible a continuación.",
     "previewUnavailable": "La copia del mensaje no está disponible. Su estado de entrega sigue visible arriba.",
@@ -2625,7 +2624,8 @@
     "seenError": "No se pudo guardar que has visto el estado. El resultado puede volver a aparecer en tu próxima visita.",
     "loadMore": "Cargar más",
     "deliveryError": "Error de entrega: {{code}}",
-    "previewTitle": "Vista previa del mensaje",
-    "recipientsUnavailable": "Datos de destinatarios no disponibles"
+    "recipientsUnavailable": "Datos de destinatarios no disponibles",
+    "editingNotice": "El envío está pausado mientras editas. Guardar no lo reanuda; cuando termines, elige Enviar o Programar envío.",
+    "resumeFromEditor": "Termina de editar en la ventana abierta y después envía o programa el mensaje actualizado."
   }
 }

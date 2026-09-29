@@ -40,6 +40,16 @@ export class ScheduledMailError extends Error {
 }
 /** Raise a typed validation error without exposing infrastructure details. */
 function invalid(message: string): never { throw new ScheduledMailError(400, 'SCHEDULE_INVALID', message); }
+/** A distinct code lets clients localize an expired scheduling choice. */
+function schedulePast(): never { throw new ScheduledMailError(400, 'SCHEDULE_PAST', 'Scheduled time must be in the future'); }
+/** Check database wall time, including waits inside the final transactional write.
+ * A failed post-write check rolls back before any worker can observe pending work.
+ * Undo/Send now deliberately do not use this future-only scheduling guard.
+ */
+async function requireFutureWrite(client: DbClient, scheduledAt: Date): Promise<void> {
+  const result = await client.query<{ future: boolean }>('SELECT $1::timestamptz > clock_timestamp() AS future', [scheduledAt]);
+  if (!result.rows[0]?.future) schedulePast();
+}
 /** Validate the queue identifier before an owner-scoped database query. */
 export function requireScheduledId(value: string): void {
   if (!UUID.test(value)) invalid('Invalid scheduled message id');
@@ -59,7 +69,7 @@ export function validateScheduledAt(value: unknown, now = Date.now()): Date {
   if (!Number.isFinite(date.getTime()) || date.toISOString().replace('.000Z', 'Z') !== value.replace('.000Z', 'Z')) {
     invalid('Invalid calendar date');
   }
-  if (date.getTime() <= now) invalid('Scheduled time must be in the future');
+  if (date.getTime() <= now) schedulePast();
   return date;
 }
 /** Require a JSON object before reading queued-message fields. */
@@ -164,11 +174,13 @@ export async function enqueueScheduledMail(userId: string, inputValue: unknown, 
     if (Number(count.rows[0].count) >= MAX_ACTIVE) throw new ScheduledMailError(409, 'SCHEDULE_QUEUE_FULL', 'At most 100 active scheduled messages are allowed');
     // Undo time starts AFTER preparation, not before slow forwarded-attachment reads.
     const scheduledAt = mode === 'undo' ? new Date(Date.now() + Number(delay) * 1000) : validateScheduledAt(input.scheduledAt);
+    if (mode === 'schedule') await requireFutureWrite(client, scheduledAt);
     const inserted = await client.query<ScheduledSummary>(`INSERT INTO scheduled_mail
       (id,user_id,account_id,idempotency_key,request_fingerprint,subject,mode,scheduled_at,time_zone,payload)
       SELECT $1,$2,a.id,$4,$5,$6,$7,$8,$9,$10::jsonb FROM email_accounts a WHERE a.id=$3 AND a.user_id=$2
       RETURNING ${SUMMARY}`, [randomUUID(), userId, message.accountId, key, fingerprint, prepared.payload.subject ?? '', mode, scheduledAt, timeZone, JSON.stringify(prepared)]);
     if (!inserted.rows[0]) throw new ScheduledMailError(404, 'SCHEDULE_ACCOUNT_MISSING', 'Sending account is no longer available');
+    if (mode === 'schedule') await requireFutureWrite(client, scheduledAt);
     return inserted.rows[0];
   });
 }
@@ -266,7 +278,7 @@ export async function enqueueMailMerge(userId: string, inputValue: unknown, key:
 
 const VISIBLE = `(state NOT IN ('sent','cancelled','dismissed')
   OR (state='sent' AND sent_seen_at IS NULL)
-  OR (state IN ('cancelled','dismissed') AND updated_at > clock_timestamp() - interval '7 days'))`;
+  OR (state='dismissed' AND updated_at > clock_timestamp() - interval '7 days'))`;
 const ACTIVE_ORDER = "CASE WHEN state IN ('sent','cancelled','dismissed') THEN 0 ELSE 1 END";
 const PAGE_SIZE = 200;
 interface QueueCursor { active: number; at: string; id: string }
@@ -353,44 +365,67 @@ export async function updateScheduledMail(userId: string, id: string, inputValue
     if (!validUndoSendSeconds(value)) invalid('Invalid Undo Send preference');
     delay = value;
   }
-  const scheduledAt = keepEditing ? row.scheduledAt : sendNow
-    ? new Date(Date.now() + delay * 1000) : validateScheduledAt(input.scheduledAt);
-  const state = keepEditing ? 'editing' : 'pending';
-  const mode = keepEditing ? row.mode : sendNow ? 'undo' : 'schedule';
-  const result = await query<ScheduledSummary>(`UPDATE scheduled_mail q SET account_id=$4, payload=$5::jsonb, subject=$6,
-    scheduled_at=$7, time_zone=$8, state=$9, mode=$10, revision=revision+1, result=NULL,
-    dispatch_started_at=NULL, last_error_code=NULL, edit_fingerprint=$11, updated_at=clock_timestamp()
-    WHERE q.id=$1 AND q.user_id=$2 AND q.revision=$3 AND q.state='editing'
-      AND EXISTS (SELECT 1 FROM email_accounts a WHERE a.id=$4 AND a.user_id=$2)
-    RETURNING ${SUMMARY}`, [id, userId, revision, message.accountId, JSON.stringify(prepared), prepared.payload.subject ?? '',
-    scheduledAt, timeZone ?? row.timeZone, state, mode, fingerprint]);
-  if (result.rows[0]) return result.rows[0];
-  // Two identical concurrent retries can race after preparation. Only the first
-  // writes; the second observes its exact new revision, never sends independently.
-  const raced = (await query<ScheduledRow>(`SELECT ${DETAIL} FROM scheduled_mail WHERE id=$1 AND user_id=$2`, [id, userId])).rows[0];
-  if (raced?.revision === revision + 1 && raced.edit_fingerprint === fingerprint) return summary(raced);
-  throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed in another client. Your queued version was not replaced.');
+  return withTransaction(async client => {
+    // Lock before checking wall time; identical retries replay before expiry validation.
+    const current = (await client.query<ScheduledRow>(`SELECT ${DETAIL} FROM scheduled_mail
+      WHERE id=$1 AND user_id=$2 FOR UPDATE`, [id, userId])).rows[0];
+    if (current?.revision === revision + 1 && current.edit_fingerprint === fingerprint) return summary(current);
+    if (!current || current.revision !== revision || current.state !== 'editing') {
+      throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'Pause the current message before editing it');
+    }
+    const scheduledAt = keepEditing ? row.scheduledAt : sendNow
+      ? new Date(Date.now() + delay * 1000) : validateScheduledAt(input.scheduledAt);
+    if (!keepEditing && !sendNow) await requireFutureWrite(client, scheduledAt);
+    const state = keepEditing ? 'editing' : 'pending';
+    const mode = keepEditing ? row.mode : sendNow ? 'undo' : 'schedule';
+    const result = await client.query<ScheduledSummary>(`UPDATE scheduled_mail q SET account_id=$4, payload=$5::jsonb, subject=$6,
+      scheduled_at=$7, time_zone=$8, state=$9, mode=$10, revision=revision+1, result=NULL,
+      dispatch_started_at=NULL, last_error_code=NULL, edit_fingerprint=$11, updated_at=clock_timestamp()
+      WHERE q.id=$1 AND q.user_id=$2 AND q.revision=$3 AND q.state='editing'
+        AND EXISTS (SELECT 1 FROM email_accounts a WHERE a.id=$4 AND a.user_id=$2)
+      RETURNING ${SUMMARY}`, [id, userId, revision, message.accountId, JSON.stringify(prepared), prepared.payload.subject ?? '',
+      scheduledAt, timeZone ?? row.timeZone, state, mode, fingerprint]);
+    if (result.rows[0]) {
+      if (!keepEditing && !sendNow) await requireFutureWrite(client, scheduledAt);
+      return result.rows[0];
+    }
+    throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed in another client. Your queued version was not replaced.');
+  });
 }
 /** Reschedule without fetching/rebuilding attachments; never rearms an uncertain send. */
 export async function rescheduleMail(userId: string, id: string, inputValue: unknown): Promise<ScheduledSummary> {
   requireScheduledId(id);
   const input = record(inputValue);
-  const result = await query<ScheduledSummary>(`UPDATE scheduled_mail SET scheduled_at=$4, time_zone=$5, mode='schedule',
-    state='pending', revision=revision+1, updated_at=clock_timestamp(), last_error_code=NULL
-    WHERE id=$1 AND user_id=$2 AND revision=$3 AND state IN ('pending','editing') RETURNING ${SUMMARY}`,
-  [id, userId, requireRevision(input.revision), validateScheduledAt(input.scheduledAt), validateTimeZone(input.timeZone)]);
-  if (!result.rows[0]) throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed or cannot be rescheduled');
-  return result.rows[0];
+  const revision = requireRevision(input.revision);
+  const scheduledAt = validateScheduledAt(input.scheduledAt);
+  const timeZone = validateTimeZone(input.timeZone);
+  return withTransaction(async client => {
+    const owned = await client.query(`SELECT id FROM scheduled_mail
+      WHERE id=$1 AND user_id=$2 AND revision=$3 AND state IN ('pending','editing') FOR UPDATE`, [id, userId, revision]);
+    if (!owned.rows[0]) throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed or cannot be rescheduled');
+    await requireFutureWrite(client, scheduledAt);
+    const result = await client.query<ScheduledSummary>(`UPDATE scheduled_mail SET scheduled_at=$4, time_zone=$5, mode='schedule',
+      state='pending', revision=revision+1, updated_at=clock_timestamp(), last_error_code=NULL
+      WHERE id=$1 AND user_id=$2 AND revision=$3 AND state IN ('pending','editing') RETURNING ${SUMMARY}`,
+    [id, userId, revision, scheduledAt, timeZone]);
+    if (!result.rows[0]) throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed or cannot be rescheduled');
+    await requireFutureWrite(client, scheduledAt);
+    return result.rows[0];
+  });
 }
 /** Cancellation is permitted only while no provider submission can be in progress. */
 export async function cancelScheduledMail(userId: string, id: string, revision: unknown): Promise<ScheduledSummary> {
   requireScheduledId(id);
+  const expected = requireRevision(revision);
   const result = await query<ScheduledSummary>(`UPDATE scheduled_mail SET state='cancelled', payload='{}'::jsonb,
     revision=revision+1, updated_at=clock_timestamp(), last_error_code=NULL
     WHERE id=$1 AND user_id=$2 AND revision=$3 AND state IN ('pending','editing','failed','partial') RETURNING ${SUMMARY}`,
-  [id, userId, requireRevision(revision)]);
-  if (!result.rows[0]) throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed or submission has already started');
-  return result.rows[0];
+  [id, userId, expected]);
+  if (result.rows[0]) return result.rows[0];
+  const replayed = await query<ScheduledSummary>(`SELECT ${SUMMARY} FROM scheduled_mail
+    WHERE id=$1 AND user_id=$2 AND revision=$3 AND state='cancelled'`, [id, userId, expected + 1]);
+  if (replayed.rows[0]) return replayed.rows[0];
+  throw new ScheduledMailError(409, 'SCHEDULE_CHANGED', 'The message changed or submission has already started');
 }
 
 /** Acknowledge an uncertain outcome without recalling or resubmitting anything.

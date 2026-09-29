@@ -110,7 +110,7 @@ test('Undo queues instead of sending, survives reload and restores the paused fu
   await outbox(page);
   await page.getByTestId('scheduled-edit-queued-1').click();
   await expect(page.getByTestId('compose-from')).toHaveValue('alias:work:account-gmail');
-  await expect(page.getByText('frozen.txt', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('compose-editor').getByText('frozen.txt', { exact: true })).toBeVisible();
   await expect(page.locator('.tiptap-compose [contenteditable="true"]')).toContainText('Frozen queued body');
   expect(immediate).toBe(0);
 });
@@ -238,7 +238,7 @@ test('a partial queued edit reschedules its original record and preserves bytes,
   });
   await page.route('**/api/mail/send', route => { immediate++; return route.fulfill({ status: 503, json: {} }); });
   await page.getByTestId('scheduled-edit-queued-1').click();
-  await expect(page.getByText('frozen.txt', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('compose-editor').getByText('frozen.txt', { exact: true })).toBeVisible();
   await page.getByTestId('compose-from').selectOption('account:account-gmail');
   await page.getByTestId('compose-from').selectOption('alias:work:account-gmail');
   await page.getByTestId('compose-send-menu').click(); await page.getByTestId('compose-schedule').click(); await selectSchedule(page);
@@ -397,7 +397,7 @@ test('Undo during another unsaved compose pauses the original without replacing 
   await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Editing (paused)');
   await page.getByTestId('scheduled-edit-queued-1').click();
   await expect(page.getByPlaceholder(/^(Add a subject|Subject)$/)).toHaveValue('Queued fixture');
-  await expect(page.getByText('frozen.txt', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('compose-editor').getByText('frozen.txt', { exact: true })).toBeVisible();
 });
 
 test('a queue read slower than the poll interval still restores pending Undo after reload', async ({ page, fixtureApi }) => {
@@ -623,7 +623,7 @@ test('uncertain dismissal confirms without cancellation or resend and retains on
   await expect(page.getByTestId('scheduled-item-queued-1')).toContainText('Queued fixture');
   await expect(page.getByTestId('scheduled-item-queued-1')).not.toContainText('Frozen queued body');
   // Return to the mobile list before selecting again: hidden rows are not interactive.
-  if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByTestId('scheduled-back').click();
+  if (await page.getByTestId('scheduled-back').isVisible()) await page.getByTestId('scheduled-back').click();
   const item = page.getByTestId('scheduled-item-queued-1').getByRole('button');
   await expect(item).toHaveCount(1); await item.click();
   // Selection is read-only; no delivery action may reappear for a dismissed result.

@@ -2,9 +2,12 @@ import type { ScheduledSummary } from './scheduledMail.ts';
 
 const terminal = new Set(['sent', 'cancelled', 'dismissed']);
 /** Keep sent results for this visit even when another tab/device acknowledges them. */
-export function mergeScheduledVisit(previous: readonly ScheduledSummary[], fresh: readonly ScheduledSummary[]): ScheduledSummary[] {
-  const rows = new Map(previous.filter(row => row.state === 'sent').map(row => [row.id, row]));
-  for (const row of fresh) rows.set(row.id, row);
+export function mergeScheduledVisit(previous: readonly ScheduledSummary[], fresh: readonly ScheduledSummary[], cancelled: ReadonlySet<string> = new Set()): ScheduledSummary[] {
+  const rows = new Map(previous.filter(row => row.state === 'sent' && !cancelled.has(row.id)).map(row => [row.id, row]));
+  for (const row of fresh) {
+    if (row.state === 'cancelled' || cancelled.has(row.id)) rows.delete(row.id);
+    else rows.set(row.id, row);
+  }
   return [...rows.values()].sort((a, b) => Number(terminal.has(a.state)) - Number(terminal.has(b.state))
     || Date.parse(b.scheduledAt) - Date.parse(a.scheduledAt) || b.id.localeCompare(a.id));
 }

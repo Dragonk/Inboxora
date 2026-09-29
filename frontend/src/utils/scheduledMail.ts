@@ -1,3 +1,4 @@
+import { toAppError } from './errors.ts';
 import { api } from './api.ts';
 import type { ComposeDraft } from '../store/index.ts';
 
@@ -70,4 +71,11 @@ export function scheduledEditToDraft(edit: ScheduledEdit): ComposeDraft {
   return { ...edit.message, aliasId: edit.message.aliasId ?? null, queuedMail: { id: edit.id, revision: edit.revision, scheduledAt: edit.scheduledAt, timeZone: edit.timeZone },
     queuedRetryRecipients: true, isReply: edit.message.sendKind === 'reply' || edit.message.sendKind === 'reply_all',
     isReplyAll: edit.message.sendKind === 'reply_all', isForward: edit.message.sendKind === 'forward' };
+}
+
+/** Localize server-authoritative deadlines without disguising revision conflicts. */
+export function scheduledActionErrorKey(error: unknown): string {
+  const value = toAppError(error);
+  return value.code === 'SCHEDULE_PAST' ? 'queue.pastTime'
+    : value.status === 409 ? 'queue.conflict' : 'queue.actionError';
 }

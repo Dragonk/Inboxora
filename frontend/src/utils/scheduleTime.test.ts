@@ -43,3 +43,11 @@ test('preserving an old saved value never permits a past schedule', async () => 
   const { resolveScheduleSelection } = await import('./scheduleTime.ts');
   assert.deepEqual(resolveScheduleSelection('2020-01-01T01:00', 'Europe/Warsaw', '2020-01-01T00:00:00Z', Date.parse('2026-01-01')), { error: 'pastTime' });
 });
+
+test('the current minute and an expired future selection are rejected at confirmation time', async () => {
+  const { resolveScheduleSelection } = await import('./scheduleTime.ts');
+  const deadline = Date.parse('2030-01-15T01:45:00Z');
+  assert.deepEqual(resolveScheduleTime('2030-01-15T02:45', 'Europe/Warsaw', deadline), { error: 'pastTime' });
+  assert.deepEqual(resolveScheduleTime('2030-01-15T02:45', 'Europe/Warsaw', deadline - 1), { instant: '2030-01-15T01:45:00.000Z' });
+  assert.deepEqual(resolveScheduleSelection('2030-01-15T02:45', 'Europe/Warsaw', '2030-01-15T01:45:00Z', deadline + 1), { error: 'pastTime' });
+});

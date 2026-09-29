@@ -58,7 +58,7 @@ export async function bootQueue(page: Page, server: QueueServer, options: { them
       server.listReads++;
       if (server.failList) return json(route, { error: 'Queue unavailable' }, 503);
       const owned = server.rows.filter(row => server.owners.get(row.id) === owner);
-      const visible = owned.filter(row => !(row.state === 'sent' && server.seen.has(`${owner}:${row.id}`)));
+      const visible = owned.filter(row => row.state !== 'cancelled' && !(row.state === 'sent' && server.seen.has(`${owner}:${row.id}`)));
       if (url.searchParams.get('page') !== '1') return json(route, visible.slice(0, 200));
       const cursor = url.searchParams.get('cursor');
       const remaining = cursor ? visible.filter(row => owned.indexOf(row) > owned.findIndex(item => item.id === cursor)) : visible;
@@ -86,7 +86,7 @@ export async function bootQueue(page: Page, server: QueueServer, options: { them
       const body = request.postDataJSON() as Record<string, unknown>;
       server.mutations.push({ id, action: action ?? method, body });
       if (body.revision !== row.revision) return json(route, { error: 'Changed revision' }, 409);
-      if (action === 'edit') { row.state = 'editing'; row.revision++; return json(route, { ...row, message: queueMessage }); }
+      if (action === 'edit') { row.state = 'editing'; return json(route, { ...row, message: queueMessage }); }
       if (method === 'PATCH') { row.scheduledAt = String(body.scheduledAt); row.timeZone = String(body.timeZone); row.revision++; row.state = 'pending'; }
       if (action === 'cancel') { row.state = 'cancelled'; row.revision++; }
       if (action === 'dismiss') { row.state = 'dismissed'; row.revision++; }

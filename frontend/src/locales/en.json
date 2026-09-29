@@ -2565,7 +2565,7 @@
     "retry": "Retry"
   },
   "queue": {
-    "title": "Scheduled / outbox",
+    "title": "Scheduled",
     "scheduleSend": "Schedule send",
     "startMailMerge": "Send mail merge",
     "sendOptions": "Send options",
@@ -2612,11 +2612,10 @@
       "dismissed": "Dismissed",
       "cancelled": "Cancelled"
     },
-    "pausedAvailable": "Sending paused. Your current compose is unchanged. Open Scheduled / outbox later to edit the paused message.",
+    "pausedAvailable": "Sending paused. Your current compose is unchanged. Open Scheduled later to edit the paused message.",
     "hour": "Hour",
     "minute": "Minute",
     "recipientCount": "Recipients: {{count}}",
-    "attachments": "Attachments",
     "threadContext": "Earlier messages in this thread",
     "sourceUnavailable": "The original message is unavailable. Your queued reply is still available below.",
     "previewUnavailable": "The message copy is unavailable. Its delivery status is still shown above.",
@@ -2625,7 +2624,8 @@
     "seenError": "Could not save the viewed status. This result may appear again on your next visit.",
     "loadMore": "Load more",
     "deliveryError": "Delivery error: {{code}}",
-    "previewTitle": "Message preview",
-    "recipientsUnavailable": "Recipient details unavailable"
+    "recipientsUnavailable": "Recipient details unavailable",
+    "editingNotice": "Sending is paused while you edit. Saving keeps it paused; choose Send or Schedule send when you are ready.",
+    "resumeFromEditor": "Finish editing in the open composer, then send or schedule the updated message."
   }
 }

@@ -2565,7 +2565,7 @@
     "retry": "Erneut versuchen"
   },
   "queue": {
-    "title": "Geplant / Postausgang",
+    "title": "Geplant",
     "scheduleSend": "Senden planen",
     "startMailMerge": "Serienmail senden",
     "sendOptions": "Sendeoptionen",
@@ -2612,11 +2612,10 @@
       "dismissed": "Entfernt",
       "cancelled": "Abgebrochen"
     },
-    "pausedAvailable": "Versand angehalten. Ihr aktueller Entwurf bleibt erhalten. Öffnen Sie später Geplant / Postausgang, um die angehaltene Nachricht zu bearbeiten.",
+    "pausedAvailable": "Versand angehalten. Ihr aktueller Entwurf bleibt erhalten. Öffnen Sie später Geplant, um die angehaltene Nachricht zu bearbeiten.",
     "hour": "Stunde",
     "minute": "Minute",
     "recipientCount": "Empfänger: {{count}}",
-    "attachments": "Anhänge",
     "threadContext": "Frühere Nachrichten in diesem Verlauf",
     "sourceUnavailable": "Die ursprüngliche Nachricht ist nicht verfügbar. Ihre geplante Antwort wird weiterhin unten angezeigt.",
     "previewUnavailable": "Die Nachrichtenkopie ist nicht verfügbar. Der Zustellstatus wird weiterhin oben angezeigt.",
@@ -2625,7 +2624,8 @@
     "seenError": "Der angezeigte Status konnte nicht gespeichert werden. Der Eintrag erscheint möglicherweise beim nächsten Besuch erneut.",
     "loadMore": "Weitere laden",
     "deliveryError": "Zustellfehler: {{code}}",
-    "previewTitle": "Nachrichtenvorschau",
-    "recipientsUnavailable": "Empfängerdaten nicht verfügbar"
+    "recipientsUnavailable": "Empfängerdaten nicht verfügbar",
+    "editingNotice": "Der Versand ist während der Bearbeitung pausiert. Speichern setzt ihn nicht fort. Wählen Sie anschließend Senden oder Versand planen.",
+    "resumeFromEditor": "Beenden Sie die Bearbeitung im geöffneten Nachrichtenfenster und senden oder planen Sie dann die geänderte Nachricht."
   }
 }

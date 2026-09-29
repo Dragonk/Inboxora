@@ -1,10 +1,9 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
-import { scheduledApi, scheduledEditToDraft, type ScheduledSummary, type ScheduleSelection } from '../utils/scheduledMail.ts';
+import { scheduledApi, scheduledEditToDraft, scheduledActionErrorKey, type ScheduledSummary, type ScheduleSelection } from '../utils/scheduledMail.ts';
 import { createScheduledRefresh } from '../utils/scheduledRefresh.ts';
 import { mergeScheduledVisit } from '../utils/scheduledVisit.ts';
-import { toAppError } from '../utils/errors.ts';
 
 interface Visit {
   items: ScheduledSummary[]; pages: number; acknowledged: Set<string>; pending: Set<string>; failed: Set<string>;
@@ -35,6 +34,8 @@ export function useScheduledMail() {
   const refreshGlobal = useRef(() => {});
   const invalidateGlobal = useRef(() => {});
   const operation = useRef(0);
+  // Successful cancellation is terminal, even if an older list response arrives later.
+  const cancelled = useRef(new Set<string>());
   const open = useCallback(() => {
     const state = useStore.getState();
     if (!state.user || state.isLocked) return;
@@ -48,10 +49,10 @@ export function useScheduledMail() {
     const controller = new AbortController();
     const current = () => !controller.signal.aborted && useStore.getState().authEpoch === authEpoch
       && useStore.getState().user?.id === userId && !useStore.getState().isLocked;
-    operation.current++; busyRef.current = false; setBusy(null); setErrorKey(''); setGlobalItems([]);
+    operation.current++; busyRef.current = false; setBusy(null); setErrorKey(''); setGlobalItems([]); cancelled.current.clear();
     if (!userId || locked) return () => controller.abort();
     const feed = createScheduledRefresh({ load: () => scheduledApi.list(controller.signal),
-      apply: setGlobalItems, failed: () => {}, current });
+      apply: rows => setGlobalItems(rows.filter(row => row.state !== 'cancelled' && !cancelled.current.has(row.id))), failed: () => {}, current });
     refreshGlobal.current = feed.refresh; invalidateGlobal.current = feed.invalidate;
     const changed = () => { invalidate(); refresh(); };
     const visible = () => { if (document.visibilityState === 'visible') refresh(); };
@@ -95,7 +96,7 @@ export function useScheduledMail() {
         return { fresh, hasMore: Boolean(cursor) };
       },
       apply: result => {
-        currentVisit.items = mergeScheduledVisit(currentVisit.items, result.fresh);
+        currentVisit.items = mergeScheduledVisit(currentVisit.items, result.fresh, cancelled.current);
         setItems(currentVisit.items); setHasMore(result.hasMore); setLoading(false); setLoadError(false);
       }, failed: () => { setLoading(false); setLoadError(true); },
     });
@@ -127,6 +128,9 @@ export function useScheduledMail() {
     const state = useStore.getState();
     if (busyRef.current || !state.user || state.isLocked || state.authEpoch !== authEpoch) return;
     if (kind === 'dismiss' && row.state !== 'uncertain') return;
+    if (kind === 'reschedule' && state.composing && state.composeData?.queuedMail?.id === row.id) {
+      setErrorKey('queue.resumeFromEditor'); return;
+    }
     if (kind === 'edit' && state.composing && !(row.mode === 'undo' && row.state === 'pending')) {
       setErrorKey('queue.composeOpen'); return;
     }
@@ -140,14 +144,34 @@ export function useScheduledMail() {
         const edit = await scheduledApi.edit(row.id, row.revision);
         if (!current()) return;
         const latest = useStore.getState();
+        const paused: ScheduledSummary = { ...row, state: 'editing', revision: edit.revision,
+          scheduledAt: edit.scheduledAt, timeZone: edit.timeZone };
+        setGlobalItems(rows => rows.map(item => item.id === row.id ? paused : item));
+        const currentVisit = visit.current;
+        if (currentVisit?.current()) {
+          currentVisit.items = currentVisit.items.map(item => item.id === row.id ? paused : item);
+          setItems(currentVisit.items);
+        }
         if (latest.composing) latest.addNotification({ type: 'info', title: t('queue.undo'), message: t('queue.pausedAvailable'), duration: 15000 });
         else latest.openCompose(scheduledEditToDraft(edit));
-      } else if (kind === 'cancel') await scheduledApi.cancel(row.id, row.revision);
+      } else if (kind === 'cancel') {
+        const receipt = await scheduledApi.cancel(row.id, row.revision);
+        if (!current()) return;
+        if (receipt.state !== 'cancelled') { setErrorKey('queue.conflict'); return; }
+        cancelled.current.add(row.id);
+        setGlobalItems(rows => rows.filter(item => item.id !== row.id));
+        const currentVisit = visit.current;
+        if (currentVisit?.current()) {
+          currentVisit.items = currentVisit.items.filter(item => item.id !== row.id);
+          setItems(currentVisit.items);
+          setSelectedId(selected => selected === row.id ? null : selected);
+        }
+      }
       else if (kind === 'dismiss') await scheduledApi.dismiss(row.id, row.revision);
       else if (selection) await scheduledApi.reschedule(row.id, { revision: row.revision, ...selection });
       if (current()) setPicker(null);
     } catch (caught) {
-      if (current()) setErrorKey(toAppError(caught).status === 409 ? 'queue.conflict' : 'queue.actionError');
+      if (current()) setErrorKey(scheduledActionErrorKey(caught));
     } finally {
       if (current()) { busyRef.current = false; setBusy(null); invalidate(); refresh(); }
     }

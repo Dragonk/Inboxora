@@ -24,8 +24,8 @@ test('retention never turns another delivery state into a seen sent result', () 
   const states: ScheduledState[] = ['pending', 'editing', 'preparing', 'sending', 'failed', 'partial', 'uncertain', 'cancelled', 'dismissed'];
   const fresh = states.map(state => row(state, state));
   const visit = mergeScheduledVisit([], fresh);
-  assert.equal(visit.length, states.length);
-  assert.deepEqual(new Set(visit.map(value => value.state)), new Set(states));
+  assert.equal(visit.length, states.length - 1);
+  assert.deepEqual(new Set(visit.map(value => value.state)), new Set(states.filter(state => state !== 'cancelled')));
   assert.deepEqual(mergeScheduledVisit(visit, []), []);
 });
 test('fresh revisions win, sent pins deduplicate, and active mail sorts before history', () => {
@@ -37,4 +37,12 @@ test('a new owner/visit cannot inherit private rows from the previous retention 
   const old = mergeScheduledVisit([], [row('private-old-owner', 'sent')]);
   assert.equal(old.length, 1);
   assert.deepEqual(mergeScheduledVisit([], [row('new-owner', 'pending')]), [row('new-owner', 'pending')]);
+});
+
+test('cancelled rows disappear on receipt or read while sent and dismissed history keep their own rules', () => {
+  const pending = row('cancel-me', 'pending');
+  const sent = row('sent', 'sent'); const dismissed = row('dismissed', 'dismissed');
+  assert.deepEqual(mergeScheduledVisit([pending, sent], [row('cancel-me', 'cancelled'), dismissed]), [sent, dismissed]);
+  assert.deepEqual(mergeScheduledVisit([pending, sent], [pending], new Set(['cancel-me'])), [sent]);
+  assert.deepEqual(mergeScheduledVisit([], [row('cancel-me', 'cancelled')]), []);
 });

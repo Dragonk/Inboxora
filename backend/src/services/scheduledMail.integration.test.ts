@@ -4,8 +4,15 @@ import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pool, query } from './db.js';
 import * as queue from './scheduledMail.js';
-import { previewScheduledMail } from './scheduledMailPreview.js';
+import { previewScheduledMail, scheduledMailAttachment } from './scheduledMailPreview.js';
+// The real queue/worker use PostgreSQL, but importing a provider executor must not start Redis or the application.
+vi.mock('./sendMail.js', () => ({ executeSend: () => { throw new Error('Unexpected real send in queue integration'); } }));
+import { createScheduledMailWorker } from './scheduledMailWorker.js';
 import type { SendRequestBody } from './sendMail.js';
+
+// Keep the worker's real PostgreSQL claim/recovery path, but never load providers
+// or the application's entry point through its default executor import.
+vi.mock('./sendMail.js', () => ({ executeSend: vi.fn(() => { throw new Error('Real transport is forbidden in queue integration tests'); }) }));
 
 const required = process.env.REQUIRE_SCHEDULED_MAIL_POSTGRES === '1';
 const configured = Boolean(process.env.DB_HOST && process.env.DB_NAME);
@@ -214,6 +221,168 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
     await expect(enqueue(key, { ...input, message: { ...message, body: 'changed' } })).rejects.toMatchObject({ code: 'SCHEDULE_KEY_MISMATCH' });
     expect(prepare).toHaveBeenCalledTimes(1);
     expect((await query('SELECT count(*)::int AS n FROM scheduled_mail')).rows[0].n).toBe(1);
+  });
+
+  it('hides cancellation immediately, replays only the original owner revision and never revives its tombstone', async () => {
+    const key = randomUUID(); const input = { scheduledAt: instant() }; const row = await enqueue(key, input);
+    const original = await stored(row.id);
+    const receipt = await queue.cancelScheduledMail(user, row.id, 1);
+    const cancelled = await stored(row.id);
+    expect(cancelled).toMatchObject({ state: 'cancelled', revision: 2, payload: {},
+      request_fingerprint: original.request_fingerprint, idempotency_key: key });
+    expect(await queue.cancelScheduledMail(user, row.id, 1)).toEqual(receipt);
+    expect(await stored(row.id)).toEqual(cancelled);
+    for (const [owner, revision] of [[outsider, 1], [user, 2], [user, 3]] as const) {
+      await expect(queue.cancelScheduledMail(owner, row.id, revision)).rejects.toMatchObject({ status: 409 });
+    }
+    for (const owner of [user, outsider]) {
+      expect(await queue.listScheduledMail(owner)).toEqual([]);
+      expect(await queue.pageScheduledMail(owner)).toEqual({ items: [], nextCursor: null });
+    }
+    await query(`INSERT INTO send_idempotency(user_id,idempotency_key,request_fingerprint,status,intent_token,result)
+      VALUES ($1,$2,$3,'completed',$4,$5)`, [user, `scheduled:${row.id}:1`, 'a'.repeat(64), randomUUID(), ok.body]);
+    await query(`INSERT INTO messages(account_id,uid,folder,message_id,subject,date,body_text)
+      VALUES ($1,1,'Sent','<untouched@example.test>','Sent copy',clock_timestamp(),'Sent body')`, [account]);
+    const ledger = (await query('SELECT * FROM send_idempotency')).rows;
+    const sent = (await query('SELECT * FROM messages')).rows;
+    await due(row.id); const tombstone = await stored(row.id);
+    await queue.recoverScheduledMail(); await queue.recoverScheduledMail();
+    expect(await queue.claimScheduledMail()).toBeNull();
+    expect(await stored(row.id)).toEqual(tombstone);
+    expect(await enqueue(key, input)).toMatchObject({ id: receipt.id, state: 'cancelled', revision: 2 });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect((await query('SELECT * FROM send_idempotency')).rows).toEqual(ledger);
+    expect((await query('SELECT * FROM messages')).rows).toEqual(sent);
+  });
+
+  it('keeps explicit Edit paused through the deadline, autosave, close/reopen and worker restart until explicit completion', async () => {
+    message = { ...message, aliasId: randomUUID(), priority: 'high', sendKind: 'reply',
+      replyToMessageId: randomUUID(), replyParentAccountId: account, replyParentMessageId: '<parent@example.test>',
+      inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
+      quotedBody: 'quotation', quotedBodyHtml: '<blockquote>quotation</blockquote>' };
+    const transport = vi.fn<queue.SendExecutor>(async (_owner, payload, _key, options) => {
+      expect(payload).toEqual(message); expect(await options?.beforeDispatch?.()).toBe(true); return ok;
+    });
+    const row = await enqueue(); const first = createScheduledMailWorker(transport);
+    try {
+      const edited = await queue.editScheduledMail(user, row.id, 1);
+      expect(edited.payload.payload).toEqual(message);
+      await due(row.id); await first.tick();
+      expect(transport).not.toHaveBeenCalled();
+      const saved = await queue.updateScheduledMail(user, row.id, { revision: 1, message, keepEditing: true }, prepare);
+      expect(saved).toMatchObject({ state: 'editing', revision: 2 });
+      await first.tick(); expect(transport).not.toHaveBeenCalled();
+    } finally { await first.stop(); }
+    const restarted = createScheduledMailWorker(transport);
+    try {
+      await restarted.tick(); expect(transport).not.toHaveBeenCalled();
+      expect(await queue.claimScheduledMail()).toBeNull();
+      const reopened = await queue.editScheduledMail(user, row.id, 2);
+      expect(reopened.payload.payload).toEqual(message);
+      await restarted.tick(); expect(transport).not.toHaveBeenCalled();
+      await queue.rescheduleMail(user, row.id, { revision: 2, scheduledAt: instant(), timeZone: 'UTC' });
+      await due(row.id); await restarted.tick();
+      expect(transport).toHaveBeenCalledTimes(1);
+      expect(await stored(row.id)).toMatchObject({ state: 'sent', revision: 3, payload: {} });
+    } finally { await restarted.stop(); }
+  });
+
+  it.each(['enqueue', 'update', 'reschedule'])('rejects an already expired new %s without changing storage', async kind => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1); const before = await stored(row.id);
+    const input = { revision: 1, message, scheduledAt: new Date(Date.now() - 1000).toISOString(), timeZone: 'UTC' };
+    const action = kind === 'enqueue' ? enqueue(undefined, input) : kind === 'update'
+      ? queue.updateScheduledMail(user, row.id, input, prepare) : queue.rescheduleMail(user, row.id, input);
+    await expect(action).rejects.toMatchObject({ status: 400, code: 'SCHEDULE_PAST' });
+    expect(await stored(row.id)).toEqual(before); expect(prepare).toHaveBeenCalledTimes(1);
+    expect((await query('SELECT id FROM scheduled_mail')).rows).toHaveLength(1);
+  });
+
+  it.each(['enqueue', 'update'])('rejects %s whose time expires during preparation without writing', async kind => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1); const before = await stored(row.id);
+    const scheduledAt = instant(); let clock: ReturnType<typeof vi.spyOn> | undefined;
+    prepare.mockImplementationOnce(async (_owner, payload) => {
+      clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(scheduledAt));
+      return { status: 200, body: {}, prepared: { payload, senderEmail: 'sender@example.test' } };
+    });
+    try {
+      const action = kind === 'enqueue' ? enqueue(undefined, { scheduledAt })
+        : queue.updateScheduledMail(user, row.id, { revision: 1, message, scheduledAt, timeZone: 'UTC' }, prepare);
+      await expect(action).rejects.toMatchObject({ code: 'SCHEDULE_PAST' });
+      expect(await stored(row.id)).toEqual(before);
+      expect((await query('SELECT id FROM scheduled_mail')).rows).toHaveLength(1);
+    } finally { clock?.mockRestore(); }
+  });
+
+  it.each(['enqueue', 'update', 'reschedule'])('checks authoritative database time for a new %s', async kind => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1); const before = await stored(row.id);
+    const now = Date.now(); const clock = vi.spyOn(Date, 'now').mockReturnValue(now - 60_000);
+    try {
+      const input = { revision: 1, message, scheduledAt: new Date(now - 1000).toISOString(), timeZone: 'UTC' };
+      const action = kind === 'enqueue' ? enqueue(undefined, input) : kind === 'update'
+        ? queue.updateScheduledMail(user, row.id, input, prepare) : queue.rescheduleMail(user, row.id, input);
+      await expect(action).rejects.toMatchObject({ code: 'SCHEDULE_PAST' });
+      expect(await stored(row.id)).toEqual(before);
+      expect((await query('SELECT id FROM scheduled_mail')).rows).toHaveLength(1);
+    } finally { clock.mockRestore(); }
+  });
+
+  it.each(['enqueue', 'update', 'reschedule'])('rolls back %s if the final pending write itself crosses the deadline', async kind => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1); const before = await stored(row.id);
+    await query(`CREATE FUNCTION delay_schedule_write() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN PERFORM pg_sleep(0.8); RETURN NEW; END $$;
+      CREATE TRIGGER delay_schedule_write BEFORE INSERT OR UPDATE ON scheduled_mail
+      FOR EACH ROW EXECUTE FUNCTION delay_schedule_write()`);
+    try {
+      const input = { revision: 1, message, scheduledAt: new Date(Date.now() + 500).toISOString(), timeZone: 'UTC' };
+      const action = kind === 'enqueue' ? enqueue(undefined, input) : kind === 'update'
+        ? queue.updateScheduledMail(user, row.id, input, prepare) : queue.rescheduleMail(user, row.id, input);
+      await expect(action).rejects.toMatchObject({ code: 'SCHEDULE_PAST' });
+      expect(await stored(row.id)).toEqual(before);
+      expect((await query('SELECT id FROM scheduled_mail')).rows).toHaveLength(1);
+      expect(await queue.claimScheduledMail()).toBeNull();
+    } finally { await query('DROP TRIGGER delay_schedule_write ON scheduled_mail; DROP FUNCTION delay_schedule_write()'); }
+  });
+
+  it('replays immutable enqueue and update acknowledgements after their requested times expire', async () => {
+    const key = randomUUID(); const input = { scheduledAt: instant() }; const row = await enqueue(key, input);
+    await queue.editScheduledMail(user, row.id, 1);
+    const action = { revision: 1, message, scheduledAt: instant(), timeZone: 'UTC' };
+    const saved = await queue.updateScheduledMail(user, row.id, action, prepare);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(action.scheduledAt) + 60_000);
+    try {
+      expect(await enqueue(key, input)).toEqual(saved);
+      expect(await queue.updateScheduledMail(user, row.id, action, prepare)).toEqual(saved);
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect((await query('SELECT id FROM scheduled_mail')).rows).toHaveLength(1);
+    } finally { clock.mockRestore(); }
+  });
+
+  it.each(['enqueue', 'update', 'reschedule'])('rejects %s after waiting for a real database lock past its deadline', async kind => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1); const before = await stored(row.id);
+    const blocker = await pool.connect();
+    let outcome: Promise<PromiseSettledResult<queue.ScheduledSummary>[]> | undefined;
+    try {
+      await blocker.query('BEGIN');
+      const pid = (await blocker.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      if (kind === 'enqueue') await blocker.query("SELECT pg_advisory_xact_lock(hashtext('scheduled-mail'),hashtext($1))", [user]);
+      else await blocker.query('SELECT id FROM scheduled_mail WHERE id=$1 FOR UPDATE', [row.id]);
+      const input = { revision: 1, message, scheduledAt: new Date(Date.now() + 500).toISOString(), timeZone: 'UTC' };
+      const action = kind === 'enqueue' ? enqueue(undefined, input) : kind === 'update'
+        ? queue.updateScheduledMail(user, row.id, input, prepare) : queue.rescheduleMail(user, row.id, input);
+      outcome = Promise.allSettled([action]);
+      let waiting = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const blocked = await query<{ waiting: boolean }>('SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))) AS waiting', [pid]);
+        if (blocked.rows[0].waiting) { waiting = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      expect(waiting).toBe(true);
+      await query('SELECT pg_sleep(GREATEST(0, EXTRACT(EPOCH FROM ($1::timestamptz-clock_timestamp())))+0.05)', [input.scheduledAt]);
+      await blocker.query('ROLLBACK');
+      expect(await outcome).toMatchObject([{ status: 'rejected', reason: { code: 'SCHEDULE_PAST' } }]);
+      expect(await stored(row.id)).toEqual(before);
+      expect((await query('SELECT id FROM scheduled_mail')).rows).toHaveLength(1);
+    } finally { await blocker.query('ROLLBACK'); blocker.release(); await outcome; }
   });
 
   it('serializes concurrent enqueue and enforces the active quota at the boundary', async () => {
@@ -624,7 +793,7 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
       const before = await stored(row.id);
       await expect(queue.acknowledgeSentMail(user, row.id)).rejects.toMatchObject({ status: 404 });
       expect(await stored(row.id)).toEqual(before);
-      expect((await queue.listScheduledMail(user)).some(item => item.id === row.id)).toBe(true);
+      expect((await queue.listScheduledMail(user)).some(item => item.id === row.id)).toBe(state !== 'cancelled');
     }
   });
 
@@ -678,6 +847,49 @@ suite('durable scheduled mail with real PostgreSQL and fake preparation', () => 
     await due(row.id);
     // A preview leaves the message claimable at its due time.
     expect((await queue.claimScheduledMail())?.id).toBe(row.id);
+  });
+
+  it('downloads only owner-scoped frozen attachment bytes at the displayed revision without affecting claimability', async () => {
+    const row = await enqueue(); const before = await stored(row.id);
+    expect(await scheduledMailAttachment(user, row.id, '0', '1')).toEqual({ filename: 'bytes.bin', content: Buffer.from([0, 1, 255]) });
+    await expect(scheduledMailAttachment(outsider, row.id, '0', '1')).rejects.toMatchObject({ status: 404 });
+    await expect(scheduledMailAttachment(user, randomUUID(), '0', '1')).rejects.toMatchObject({ status: 404 });
+    await expect(scheduledMailAttachment(user, row.id, '1', '1')).rejects.toMatchObject({ status: 404 });
+    await expect(scheduledMailAttachment(user, row.id, '0', '2')).rejects.toMatchObject({ status: 409 });
+    expect(await stored(row.id)).toEqual(before); expect(prepare).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(await queue.pageScheduledMail(user))).not.toContain('AAH/');
+    expect(JSON.stringify(await previewScheduledMail(user, row.id))).not.toContain('AAH/');
+    await due(row.id); expect((await queue.claimScheduledMail())?.id).toBe(row.id);
+  });
+
+  it('rejects stale attachment indexes after a paused edit replaces the materialized array', async () => {
+    const row = await enqueue(); await queue.editScheduledMail(user, row.id, 1);
+    const edited = { ...message, attachments: [{ filename: 'changed.html', content: Buffer.from('<b>new bytes</b>').toString('base64'), contentType: 'text/html' }] };
+    await queue.updateScheduledMail(user, row.id, { revision: 1, message: edited, keepEditing: true }, prepare);
+    const before = await stored(row.id);
+    await expect(scheduledMailAttachment(user, row.id, '0', '1')).rejects.toMatchObject({ status: 409 });
+    expect(await scheduledMailAttachment(user, row.id, '0', '2')).toEqual({ filename: 'changed.html', content: Buffer.from('<b>new bytes</b>') });
+    expect(await stored(row.id)).toEqual(before); expect(await queue.claimScheduledMail()).toBeNull();
+  });
+
+  it.each(['cancelled', 'dismissed', 'sent', 'missing-payload'])('refuses attachment bytes for %s even if old bytes remain in storage', async state => {
+    const row = await enqueue();
+    if (state === 'missing-payload') await query("UPDATE scheduled_mail SET payload='{}'::jsonb WHERE id=$1", [row.id]);
+    else await query('UPDATE scheduled_mail SET state=$2 WHERE id=$1', [row.id, state]);
+    const before = await stored(row.id);
+    await expect(scheduledMailAttachment(user, row.id, '0', '1')).rejects.toMatchObject({ status: 404 });
+    expect(await stored(row.id)).toEqual(before);
+  });
+
+  it('validates attachment ids, indexes and revisions without reading arbitrary array properties', async () => {
+    const row = await enqueue(); const before = await stored(row.id);
+    for (const [index, revision] of [['-1', '1'], ['1.5', '1'], ['01', '1'], ['1e0', '1'], ['Infinity', '1'],
+      ['9007199254740992', '1'], ['__proto__', '1'], ['0', '0'], ['0', '-1'], ['0', '1.5'], ['0', '01'],
+      ['0', '9007199254740992'], ['0', undefined], ['0', ['1', '2']], ['0', { revision: '1' }]]) {
+      await expect(scheduledMailAttachment(user, row.id, index, revision)).rejects.toMatchObject({ status: 400, code: 'SCHEDULE_INVALID' });
+    }
+    await expect(scheduledMailAttachment(user, 'invalid-id', '0', '1')).rejects.toMatchObject({ status: 400 });
+    expect(await stored(row.id)).toEqual(before);
   });
 
   it('keeps a reply preview usable when its source is gone and preserves reply identity through editing', async () => {

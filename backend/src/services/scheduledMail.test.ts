@@ -29,7 +29,9 @@ describe('scheduled mail input validation', () => {
   });
   it('rejects past and exactly-now instants', () => {
     const now = Date.parse('2036-01-01T00:00:00Z');
-    for (const value of ['2035-12-31T23:59:59Z', '2036-01-01T00:00:00Z']) expect(() => validateScheduledAt(value, now)).toThrow();
+    for (const value of ['2035-12-31T23:59:59Z', '2036-01-01T00:00:00Z']) {
+      expect(() => validateScheduledAt(value, now)).toThrow(expect.objectContaining({ status: 400, code: 'SCHEDULE_PAST' }));
+    }
   });
   it.each(['Mars/Olympus', '', null, 42, 'x'.repeat(81)])('rejects invalid time zone %s', value => {
     expect(() => validateTimeZone(value)).toThrow();
