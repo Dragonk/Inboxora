@@ -189,4 +189,23 @@ describe.skipIf(!enabled)('automatic storage maintenance with real PostgreSQL', 
     expect((await query('SELECT conversation_raw_headers FROM messages WHERE id=$1',[id])).rows[0].conversation_raw_headers).toBe(header);
   });
 
+  it('does not rescan a completed header repair account on later maintenance passes',async()=>{
+    const header='Subject: One-time repair\r\n';
+    const encoded=[...Buffer.from(header).entries()].map(([i,b])=>`${i}: ${b}`).join('\r\n');
+    const id=randomUUID();
+    await query("INSERT INTO messages(id,account_id,uid,folder,conversation_raw_headers) VALUES($1,$2,991,'INBOX',$3)",[id,account,encoded]);
+    await query(`INSERT INTO storage_maintenance(task,next_run_at,completed_at)
+      SELECT 'headers:'||id::text,NOW()+INTERVAL '1 day',NOW() FROM email_accounts WHERE id<>$1
+      ON CONFLICT(task) DO UPDATE SET next_run_at=EXCLUDED.next_run_at,completed_at=EXCLUDED.completed_at`,[account]);
+    await runStorageMaintenancePass();
+    const first=(await query<{progress:{repaired:number};updated_at:string;completed_at:string|null}>(
+      'SELECT progress,updated_at,completed_at FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows[0];
+    expect(first.progress.repaired).toBe(1);expect(first.completed_at).not.toBeNull();
+    await query("UPDATE storage_maintenance SET next_run_at=NOW()-INTERVAL '1 day' WHERE task=$1",[`headers:${account}`]);
+    await runStorageMaintenancePass();
+    const second=(await query<{progress:{repaired:number};updated_at:string;completed_at:string|null}>(
+      'SELECT progress,updated_at,completed_at FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows[0];
+    expect(second).toEqual(first);
+  });
+
 });

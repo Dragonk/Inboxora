@@ -108,7 +108,7 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
   const due = await client.query<{ id: string; user_id: string; progress: Progress | null }>(`
     SELECT a.id, a.user_id, s.progress FROM email_accounts a
     LEFT JOIN storage_maintenance s ON s.task = 'headers:' || a.id::text
-    WHERE s.task IS NULL OR s.next_run_at <= NOW()
+    WHERE s.task IS NULL OR (s.completed_at IS NULL AND s.next_run_at <= NOW())
     ORDER BY s.updated_at ASC NULLS FIRST, a.id LIMIT 1`);
   const account = due.rows[0];
   if (!account) return false;
@@ -122,7 +122,7 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
     await transaction(client, async () => {
       const prior = account.progress ?? {};
       const stats = await repairConversationHeadersWithClient(client, {
-        userId: account.user_id, accountId: account.id, apply: true, limit: 50,
+        userId: account.user_id, accountId: account.id, apply: true, limit: 250,
         afterId: typeof prior.cursor === 'string' ? prior.cursor : null,
       });
       const repaired = (prior.repaired ?? 0) + stats.repaired;
@@ -131,7 +131,7 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
         repaired, logical_bytes_saved: saved, cursor: stats.next,
         skipped_last_batch: stats.skipped, scanned_last_batch: stats.scanned,
         skipped_in_sweep: (prior.cursor ? prior.skipped_in_sweep ?? 0 : 0) + stats.skipped,
-      }, stats.next === null, stats.next === null ? 86400 : 0);
+      }, stats.next === null, 0);
       if (stats.repaired) {
         await client.query(`INSERT INTO storage_maintenance(task, progress, completed_at, next_run_at, updated_at)
           VALUES ('vacuum:messages', '{"needed":true}', NULL, NOW(), NOW())

@@ -5,6 +5,40 @@ import { conversationSerializeKey } from './conversationPersistence.js';
 // One payload is decoded at a time; unusual larger values are reported, never
 // truncated or loaded into a maintenance process on a memory-constrained host.
 export const MAX_REPAIR_HEADER_BYTES = 16 * 1024 * 1024;
+const CURSOR_PREFIX = 'v2:';
+
+type HeaderRepairCursor = { uid: string; folder: string };
+
+function encodeRepairCursor(cursor: HeaderRepairCursor): string {
+  return CURSOR_PREFIX + Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function decodeRepairCursor(value: string): HeaderRepairCursor | null {
+  if (!value.startsWith(CURSOR_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value.slice(CURSOR_PREFIX.length), 'base64url').toString('utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const { uid, folder } = parsed as Record<string, unknown>;
+    if (typeof uid !== 'string' || !/^-?\d+$/.test(uid) || typeof folder !== 'string') return null;
+    return { uid, folder };
+  } catch { return null; }
+}
+
+async function resolveRepairCursor(client: PoolClient, userId: string, accountId: string, value: string | null): Promise<HeaderRepairCursor | null> {
+  if (value === null) return null;
+  const current = decodeRepairCursor(value);
+  if (current) return current;
+  // Compatibility with checkpoints written by the first repair implementation,
+  // where the cursor was the UUID of the last matching legacy row.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error('Invalid header repair cursor');
+  }
+  const legacy = await client.query<{ uid: string; folder: string }>(`
+    SELECT m.uid::text AS uid, m.folder
+      FROM messages m JOIN email_accounts a ON a.id=m.account_id
+     WHERE m.id=$1 AND m.account_id=$2 AND a.user_id=$3`, [value, accountId, userId]);
+  return legacy.rows[0] ?? null;
+}
 
 /** Recover only the exact old Buffer.entries() encoding; leave anything ambiguous intact. */
 export function decodeLegacyConversationHeaders(value: string): string | null {
@@ -62,23 +96,36 @@ export async function repairConversationHeadersWithClient(client: PoolClient, {
 }: HeaderRepairOptions): Promise<HeaderRepairStats> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 250) throw new Error('Repair limit must be an integer from 1 to 250');
     if (!apply) await client.query('SET TRANSACTION READ ONLY');
-    const candidates = await client.query<{ id: string; bytes: number }>(`
-      SELECT m.id, octet_length(m.conversation_raw_headers) AS bytes
-        FROM messages m JOIN email_accounts a ON a.id = m.account_id
-       WHERE m.account_id = $1 AND a.user_id = $2
-         AND ($3::uuid IS NULL OR m.id > $3::uuid)
-         AND m.conversation_raw_headers LIKE '0: %'
-       ORDER BY m.id LIMIT $4
-       ${apply ? 'FOR UPDATE OF m' : ''}`, [accountId, userId, afterId, limit]);
+    const cursor = await resolveRepairCursor(client, userId, accountId, afterId);
+    // Page by the existing UNIQUE(account_id, uid, folder) index. Do not search
+    // the whole account for `LIKE '0: %'`: once most bad values are repaired that
+    // search has to detoast/inspect huge stretches of messages and can hit the
+    // normal request statement timeout on large accounts. The expensive legacy
+    // predicate below is applied only to this bounded page.
+    const page = await client.query<{ id: string; uid: string; folder: string }>(`
+      SELECT m.id, m.uid::text AS uid, m.folder
+        FROM messages m JOIN email_accounts a ON a.id=m.account_id
+       WHERE m.account_id=$1 AND a.user_id=$2
+         AND ($3::bigint IS NULL OR (m.uid, m.folder) > ($3::bigint, $4::text))
+       ORDER BY m.uid, m.folder
+       LIMIT $5`, [accountId, userId, cursor?.uid ?? null, cursor?.folder ?? '', limit]);
+    const last = page.rows.at(-1);
     const stats: HeaderRepairStats = {
-      scanned: candidates.rows.length, repairable: 0, repaired: 0, skipped: 0,
+      scanned: page.rows.length, repairable: 0, repaired: 0, skipped: 0,
       beforeBytes: 0, afterBytes: 0,
-      next: candidates.rows.length === limit ? candidates.rows.at(-1)!.id : null,
+      next: page.rows.length === limit && last ? encodeRepairCursor({ uid: last.uid, folder: last.folder }) : null,
     };
+    if (!page.rows.length) return stats;
+
+    const ids = page.rows.map(row => row.id);
+    const candidates = await client.query<{ id: string; bytes: number }>(`
+      SELECT id, octet_length(conversation_raw_headers) AS bytes
+        FROM messages
+       WHERE account_id=$1 AND id=ANY($2::uuid[])
+         AND conversation_raw_headers LIKE '0: %'
+       ${apply ? 'FOR UPDATE' : ''}`, [accountId, ids]);
     for (const candidate of candidates.rows) {
       if (candidate.bytes > MAX_REPAIR_HEADER_BYTES) { stats.skipped++; continue; }
-      // Select payloads one at a time, not one multi-GB result. Recheck the size
-      // for a dry run where another client could have changed a row meanwhile.
       const result = await client.query<{ conversation_raw_headers: string }>(`
         SELECT conversation_raw_headers FROM messages
          WHERE id = $1 AND account_id = $2

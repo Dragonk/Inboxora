@@ -1,5 +1,13 @@
 # Development changes — unreleased
 
+## Large-account legacy-header repair follow-up (#16)
+
+The automatic repair for the old byte-expanded IMAP header format no longer searches an entire account with `conversation_raw_headers LIKE '0: %'` to find the next remaining candidate. On a mailbox with roughly 240,000 message rows, that final sparse scan could detoast a large part of the table and exceed the normal 15-second PostgreSQL statement timeout (`57014`), leaving `initial_sweep` pending even though other accounts and DAV cleanup had finished.
+
+The worker now walks the existing `(account_id, uid, folder)` unique index in 250-row pages and applies the legacy-header predicate only to IDs in the current page. Old UUID repair checkpoints are translated to the new opaque indexed cursor, so interrupted repairs continue safely. The maintenance `scanned` counter now means message rows inspected, not just legacy candidates. Completed account sweeps are now one-time tasks instead of being rescanned every 24 hours; a future repair can explicitly re-open them if needed. No migration or new environment setting is required.
+
+This follow-up does not run `VACUUM FULL`. Ordinary VACUUM makes obsolete repair tuples reusable, but PostgreSQL may keep the allocated `messages` file large. A physical rewrite can require substantial temporary free disk space and an exclusive table lock, so Inboxora does not trigger it automatically on space-constrained installations. After `initial_sweep` reaches `complete`, continued growth should be evaluated separately from reusable PostgreSQL allocation left by the one-time repair.
+
 These changes are on the development branch for pre-merge testing. They are **not part of the published 4.1.2 release**; a release version has not been assigned.
 
 ## Mail status and provider collection consistency

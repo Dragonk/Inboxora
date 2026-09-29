@@ -149,6 +149,7 @@ jobs:
           # worker so fixed fixture identities cannot race across suites under SERIALIZABLE.
           npx vitest run --no-file-parallelism --maxWorkers=1 \
             src/services/storageMaintenance.integration.test.ts \
+            src/services/conversationStorage.integration.test.ts \
             src/services/storageRetention.integration.test.ts \
             src/services/mailBodyPrefetch.integration.test.ts \
             src/services/mailBodyCacheRetention.integration.test.ts \

@@ -170,19 +170,21 @@ describePg('conversation storage and ingest transactions (issue #16)', () => {
     for (const id of ids) await persistConversationCopyForRow(id, account(), { headers: legacyHeaders(rawHeaders) });
     const before = await Promise.all(ids.map(stored));
     const preview = await repairConversationHeadersBatch({ userId, accountId, limit: 2 });
-    expect(preview).toMatchObject({ scanned: 2, repairable: 2, repaired: 0, skipped: 0, next: ids[1] });
+    expect(preview).toMatchObject({ scanned: 2, repairable: 2, repaired: 0, skipped: 0 });
+    expect(preview.next).toMatch(/^v2:/);
     expect(preview.beforeBytes).toBe(2 * Buffer.byteLength(legacyHeaders(rawHeaders)));
     expect(preview.afterBytes).toBe(2 * Buffer.byteLength(rawHeaders));
     expect(await Promise.all(ids.map(stored))).toEqual(before);
 
     const first = await repairConversationHeadersBatch({ userId, accountId, limit: 2, apply: true });
-    expect(first).toMatchObject({ scanned: 2, repaired: 2, next: ids[1] });
+    expect(first).toMatchObject({ scanned: 2, repaired: 2 });
+    expect(first.next).toMatch(/^v2:/);
     const second = await repairConversationHeadersBatch({ userId, accountId, afterId: first.next, limit: 2, apply: true });
     expect(second).toMatchObject({ scanned: 1, repaired: 1, next: null });
     const after = await Promise.all(ids.map(stored));
     expect(after).toEqual(before.map(row => ({ ...row, conversation_raw_headers: rawHeaders })));
     const replay = await repairConversationHeadersBatch({ userId, accountId, apply: true });
-    expect(replay).toMatchObject({ scanned: 0, repaired: 0, next: null });
+    expect(replay).toMatchObject({ scanned: 3, repaired: 0, next: null });
 
     await rebuildConversationCopies({ userId, accountId, force: true, dryRun: false });
     expect(await Promise.all(ids.map(stored))).toEqual(after);
@@ -227,6 +229,45 @@ describePg('conversation storage and ingest transactions (issue #16)', () => {
     }
     // The failed batch released its advisory lock and can safely be retried.
     expect(await repairConversationHeadersBatch({ userId, accountId, apply: true })).toMatchObject({ repaired: 2 });
+  });
+
+  it('pages through large stretches of normal headers without an account-wide legacy LIKE scan', async () => {
+    const total = 1200;
+    const values: string[] = [];
+    const params: unknown[] = [accountId];
+    for (let index = 0; index < total; index++) {
+      const base = params.length;
+      values.push(`($1, $${base + 1}, 'INBOX', $${base + 2}, $${base + 3})`);
+      params.push(10_000 + index, `normal-${index}@example.test`, `Subject: normal ${index}\r\nX-Pad: ${'x'.repeat(2048)}\r\n`);
+    }
+    await query(`INSERT INTO messages(account_id,uid,folder,message_id,conversation_raw_headers) VALUES ${values.join(',')}`, params);
+    const damaged = await query<{ id: string }>(`INSERT INTO messages(account_id,uid,folder,message_id,conversation_raw_headers)
+      VALUES($1,12050,'INBOX','legacy-tail@example.test',$2) RETURNING id`, [accountId, legacyHeaders(rawHeaders)]);
+
+    let cursor: string | null = null;
+    let repaired = 0;
+    let scanned = 0;
+    let batches = 0;
+    do {
+      const batch = await repairConversationHeadersBatch({ userId, accountId, afterId: cursor, limit: 250, apply: true });
+      repaired += batch.repaired; scanned += batch.scanned; batches++;
+      cursor = batch.next;
+    } while (cursor !== null);
+
+    expect(repaired).toBe(1);
+    expect(scanned).toBe(total + 1);
+    expect(batches).toBeGreaterThan(4);
+    expect((await stored(damaged.rows[0].id)).conversation_raw_headers).toBe(rawHeaders);
+  }, 30000);
+
+  it('accepts a legacy UUID checkpoint and continues from that row using indexed account order', async () => {
+    const first = await insert(); const second = await insert(); const third = await insert();
+    for (const id of [first, second, third]) await query('UPDATE messages SET conversation_raw_headers=$1 WHERE id=$2', [legacyHeaders(rawHeaders), id]);
+    const result = await repairConversationHeadersBatch({ userId, accountId, afterId: first, limit: 10, apply: true });
+    expect(result).toMatchObject({ scanned: 2, repaired: 2, next: null });
+    expect((await stored(first)).conversation_raw_headers).toBe(legacyHeaders(rawHeaders));
+    expect((await stored(second)).conversation_raw_headers).toBe(rawHeaders);
+    expect((await stored(third)).conversation_raw_headers).toBe(rawHeaders);
   });
 
 });
