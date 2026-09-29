@@ -312,6 +312,14 @@ export async function pageScheduledMail(userId: string, cursorValue?: unknown): 
   return { items: page.map(summary), nextCursor };
 }
 /** The global Undo/polling feed always includes every active item (the active cap is 100). */
+export async function getScheduledSummary(userId: string, id: string): Promise<ScheduledSummary> {
+  requireScheduledId(id);
+  const row = (await query<ScheduledSummary>(`SELECT ${SUMMARY} FROM scheduled_mail
+    WHERE id=$1 AND user_id=$2 AND state NOT IN ('cancelled','dismissed')`, [id,userId])).rows[0];
+  if (!row) throw new ScheduledMailError(404,'SCHEDULE_MISSING','Scheduled message is not available');
+  return summary(row);
+}
+
 export async function listScheduledMail(userId: string): Promise<ScheduledSummary[]> {
   return (await pageScheduledMail(userId)).items;
 }

@@ -84,7 +84,10 @@ export async function acquireSyncLease(client: PoolClient, input: {
     : DEFAULT_LEASE_SECONDS;
   const result = await client.query<{ running_generation: string | number }>(
     `UPDATE sync_states
-        SET running_generation = COALESCE(running_generation, 0) + 1,
+        SET cursor = CASE WHEN feature = 'mail' AND coverage IN ('messages', 'history') AND (SELECT a.reindex_requested_at FROM email_accounts a WHERE a.id = account_id AND a.user_id = sync_states.user_id) > COALESCE(reindex_started_at, '-infinity'::timestamptz) THEN NULL ELSE cursor END,
+            page_checkpoint = CASE WHEN feature = 'mail' AND coverage IN ('messages', 'history') AND (SELECT a.reindex_requested_at FROM email_accounts a WHERE a.id = account_id AND a.user_id = sync_states.user_id) > COALESCE(reindex_started_at, '-infinity'::timestamptz) THEN NULL ELSE page_checkpoint END,
+            reindex_started_at = CASE WHEN feature = 'mail' AND coverage IN ('messages', 'history') AND (SELECT a.reindex_requested_at FROM email_accounts a WHERE a.id = account_id AND a.user_id = sync_states.user_id) > COALESCE(reindex_started_at, '-infinity'::timestamptz) THEN (SELECT reindex_requested_at FROM email_accounts WHERE id = account_id) ELSE reindex_started_at END,
+            running_generation = COALESCE(running_generation, 0) + 1,
             lease_expires_at = NOW() + make_interval(secs => $2),
             running_owner = $3,
             running_started_at = NOW(),
@@ -242,6 +245,7 @@ export async function finishSyncRun(client: PoolClient, input: {
   const result = await client.query(
     `UPDATE sync_states
         SET last_success_at = NOW(), last_error_code = $3,
+            reindex_finished_at = CASE WHEN reindex_started_at IS NOT NULL AND $3::text IS NULL THEN NOW() ELSE reindex_finished_at END,
             -- A completed clean run supersedes the failure it recovered from. Keeping
             -- its timestamp made account diagnostics select a historical error even
             -- though every calendar collection had subsequently synchronized.

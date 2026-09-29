@@ -9,9 +9,8 @@ import { setupV3, navigateModule } from './v3-fixtures.ts';
 async function openAddressBooks(page, testInfo) {
   await page.goto('/');
   await navigateModule(page, 'contacts');
-  await page.getByTestId('contacts-manage-books').click();
+  await page.getByTestId(page.viewportSize().width < 768 ? 'contacts-manage-books-mobile' : 'contacts-manage-books').click();
   await expect(page.getByTestId('contacts-books-manager')).toBeVisible();
-  await page.getByRole('tab').nth(1).click();
 }
 
 test('an address book can be renamed from the books menu', async ({ page, fixtureApi }, testInfo) => {
@@ -24,9 +23,9 @@ test('an address book can be renamed from the books menu', async ({ page, fixtur
   });
   await openAddressBooks(page, testInfo);
 
-  await page.locator('[data-resource-id="book-work"] button').click();
+  await page.locator('[data-resource-id="book-work"] .au-resource-actions button').first().click();
 
-  const dialog = page.getByRole('dialog', { name: 'Ustawienia zasobu' });
+  const dialog = page.locator('.admin-panel .au-inline-editor');
   await expect(dialog).toBeVisible();
   const field = dialog.getByLabel('Nazwa', { exact: true });
   await expect(field).toHaveValue('Firmowa');
@@ -34,7 +33,7 @@ test('an address book can be renamed from the books menu', async ({ page, fixtur
   await dialog.getByRole('button', { name: 'Zapisz', exact: true }).click();
 
   await expect(dialog).toHaveCount(0);
-  // The dialog edits the name *and* the book's DAV access, so the PATCH carries both — a
+  // The inline editor edits the name *and* the book's DAV access, so the PATCH carries both — a
   // local book's access can be narrowed or widened here, and omitting it would silently
   // leave the previous value.
   expect(patches).toEqual([{
@@ -43,7 +42,7 @@ test('an address book can be renamed from the books menu', async ({ page, fixtur
   }]);
 });
 
-test('creating an address book uses the app dialog, not a native prompt', async ({ page, fixtureApi }, testInfo) => {
+test('creating an address book uses an inline settings form, not a native prompt', async ({ page, fixtureApi }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium-desktop', 'address book menu is a desktop contract');
   await fixtureApi; await setupV3(page);
   const created = [];

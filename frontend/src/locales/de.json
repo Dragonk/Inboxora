@@ -143,9 +143,7 @@
       "reindex": "Für die Suche neu indizieren",
       "reindexing": "Nachrichten werden indiziert...",
       "reindexProgress": "{{synced}} / {{total}} Nachrichten indiziert",
-      "reindexError": "Neuindizierung konnte nicht gestartet werden",
       "syncFolders": "Ordner synchronisieren",
-      "syncFoldersError": "Ordnersynchronisierung fehlgeschlagen",
       "unifiedInboxSection": "Gemeinsamer Posteingang",
       "unifiedInboxEnabled": "Im gemeinsamen Posteingang anzeigen",
       "unifiedInboxEnabledDesc": "Nachrichten dieses Kontos in „Alle Posteingänge“, der gemeinsamen Suche und den Kategoriezählern anzeigen.",
@@ -978,7 +976,7 @@
       "aiActions": "KI-Aktionen",
       "categories": "Kategorien",
       "rules": "Regeln",
-      "groupAccountMail": "Konto und Mail",
+      "groupAccountMail": "Allgemein",
       "groupDisplay": "Anzeige",
       "groupSecurityIntegrations": "Sicherheit und Integrationen",
       "groupAdmin": "Administration",
@@ -2057,12 +2055,14 @@
     "maturity": "Modell {{level}} · {{count}} Trainingsnachrichten",
     "maturityDetail": "{{spam}} Spam / {{ham}} Ham nutzbare Stichproben ({{events}} Feedback-Ereignisse)",
     "enable": "Antispam aktivieren",
-    "disable": "Antispam deaktivieren",
     "retrainNow": "Jetzt neu trainieren",
     "enableAccount": "Auf diesem Konto automatisch klassifizieren",
     "enableAccountDesc": "Standardmäßig aus. Manuelle Spam/Ham-Markierungen trainieren immer.",
     "trustedAuthservId": "Vertrauenswürdige Authserv-ID",
-    "trustedAuthservIdDesc": "Nur Authentication-Results dieses Mailsystems zählen. Leer = alle ignorieren."
+    "trustedAuthservIdDesc": "Nur Authentication-Results dieses Mailsystems zählen. Leer = alle ignorieren.",
+    "maturityMature": "Trainiert",
+    "maturityFresh": "Lernt",
+    "maturityInsufficient": "Zu wenige Beispiele"
   },
   "todoist": {
     "title": "Todoist-Aufgabe erstellen",
@@ -2100,7 +2100,6 @@
     "noCalendarsDiscovered": "Noch keine Kalender gefunden.",
     "searchSources": "Quellen oder Kalender suchen",
     "serviceDisabled": "Der Kalenderdienst ist deaktiviert.",
-    "providerManagedHint": "Das Erstellen, Umbenennen und Löschen von Kalendern wird vom Anbieter verwaltet. Kontodienste konfigurieren Sie unter Einstellungen → Konten.",
     "nativeCalendarReconsent": "{{provider}} benötigt die Berechtigung zur Kalenderverwaltung. Verbinden Sie das Konto erneut, um fortzufahren.",
     "nativeCalendarName": "Kalendername",
     "nativeCalendarCreate": "Kalender erstellen",
@@ -2163,7 +2162,6 @@
     "save": "Speichern",
     "panel": "Kalenderbereich",
     "calendars": "Kalender",
-    "manageSources": "Quellen verwalten",
     "firstDayOfWeek": "Erster Wochentag",
     "monday": "Montag",
     "sunday": "Sonntag",
@@ -2241,7 +2239,7 @@
     "workHoursEndDescription": "Letzte Stunde der Hervorhebung des Arbeitstags.",
     "defaultInviteAccount": "Standardabsender für Kalendereinladungen",
     "defaultInviteAccountNone": "Kein Standard — pro Termin wählen",
-    "defaultInviteAccountDescription": "Das SMTP-Konto, das beim Einladen von Teilnehmern vorausgewählt wird.",
+    "defaultInviteAccountDescription": "Das beim Einladen von Teilnehmern vorausgewählte Konto oder Alias.",
     "openSourceMessage": "Ursprüngliche Nachricht öffnen",
     "subscribeTitle": "Kalenderabonnements",
     "subscribeDescription": "Abonniere einen veröffentlichten ICS- oder webcal-Kalender. Abonnements sind schreibgeschützt und werden regelmäßig aktualisiert.",
@@ -2282,7 +2280,8 @@
     "providerSyncPartial": "{{provider}}-Kalender: {{calendars}} Kalender, {{created}} hinzugefügt, {{updated}} aktualisiert, {{deleted}} entfernt; {{failed}} Fehler.",
     "importIcs": "ICS-Datei importieren",
     "importDone": "{{count}} Termin(e) importiert.",
-    "importProtected": "{{count}} Termin(e) blieben unverändert, weil Inboxora deren Einladungen versendet hat."
+    "importProtected": "{{count}} Termin(e) blieben unverändert, weil Inboxora deren Einladungen versendet hat.",
+    "showAgendaDescription": "Die Tagesübersicht rechts neben dem Kalender auf dem Computer anzeigen."
   },
   "mailFolders": {
     "inbox": "Posteingang",
@@ -2385,7 +2384,6 @@
     }
   },
   "accountUi": {
-    "accounts": "Konten",
     "accountSettings": "Kontoeinstellungen",
     "calendarAccounts": "Kalenderkonten",
     "contactAccounts": "Kontaktkonten",
@@ -2521,7 +2519,6 @@
     "operationPending": "Der entfernte Vorgang ist noch nicht bestätigt. Nicht mit einer neuen Anfragekennung wiederholen.",
     "targetUnavailable": "Dieses Konto oder diese Ressource ist nicht mehr verfügbar. Zur Liste zurückkehren und sie aktualisieren.",
     "deleteLocalWarning": "Die Ressource und ihr Inhalt werden aus Inboxora gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.",
-    "providerDeletionUnavailable": "Diese Sammlung kann beim Anbieter nicht gelöscht werden. Standard-, System- und schreibgeschützte Sammlungen können hier nicht gelöscht werden.",
     "deleteRemoteWarning": "Die Ressource einschließlich ihres Inhalts wird beim Anbieter gelöscht. Dies ist nicht dasselbe wie Ausblenden oder Trennen.",
     "removeAccountHint": "Alle synchronisierten Nachrichten dieses Kontos werden aus Inboxora entfernt. Das Postfach beim Anbieter wird nicht gelöscht.",
     "intervalMinutes_zero": "Minuten: {{count}}",
@@ -2634,5 +2631,34 @@
     "pendingBody": "Der E-Mail-Anbieter hat diese Änderung noch nicht bestätigt. Der aktuelle Postfachstatus wird erneut geprüft.",
     "failedTitle": "Änderung fehlgeschlagen",
     "failedBody": "Der E-Mail-Anbieter konnte diese Änderung nicht anwenden. Der vorherige Status wurde wiederhergestellt."
+  },
+  "settingsIndex": {
+    "status": "Indexstatus",
+    "running": "Indizierung läuft",
+    "pending": "Warten auf Indizierung",
+    "messages": "Indizierte Nachrichten",
+    "folders": "Erkannte Ordner",
+    "folderSync": "Letzte erfolgreiche Ordnersynchronisierung"
+  },
+  "davAccount": {
+    "title": "DAV-Konto",
+    "addTitle": "DAV-Konto hinzufügen",
+    "description": "Kalender und Adressbücher eines DAV-Servers verbinden.",
+    "discover": "Dienste erkennen",
+    "discoverFirst": "Zuerst die Verbindungsdaten eingeben und Dienste erkennen lassen.",
+    "pauseHint": "Das Ausschalten eines Dienstes pausiert dessen Synchronisierung. Bestehende Kalender, Kontakte und lokale Einstellungen bleiben erhalten.",
+    "removeTitle": "DAV-Konto trennen",
+    "removeDescription": "„{{name}}“ trennen und die lokalen Kalender und Adressbücher aus Inboxora entfernen? Auf dem DAV-Server wird nichts gelöscht.",
+    "invalidUrl": "Eine gültige DAV-Server-URL eingeben.",
+    "httpsRequired": "HTTPS verwenden. HTTP ist nur für vom Administrator zugelassene private Hosts erlaubt.",
+    "hostBlocked": "Dieser Server wird durch die Verbindungsrichtlinie blockiert.",
+    "authFailed": "Der DAV-Server hat die Zugangsdaten abgelehnt. Benutzernamen, Passwort und Berechtigungen prüfen.",
+    "discoveryFailed": "Die DAV-Dienste konnten nicht überprüft werden. Server prüfen und erneut versuchen. Es wurden keine Einstellungen geändert.",
+    "unsupported": "Unter dieser Adresse wurde kein Kalender- oder Kontaktdienst gefunden.",
+    "serviceUnavailable": "Der ausgewählte Dienst ist für dieses Konto nicht verfügbar. Dienste erneut erkennen lassen.",
+    "alreadyConnected": "Diese Ressource ist bereits über ein anderes Konto verbunden. Verwalten Sie stattdessen dieses Konto.",
+    "changed": "Dieses Konto wurde an anderer Stelle geändert. Vor dem Speichern zurückgehen und erneut öffnen.",
+    "operationPending": "Ein DAV-Ressourcenvorgang ist noch ausstehend. Ergebnis prüfen, bevor Zugangsdaten geändert oder das Konto getrennt wird.",
+    "invalidSettings": "Verbindungsdaten und Synchronisierungsintervall prüfen."
   }
 }

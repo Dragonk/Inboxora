@@ -24,7 +24,7 @@ const expected: Record<string, Record<string, number>> = {
     'admin.systemEmail.tlsOption': 1,
     'admin.systemEmail.noSecurityOption': 1,
     'admin.rules.valuePlaceholder': 1,
-    'admin.rules.unnamed': 1,
+    'admin.rules.unnamed': 3,
     'admin.accounts.loadFoldersError': 1,
     'admin.accounts.saveFolderMappingsError': 1,
   },

@@ -105,6 +105,23 @@ public class InboxoraNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getLanguage(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("language", InboxoraNativeLocale.language(getContext()));
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void setLanguage(PluginCall call) {
+        String language = call.getString("language", "");
+        if (language == null || language.length() > 24) { call.reject("Invalid language"); return; }
+        JSObject result = new JSObject();
+        result.put("language", InboxoraNativeLocale.setLanguage(getContext(), language));
+        createNotificationChannel(getContext());
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void getHost(PluginCall call) {
         JSObject result = new JSObject();
         result.put("host", getSavedHost(getContext()));
@@ -118,28 +135,28 @@ public class InboxoraNativePlugin extends Plugin {
         String normalizedHost = normalizeHost(host);
 
         if (normalizedHost == null) {
-            call.reject("Public Inboxora hosts must use https://. HTTP is allowed only for localhost and private IP addresses.");
+            call.reject(InboxoraNativeLocale.text(getContext(), R.string.native_host_https_required));
             return;
         }
 
         if (normalizedHost.startsWith("http://")) {
             if (getActivity() == null || getActivity().isFinishing()) {
-                call.reject("The unencrypted Inboxora host could not be confirmed.");
+                call.reject(InboxoraNativeLocale.text(getContext(), R.string.native_http_cancelled));
                 return;
             }
             getActivity().runOnUiThread(() -> new AlertDialog.Builder(getActivity())
-                .setTitle("Unencrypted Inboxora connection")
-                .setMessage("Traffic to this Inboxora server is not encrypted. Your session cookie and email data can be read or changed by anyone who can observe this network. Continue only on a private network you trust.")
-                .setPositiveButton("Use unencrypted connection", (dialog, which) -> persistHost(call, normalizedHost))
-                .setNegativeButton("Cancel", (dialog, which) -> call.reject("The unencrypted Inboxora host was not saved."))
-                .setOnCancelListener((dialog) -> call.reject("The unencrypted Inboxora host was not saved."))
+                .setTitle(InboxoraNativeLocale.text(getContext(), R.string.native_http_title))
+                .setMessage(InboxoraNativeLocale.text(getContext(), R.string.native_http_message) + "\n\n" + InboxoraNativeLocale.text(getContext(), R.string.native_http_detail))
+                .setPositiveButton(InboxoraNativeLocale.text(getContext(), R.string.native_http_allow), (dialog, which) -> persistHost(call, normalizedHost))
+                .setNegativeButton(InboxoraNativeLocale.text(getContext(), R.string.native_cancel), (dialog, which) -> call.reject(InboxoraNativeLocale.text(getContext(), R.string.native_http_cancelled)))
+                .setOnCancelListener((dialog) -> call.reject(InboxoraNativeLocale.text(getContext(), R.string.native_http_cancelled)))
                 .show());
             return;
         }
 
         persistHost(call, normalizedHost);
         } catch (Exception error) {
-            call.reject("Could not save the Inboxora host: " + error.getMessage());
+            call.reject(InboxoraNativeLocale.text(getContext(), R.string.native_host_save_failed));
         }
     }
 
@@ -393,8 +410,8 @@ public class InboxoraNativePlugin extends Plugin {
 
     @PluginMethod
     public void showNewMail(PluginCall call) {
-        String title = call.getString("title", "New mail");
-        String body = call.getString("body", "You have new mail.");
+        String title = call.getString("title", InboxoraNativeLocale.text(getContext(), R.string.native_new_mail));
+        String body = call.getString("body", InboxoraNativeLocale.text(getContext(), R.string.native_new_mail_body));
         String messageId = call.getString("messageId", null);
         String accountId = call.getString("accountId", null);
         String folder = call.getString("folder", "INBOX");
@@ -471,9 +488,9 @@ public class InboxoraNativePlugin extends Plugin {
             .setContentText(body)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(pendingIntent)
-            .addAction(R.mipmap.ic_launcher, "Reply", replyPendingIntent)
-            .addAction(R.mipmap.ic_launcher, "Delete", deletePendingIntent)
-            .addAction(R.mipmap.ic_launcher, "Star", starPendingIntent)
+            .addAction(R.mipmap.ic_launcher, InboxoraNativeLocale.text(context, R.string.native_reply), replyPendingIntent)
+            .addAction(R.mipmap.ic_launcher, InboxoraNativeLocale.text(context, R.string.native_delete), deletePendingIntent)
+            .addAction(R.mipmap.ic_launcher, InboxoraNativeLocale.text(context, R.string.native_star), starPendingIntent)
             .setAutoCancel(true)
             .setGroup(NOTIFICATION_GROUP)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
@@ -564,6 +581,14 @@ public class InboxoraNativePlugin extends Plugin {
             || ACTION_INSTALL_UPDATE.equals(action);
     }
 
+    static boolean isRepeatableLaunch(String action, String scheme, String route) {
+        if (ACTION_COMPOSE.equals(action) || ACTION_SYNC.equals(action)) return true;
+        if ((Intent.ACTION_VIEW.equals(action) || Intent.ACTION_SENDTO.equals(action)) && "mailto".equalsIgnoreCase(scheme)) return true;
+        if (!Intent.ACTION_VIEW.equals(action) || !"inboxora".equalsIgnoreCase(scheme)) return false;
+        return "compose".equalsIgnoreCase(route) || "calendar".equalsIgnoreCase(route)
+            || "contacts".equalsIgnoreCase(route) || "sync".equalsIgnoreCase(route);
+    }
+
     static boolean isTrustedNativeIntent(Context context, Intent intent) {
         if (context == null || intent == null || !isPrivilegedNativeAction(intent.getAction())) {
             return false;
@@ -646,6 +671,8 @@ public class InboxoraNativePlugin extends Plugin {
             + "var call=function(method,args,fallback){var p=plugin();if(!p||typeof p[method]!=='function')return Promise.resolve(fallback||null);return p[method](args||{}).catch(function(){return fallback||null;});};"
             + "window.inboxoraNative=window.inboxoraNative||{};"
             + "window.inboxoraNative.platform='android';"
+            + "window.inboxoraNative.getLanguage=function(){return nativeCall('getLanguage',{},null).then(function(result){return result||call('getLanguage',{});});};"
+            + "window.inboxoraNative.setLanguage=function(language){return nativeCall('setLanguage',{language:language},null).then(function(result){return result||call('setLanguage',{language:language});});};"
             + "window.inboxoraNative.updates=window.inboxoraNative.updates||{};"
             + "window.inboxoraNative.updates.check=function(verbose){return call('checkForUpdates',{verbose:!!verbose});};"
             + "window.inboxoraNative.updates.installDownloaded=function(){return nativeCall('installDownloadedUpdate',{},null).then(function(result){return result||call('installDownloadedUpdate',{}, {installed:false,reason:'unavailable'});});};"
@@ -730,6 +757,13 @@ public class InboxoraNativePlugin extends Plugin {
     static void sendComposeAction() {
         JSObject action = newAction("new-mail");
         action.put("composeData", new JSObject());
+        action.put("source", "shortcut");
+        dispatchAction(action);
+    }
+
+    static void sendNavigationAction(String route) {
+        if (!"calendar".equals(route) && !"contacts".equals(route)) return;
+        JSObject action = newAction("calendar".equals(route) ? "open-calendar" : "open-contacts");
         action.put("source", "shortcut");
         dispatchAction(action);
     }
@@ -1328,10 +1362,10 @@ public class InboxoraNativePlugin extends Plugin {
 
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_NEW_MAIL,
-            "New mail",
+            InboxoraNativeLocale.text(context, R.string.native_new_mail),
             NotificationManager.IMPORTANCE_DEFAULT
         );
-        channel.setDescription("New mail notifications from Inboxora.");
+        channel.setDescription(InboxoraNativeLocale.text(context, R.string.native_channel_description));
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.createNotificationChannel(channel);
@@ -1385,14 +1419,23 @@ public class InboxoraNativePlugin extends Plugin {
     }
 
     static JSObject handleNativeBridgeRequest(Context context, String method, JSONObject args) throws JSONException {
+        if ("getLanguage".equals(method) || "setLanguage".equals(method)) {
+            JSObject result = new JSObject();
+            String language = args == null ? "" : args.optString("language", "");
+            if ("setLanguage".equals(method) && language.length() <= 24) {
+                result.put("language", InboxoraNativeLocale.setLanguage(context, language));
+                createNotificationChannel(context);
+            } else result.put("language", InboxoraNativeLocale.language(context));
+            return result;
+        }
         if ("showNewMail".equals(method)) {
             JSONObject notification = args == null ? new JSONObject() : args;
             JSONObject messageObject = notification.optJSONObject("message");
             JSObject message = messageObject == null ? null : JSObject.fromJSONObject(messageObject);
             boolean shown = postNewMailNotification(
                 context,
-                notification.optString("title", "New mail"),
-                notification.optString("body", "You have new mail."),
+                notification.optString("title", InboxoraNativeLocale.text(context, R.string.native_new_mail)),
+                notification.optString("body", InboxoraNativeLocale.text(context, R.string.native_new_mail_body)),
                 notification.optString("messageId", null),
                 notification.optString("accountId", null),
                 notification.optString("folder", "INBOX"),

@@ -26,6 +26,10 @@ finalized below and dated with its publication date.
 ## [Unreleased]
 
 ### Added
+- Unified DAV accounts in General → Accounts, with read-only CalDAV/CardDAV discovery, independent service switches and lossless migration of existing sources.
+- Account editor tabs for folder mappings, aliases and diagnostics; diagnostics show index progress, message/folder counts and the last successful folder synchronization.
+- Desktop calendar agenda visibility control and a saved invitation sender choice covering SMTP, Gmail API, Microsoft Graph and owned aliases.
+
 - Mail merge sends one independently queued message per unique To, Cc or Bcc recipient. Each delivery addresses only its recipient in To; the composer confirms the recipient count before dispatch.
 - Mail merge freezes forwarded attachment bytes, signature and sender across recipient copies, and warning dialogs preserve the confirmed merge or schedule action during keyboard input.
 - Send has an adjacent menu for Schedule send and Send mail merge on desktop and mobile, with a styled confirmation showing the unique recipient count. Short landscape windows keep a usable compose body without hiding Send.
@@ -41,6 +45,10 @@ finalized below and dated with its publication date.
 - **Upgrade order:** apply `0150_account_default_sender.sql` after `0149_body_cache_retention.sql` and before starting the updated backend. Existing accounts keep their primary default; the migration scopes the optional alias reference to its account and clears it on alias deletion. No new environment setting or release version is introduced. See [development release notes](wiki/Release-notes-Unreleased.md).
 
 ### Changed
+- Group Accounts, Calendars and Contacts under General. Move calendar appearance into Appearance, and edit calendars/address books inline with separate row-level delete actions.
+- Align Rules and Antispam with shared, theme-aware settings controls; keep folder-mapping drafts when switching account tabs.
+- Localize native server setup, menus, notification actions and Compose/Calendar/Contacts shortcuts in all nine languages, following the language selected in Inboxora.
+
 - Scheduled now shares inbox list, reader and attachment components instead of a separate queue design. Shared message headers wrap correctly in narrow reading panes. Explicit cancellation removes the entry immediately while retaining its duplicate-prevention receipt.
 - Editing keeps delivery paused beyond its original deadline, including autosaves and restarts; only Send or Schedule send resumes it. Future-time validation is enforced in the dialog and backend.
 - Scheduled is a regular sidebar destination, with a list and safe read-only preview on desktop and list/detail steps on mobile. Previewing never pauses delivery; explicit Edit retains reply identity, sender, signature and attachments. Available reply context and Sent copies are resolved by owned message identifiers, not subjects.
@@ -50,6 +58,13 @@ finalized below and dated with its publication date.
 - Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
 
 ### Fixed
+- Preserve recent calendar agenda/sender choices during preference hydration, and keep manual navigation ahead of delayed notification lookups.
+- Report failed or incomplete IMAP reindexing without a false completion timestamp; keep diagnostics usable after account/session changes and retain client errors for unavailable invitation aliases. Failed folder-count or synchronization-timestamp writes also prevent a success result.
+- Isolate DAV startup migration failures per user; apply late native language/theme responses once, update Android shortcuts off the UI thread, and retain visible keyboard focus in inline settings editors.
+- Save the default calendar invitation sender and alias instead of silently discarding the preference; route API-only invitations and reindex requests through their native provider transport.
+- Open the exact incoming or scheduled message from its notification, including scheduled entries outside the loaded page. Use an application confirmation dialog for removing scheduled mail and an outlined Refresh button.
+- Keep resource editors within the settings viewport, preserve DAV source pauses during metadata edits, and place mobile contact settings beside the address-book picker.
+
 
 - Restore provider calendars and contact folders that reappear in a newer complete discovery, without resurrecting confirmed deletions or overriding disabled subscriptions. Migration `0161_collection_rediscovery.sql` follows 0160.
 - Handle Gmail messages without labels and isolate failed visibility readbacks; batch ready read changes and bound collection capability checks.

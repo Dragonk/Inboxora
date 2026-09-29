@@ -28,6 +28,7 @@ const hasPg = process.env.DB_HOST && process.env.DB_NAME;
 const describeOrSkip = hasPg ? describe : describe.skip;
 
 const USER_ID = '00000000-0000-0000-0000-0000000007a1';
+const ACCOUNT_ID = '00000000-0000-0000-0000-0000000007a2';
 const CONFIG = { clientId: 'client-1', clientSecret: 'secret-1', redirectUri: 'https://inboxora.example/oauth/google/callback' };
 const originalKey = process.env.ENCRYPTION_KEY;
 const originalEnv = {
@@ -90,6 +91,12 @@ async function seedConnection(): Promise<string> {
       scopes: ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/contacts'],
       clientIdAtIssue: CONFIG.clientId,
     });
+    await client.query(
+      `INSERT INTO email_accounts (id,user_id,name,email_address,mail_transport,provider_connection_id)
+       VALUES ($1,$2,'Google writes','writes@example.test','gmail_api',$3)`, [ACCOUNT_ID,USER_ID,connectionId]);
+    await client.query(
+      `INSERT INTO account_provider_feature_settings (account_id,feature,enabled)
+       VALUES ($1,'calendars',true),($1,'contacts',true)`, [ACCOUNT_ID]);
     await client.query('COMMIT');
     return connectionId;
   } catch (error) {
@@ -110,9 +117,9 @@ async function seedCalendarCollection(connectionId: string, overrides: { user_ac
     );
     const collection = await client.query<{ id: string }>(
       `INSERT INTO integration_collections
-         (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
-       VALUES ($1,$2,'calendar','primary',$3,true,$4,$5,'off') RETURNING id`,
-      [USER_ID, connectionId, calendar.rows[0].id, overrides.source_access ?? 'read_write', overrides.user_access ?? 'read_write'],
+         (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode, account_id)
+       VALUES ($1,$2,'calendar','primary',$3,true,$4,$5,'off',$6) RETURNING id`,
+      [USER_ID, connectionId, calendar.rows[0].id, overrides.source_access ?? 'read_write', overrides.user_access ?? 'read_write', ACCOUNT_ID],
     );
     return { calendarId: calendar.rows[0].id, collectionId: collection.rows[0].id };
   });
@@ -126,9 +133,9 @@ async function seedContactCollection(connectionId: string, overrides: { user_acc
     );
     const collection = await client.query<{ id: string }>(
       `INSERT INTO integration_collections
-         (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
-       VALUES ($1,$2,'address_book','people/me',$3,true,'read_write',$4,'off') RETURNING id`,
-      [USER_ID, connectionId, book.rows[0].id, overrides.user_access ?? 'read_write'],
+         (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode, account_id)
+       VALUES ($1,$2,'address_book','people/me',$3,true,'read_write',$4,'off',$5) RETURNING id`,
+      [USER_ID, connectionId, book.rows[0].id, overrides.user_access ?? 'read_write', ACCOUNT_ID],
     );
     return { addressBookId: book.rows[0].id, collectionId: collection.rows[0].id };
   });
@@ -194,6 +201,7 @@ describeOrSkip('Google provider writes (PostgreSQL)', () => {
   beforeEach(async () => {
     await autocommit(async client => {
       await client.query('DELETE FROM provider_operations WHERE user_id = $1', [USER_ID]);
+      await client.query('DELETE FROM email_accounts WHERE user_id = $1', [USER_ID]);
       await client.query('DELETE FROM provider_connections WHERE user_id = $1', [USER_ID]);
       await client.query('DELETE FROM calendars WHERE user_id = $1', [USER_ID]);
       await client.query('DELETE FROM address_books WHERE user_id = $1', [USER_ID]);

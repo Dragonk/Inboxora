@@ -78,6 +78,12 @@ beforeAll(async () => {
     req.setEncoding('utf8');
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
+      // Match a real protected DAV server: negotiate Basic authentication before accepting a write.
+      if (req.headers.authorization !== `Basic ${Buffer.from('sam:app-password').toString('base64')}`) {
+        res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="test-dav"' });
+        res.end();
+        return;
+      }
       dav.requests.push({ method: req.method ?? '', url: req.url ?? '', headers: req.headers, body });
       if (req.method === 'REPORT') {
         res.setHeader('Content-Type', 'application/xml; charset=utf-8');
@@ -135,11 +141,11 @@ afterEach(async () => {
   createdUserIds.splice(createdUserIds.indexOf(userId), 1);
 });
 
-async function seedSourceConnection(kind: 'caldav' | 'carddav', url: string): Promise<string> {
+async function seedSourceConnection(kind: 'caldav' | 'carddav', url: string, integrationId: string | null = null): Promise<string> {
   const result = await query<{ id: string }>(
-    `INSERT INTO source_connections (user_id, kind, label, url_encrypted, url_fingerprint)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [userId, kind, kind, encrypt(url), crypto.createHash('sha256').update(url).digest('hex')],
+    `INSERT INTO source_connections (user_id, kind, label, url_encrypted, url_fingerprint, integration_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [userId, kind, kind, encrypt(url), crypto.createHash('sha256').update(url).digest('hex'), integrationId],
   );
   return result.rows[0].id;
 }
@@ -165,9 +171,9 @@ async function seedCaldavCalendar(collectionUrl: string): Promise<string> {
 }
 
 async function seedCarddavBook(collectionUrl: string): Promise<string> {
-  await query(
+  const integration = await query<{ id: string }>(
     `INSERT INTO user_integrations (user_id, provider, config)
-     VALUES ($1, 'carddav', $2::jsonb)`,
+     VALUES ($1, 'carddav', $2::jsonb) RETURNING id`,
     [userId, JSON.stringify({ serverUrl: sourceBase, username: 'sam', password: encrypt('app-password') })],
   );
   const book = await query<{ id: string }>(
@@ -175,7 +181,7 @@ async function seedCarddavBook(collectionUrl: string): Promise<string> {
      VALUES ($1, 'Personal', 'carddav', $2, 'read_write') RETURNING id`,
     [userId, collectionUrl],
   );
-  const connectionId = await seedSourceConnection('carddav', collectionUrl);
+  const connectionId = await seedSourceConnection('carddav', collectionUrl, integration.rows[0].id);
   await query(
     `INSERT INTO integration_collections (user_id, source_connection_id, kind, remote_id, local_address_book_id, source_access, user_access, dav_mode)
      VALUES ($1, $2, 'address_book', $3, $4, 'read_write', 'read_write', 'read_write')`,

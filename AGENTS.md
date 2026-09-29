@@ -35,3 +35,14 @@
 
 - Split independent implementation, testing and review work when safe, but avoid concurrent edits to the same files. Review changed production behavior before integration.
 - Report only verified facts: changed files, commit SHA, pushed branch, commands and their results, deployment steps, and remaining limitations.
+
+## Settings interface conventions
+
+- Account connections belong in **General → Accounts**. Calendars and Contacts manage resources and import/export, not a second copy of account credentials. Put calendar display preferences in **Appearance → Calendar**.
+- Reuse `accountUi/AccountUi.tsx`, `SettingsSections.tsx`, `InlineEditor.tsx`, `SegmentedChoices.tsx` and `ui.tsx`. Match the surrounding settings rather than adding one-off forms or controls.
+- Open editors as subpages inside the existing settings surface. Keep a visible Back action, focus the editor heading and let the settings container scroll. Reserve application dialogs for confirmations and genuinely transient choices; never use `window.confirm`, `alert` or another editor modal inside settings.
+- Use labelled segmented choices for a small set of alternatives, a labelled switch for an independent boolean, and the existing bounded/stepped controls for quantities and intervals. Use the shared select/input styles for longer lists. Retain explicit Save/Cancel where edits are staged.
+- Lists use a consistent heading and primary Add action. Rows expose Edit and a separate red trash icon with an accessible name. Explain unavailable actions, preserve provider permissions and confirm destructive operations before dispatch.
+- Keep tab contents mounted when changing tabs would otherwise discard a draft. Scope loading, saving and diagnostics to the current account and session; stale responses must not overwrite another editor or a later login.
+- Use application theme variables for surfaces, text, borders, accents and destructive states. Do not hard-code light/dark panels. Check both themes, keyboard operation and narrow/mobile layouts, including long translated labels. Controls must not force horizontal overflow or unnecessary extra toolbar rows.
+- Translate visible text, accessible labels, errors and status values in every supported locale. Native setup screens, notification actions and launch shortcuts use the shared native catalog; run `npm run native:locales` after changing native copy and verify `npm run test:i18n`.

@@ -51,6 +51,10 @@ export function invitationActionsForStorage(actions: unknown) {
   return actionArray(actions).map(({ account, ...action }) => ({
     ...action,
     accountId: action.accountId || account?.id || null,
+    ...(action.aliasId || typeof account?.invitation_alias_id === 'string' ? {
+      aliasId: action.aliasId || account?.invitation_alias_id,
+      senderEmail: action.senderEmail || account?.invitation_from_email,
+    } : {}),
   }));
 }
 

@@ -23,9 +23,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/shortcuts" />
+            <!-- Shortcuts are published dynamically so their labels follow the
+                 language selected in Inboxora, including on Android 7–12. -->
 
             <intent-filter>
                 <action android:name="android.intent.action.SENDTO" />

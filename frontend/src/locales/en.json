@@ -127,9 +127,7 @@
       "reindex": "Re-index for search",
       "reindexing": "Indexing messages...",
       "reindexProgress": "{{synced}} / {{total}} messages indexed",
-      "reindexError": "Failed to start re-index",
       "syncFolders": "Sync folders",
-      "syncFoldersError": "Folder sync failed",
       "unifiedInboxSection": "Unified Inbox",
       "unifiedInboxEnabled": "Include in Unified Inbox",
       "unifiedInboxEnabledDesc": "Show messages from this account in All Inboxes, unified search, and category counts.",
@@ -962,7 +960,7 @@
       "ai": "AI Assistant",
       "aiActions": "AI Actions",
       "categories": "Categories",
-      "groupAccountMail": "Account & Mail",
+      "groupAccountMail": "General",
       "groupDisplay": "Display",
       "groupSecurityIntegrations": "Security & Integrations",
       "groupAdmin": "Administration",
@@ -2041,12 +2039,14 @@
     "maturity": "Model {{level}} · {{count}} training messages",
     "maturityDetail": "{{spam}} spam / {{ham}} ham usable samples ({{events}} feedback events)",
     "enable": "Enable antispam",
-    "disable": "Disable antispam",
     "retrainNow": "Retrain now",
     "enableAccount": "Auto-classify on this account",
     "enableAccountDesc": "Off by default. Manual Spam/Ham marks always train the model.",
     "trustedAuthservId": "Trusted authserv-id",
-    "trustedAuthservIdDesc": "Only Authentication-Results from this mail system count (e.g. mx.google.com). Empty = ignore all."
+    "trustedAuthservIdDesc": "Only Authentication-Results from this mail system count (e.g. mx.google.com). Empty = ignore all.",
+    "maturityMature": "Trained",
+    "maturityFresh": "Learning",
+    "maturityInsufficient": "Not enough samples"
   },
   "todoist": {
     "title": "Create Todoist Task",
@@ -2084,7 +2084,6 @@
     "noCalendarsDiscovered": "No calendars discovered yet.",
     "searchSources": "Search sources or calendars",
     "serviceDisabled": "Calendar service is disabled.",
-    "providerManagedHint": "Calendar creation, renaming and deletion are managed by the provider. Configure account services in Settings → Accounts.",
     "nativeCalendarReconsent": "{{provider}} needs calendar management permission. Reconnect the account to continue.",
     "nativeCalendarName": "Calendar name",
     "nativeCalendarCreate": "Create calendar",
@@ -2147,7 +2146,6 @@
     "save": "Save",
     "panel": "Calendar panel",
     "calendars": "Calendars",
-    "manageSources": "Manage sources",
     "firstDayOfWeek": "First day of week",
     "workDays": "Work days",
     "workHoursStart": "Working hours start",
@@ -2225,7 +2223,7 @@
     "workHoursEndDescription": "Last hour of the working-day highlight.",
     "defaultInviteAccount": "Default sender for calendar invitations",
     "defaultInviteAccountNone": "No default — choose per event",
-    "defaultInviteAccountDescription": "The SMTP account preselected when you invite attendees to an event.",
+    "defaultInviteAccountDescription": "The account or alias preselected when you invite attendees to an event.",
     "openSourceMessage": "Open original message",
     "subscribeTitle": "Calendar subscriptions",
     "subscribeDescription": "Subscribe to a published ICS or webcal calendar. Subscriptions are read-only and refresh on a schedule.",
@@ -2266,7 +2264,8 @@
     "providerSyncPartial": "{{provider}} calendar: {{calendars}} calendar(s), {{created}} added, {{updated}} updated, {{deleted}} removed; {{failed}} failure(s).",
     "importIcs": "Import .ics file",
     "importDone": "Imported {{count}} event(s).",
-    "importProtected": "{{count}} event(s) were left unchanged because Inboxora sent their invitations."
+    "importProtected": "{{count}} event(s) were left unchanged because Inboxora sent their invitations.",
+    "showAgendaDescription": "Show the selected day’s agenda to the right of the calendar on desktop."
   },
   "mailFolders": {
     "inbox": "Inbox",
@@ -2385,7 +2384,6 @@
     }
   },
   "accountUi": {
-    "accounts": "Accounts",
     "accountSettings": "Account settings",
     "calendarAccounts": "Calendar accounts",
     "contactAccounts": "Contact accounts",
@@ -2521,7 +2519,6 @@
     "operationPending": "The remote operation is not yet confirmed. Do not repeat it with a new request identifier.",
     "targetUnavailable": "This account or resource is no longer available. Return to the list and refresh it.",
     "deleteLocalWarning": "This deletes the resource and its contents from Inboxora. This operation cannot be undone.",
-    "providerDeletionUnavailable": "Provider deletion is unavailable for this collection. Default, system and read-only collections cannot be deleted here.",
     "deleteRemoteWarning": "This deletes the resource at the provider, including its contents. It is not the same as hiding or disconnecting it.",
     "removeAccountHint": "All synced messages for this account will be removed from Inboxora. This does not delete the mailbox at its provider.",
     "intervalMinutes_zero": "Minutes: {{count}}",
@@ -2634,5 +2631,34 @@
     "pendingBody": "The mail provider has not confirmed this change yet. The current mailbox state will be checked again.",
     "failedTitle": "Mail change failed",
     "failedBody": "The mail provider could not apply this change. The previous state has been restored."
+  },
+  "settingsIndex": {
+    "status": "Index status",
+    "running": "Indexing in progress",
+    "pending": "Waiting for indexing",
+    "messages": "Indexed messages",
+    "folders": "Known folders",
+    "folderSync": "Last successful folder sync"
+  },
+  "davAccount": {
+    "title": "DAV account",
+    "addTitle": "Add a DAV account",
+    "description": "Connect calendars and address books from a DAV server.",
+    "discover": "Detect services",
+    "discoverFirst": "Enter the connection details and detect services first.",
+    "pauseHint": "Turning a service off pauses its synchronization. Existing calendars, contacts and local settings are kept.",
+    "removeTitle": "Disconnect DAV account",
+    "removeDescription": "Disconnect “{{name}}” and remove its local calendars and address books from Inboxora? Nothing will be deleted on the DAV server.",
+    "invalidUrl": "Enter a valid DAV server URL.",
+    "httpsRequired": "Use HTTPS. HTTP is allowed only for private hosts permitted by the administrator.",
+    "hostBlocked": "This server is blocked by the connection policy.",
+    "authFailed": "The DAV server rejected these credentials. Check the username, password and permissions.",
+    "discoveryFailed": "Could not verify the DAV services. Check the server and try again. No settings were changed.",
+    "unsupported": "No calendar or contact service was found at this address.",
+    "serviceUnavailable": "The selected service is not available on this account. Detect services again.",
+    "alreadyConnected": "This resource is already connected through another account. Manage that account instead.",
+    "changed": "This account was changed elsewhere. Go back and reopen it before saving.",
+    "operationPending": "A DAV resource operation is still pending. Check its result before changing credentials or disconnecting.",
+    "invalidSettings": "Check the connection settings and synchronization interval."
   }
 }

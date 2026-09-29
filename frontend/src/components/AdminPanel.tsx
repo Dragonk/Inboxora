@@ -1,3 +1,6 @@
+import { Switch as SettingSwitch, IconButton as AccountIconButton } from './accountUi/AccountUi.tsx';
+import { DavAccountsList, DavAccountEditor, type DavAccount } from './accountUi/DavAccounts.tsx';
+import MailIndexDiagnostics from './accountUi/MailIndexDiagnostics.tsx';
 import { splitDefaultRecipients } from '../utils/defaultRecipients.ts';
 import StorageRetentionSettings from './StorageRetentionSettings.tsx';
 import MailPrefetchSettings from './MailPrefetchSettings.tsx';
@@ -11,10 +14,8 @@ import { refreshUnreadCounts } from '../utils/unreadRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { intlLocale } from '../utils/intlLocale.ts';
 import { folderLabel } from '../utils/folderLabels.ts';
-import { inputStyle as sharedInputStyle } from './ui.tsx';
+import { Button, inputStyle as sharedInputStyle } from './ui.tsx';
 import ConversationRebuild from './ConversationRebuild.tsx';
-import CalendarSettingsManager from './CalendarSettingsManager.tsx';
-import CalendarSubscriptionsSettings from './CalendarSubscriptionsSettings.tsx';
 import AddAccountFlow, { type IntegrationStatus } from './AddAccountFlow.tsx';
 import { transportLabel } from './AccountProviderServices.tsx';
 import AccountProviderServices from './AccountProviderServices.tsx';
@@ -115,39 +116,6 @@ function Field({ label, required = false, children }: FieldProps) {
 const inputStyle = sharedInputStyle;
 
 const TOGGLE_OFF_BACKGROUND = 'var(--border)';
-
-interface SettingsSectionTab {
-  id: string;
-  label: React.ReactNode;
-}
-
-function SettingsSectionTabs({ tabs, active, onChange, label }: { tabs: SettingsSectionTab[]; active: string; onChange: (id: string) => void; label: string }) {
-  return <div role="tablist" aria-label={label} style={{ display: 'flex', gap: 0, overflowX: 'auto', overflowY: 'hidden', borderBottom: '1px solid var(--border-subtle)', marginBottom: 28 }}>
-    {tabs.map(tab => <button
-      key={tab.id}
-      type="button"
-      role="tab"
-      aria-selected={active === tab.id}
-      tabIndex={active === tab.id ? 0 : -1}
-      onClick={() => onChange(tab.id)}
-      onKeyDown={event => {
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-        event.preventDefault();
-        const currentIndex = tabs.findIndex(item => item.id === active);
-        const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-        const tabList = event.currentTarget.parentElement;
-        onChange(tabs[nextIndex].id);
-        requestAnimationFrame(() => tabList?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus());
-      }}
-      style={{
-        flexShrink: 0, padding: '8px 16px', marginBottom: -1, border: 0,
-        borderBottom: `2px solid ${active === tab.id ? 'var(--accent)' : 'transparent'}`,
-        background: 'none', color: active === tab.id ? 'var(--accent)' : 'var(--text-secondary)',
-        fontSize: 13, lineHeight: '18px', fontWeight: active === tab.id ? 600 : 400, cursor: 'pointer', whiteSpace: 'nowrap',
-      }}
-    >{tab.label}</button>)}
-  </div>;
-}
 
 // ─── Color picker ─────────────────────────────────────────────────────────────
 const COLORS = [
@@ -712,6 +680,7 @@ function AccountForm({ initial = undefined, onSave, onCancel, onReload, onComple
 function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) => void } = {}) {
   const { t } = useTranslation();
   const { accounts, setAccounts, updateAccount, unreadCounts, setUnreadCounts, addNotification, backfillProgress, user, authEpoch } = useStore();
+  const [davTarget,setDavTarget] = useState<DavAccount | undefined>();
   const [subview, setSubview] = useState('list'); // 'list' | 'add' | 'add-imap' | 'edit' | 'folders' | 'aliases'
   // Readiness only. The Accounts screen decides whether a provider sign-in can be offered; it never shows a
   // client id, a secret or a redirect URI, because those are the administrator's, in Integrations.
@@ -744,6 +713,8 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
 
   const [folderMappings, setFolderMappings] = useState<Record<string, string | null>>({});
   const [availableFolders, setAvailableFolders] = useState<Array<{ path?: string; name?: string; [key: string]: unknown }>>([]);
+  const folderScope = useRef({ generation: 0, accountId: '', loaded: false, busy: false, saving: false });
+  const [foldersError, setFoldersError] = useState<'load' | 'save' | null>(null);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [foldersSaving, setFoldersSaving] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmOverlayProps['dialog'] | null>(null);
@@ -839,6 +810,12 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
     return () => { aliasOperation.current = { generation: scope.generation + 1, busy: false }; };
   }, [editTarget?.id, subview, authEpoch]);
 
+  useLayoutEffect(() => {
+    const scope = { generation: folderScope.current.generation + 1, accountId: editTarget?.id || '', loaded: false, busy: false, saving: false };
+    folderScope.current = scope; setFoldersError(null); setFoldersSaving(false); setFoldersLoading(false); setAvailableFolders([]);
+    return () => { folderScope.current = { ...scope, generation: scope.generation + 1 }; };
+  }, [editTarget?.id, subview, authEpoch]);
+
   const beginAliasOperation = () => {
     const scope = aliasOperation.current;
     if (scope.busy || !editTarget) return null;
@@ -919,66 +896,42 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
   };
 
   const handleReconnect = async (id: string) => {
+    const epoch = useStore.getState().authEpoch;
     await api.reconnectAccount(id);
-    updateAccount(id, { sync_error: null });
+    if (useStore.getState().authEpoch === epoch) updateAccount(id, { sync_error: null });
   };
 
-  const handleReindex = async (id: string) => {
-    try {
-      await api.reindexAccount(id);
-    } catch (err) {
-      addNotification({ type: 'error', title: t('admin.accounts.reindexError'), body: toAppError(err).message });
-    }
-  };
+  const handleReindex = async (id: string) => { await api.reindexAccount(id); };
+  const handleSyncFolders = async (id: string) => { await api.syncFoldersNow(id); };
 
-  const handleSyncFolders = async (id: string) => {
-    try {
-      await api.syncFoldersNow(id);
-    } catch (err) {
-      addNotification({ type: 'error', title: t('admin.accounts.syncFoldersError'), body: toAppError(err).message });
-    }
-  };
-
-  const handleFolderMappingOpen = async (account: { id: string; folder_mappings?: { inbox?: string | null; spam?: string | null; sent?: string | null; drafts?: string | null; trash?: string | null; archive?: string | null } | null; [key: string]: unknown }) => {
-    setEditTarget(account);
-    setFolderMappings(account.folder_mappings || {});
-    setSubview('folders');
-    setFoldersLoading(true);
+  const handleFolderMappingOpen = async (account: AdminAccount) => {
+    const scope = folderScope.current; const epoch = useStore.getState().authEpoch;
+    if (scope.loaded || scope.busy || scope.accountId !== account.id) return;
+    scope.busy = true;
+    const current = () => folderScope.current === scope && useStore.getState().authEpoch === epoch;
+    setFolderMappings(account.folder_mappings && typeof account.folder_mappings === 'object' && !Array.isArray(account.folder_mappings)
+      ? Object.fromEntries(Object.entries(account.folder_mappings).filter((entry): entry is [string,string|null] => entry[1] === null || typeof entry[1] === 'string')) : {}); setFoldersLoading(true); setFoldersError(null);
     try {
       const folders = await api.getFolders(account.id);
-      setAvailableFolders(folders);
-    } catch (err) {
-      addNotification({ type: 'error', title: t('admin.accounts.loadFoldersError'), body: toAppError(err).message });
-    } finally {
-      setFoldersLoading(false);
-    }
+      if (!current()) return;
+      scope.loaded = true; setAvailableFolders(folders);
+    } catch { if (current()) setFoldersError('load'); }
+    finally { scope.busy = false; if (current()) setFoldersLoading(false); }
   };
 
   const handleFolderMappingsSave = async () => {
-    if (!editTarget) return;
-    setFoldersSaving(true);
+    const account = editTarget; const scope = folderScope.current; const epoch = useStore.getState().authEpoch;
+    if (!account || scope.saving || scope.busy || !scope.loaded || scope.accountId !== account.id) return;
+    scope.saving = true; setFoldersSaving(true); setFoldersError(null);
+    const current = () => folderScope.current === scope && useStore.getState().authEpoch === epoch;
     try {
-      const cleanMappings: Record<string, string> = {};
-      for (const [key, val] of Object.entries(folderMappings)) {
-        if (val) cleanMappings[key] = val;
-      }
-      await api.updateAccount(editTarget.id, { folder_mappings: cleanMappings });
-      updateAccount(editTarget.id, { folder_mappings: cleanMappings });
-      setSubview('list');
-      setEditTarget(null);
-    } catch (err) {
-      addNotification({ type: 'error', title: t('admin.accounts.saveFolderMappingsError'), body: toAppError(err).message });
-    } finally {
-      setFoldersSaving(false);
-    }
-  };
-
-  const handleAliasOpen = (account: AdminAccount) => {
-    setEditTarget(account);
-    setAliasFormMode(null);
-    setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
-    setAliasFormError('');
-    setSubview('aliases');
+      const cleanMappings = Object.fromEntries(Object.entries(folderMappings).filter((entry): entry is [string,string] => typeof entry[1] === 'string' && Boolean(entry[1])));
+      await api.updateAccount(account.id, { folder_mappings: cleanMappings });
+      if (!current()) return;
+      updateAccount(account.id, { folder_mappings: cleanMappings });
+      setEditTarget(previous => previous?.id === account.id ? { ...previous, folder_mappings: cleanMappings } : previous);
+    } catch { if (current()) setFoldersError('save'); }
+    finally { scope.saving = false; if (current()) setFoldersSaving(false); }
   };
 
   const handleAliasSave = async () => {
@@ -1088,6 +1041,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
           reloadAccounts={loadAccounts}
           goToIntegrations={() => onNavigate?.('integrations')}
           onChooseImap={() => setSubview('add-imap')}
+          onChooseDav={() => {setDavTarget(undefined);setSubview('dav');}}
           onClose={() => setSubview('list')}
           isAdmin={Boolean(user?.isAdmin)}
           t={t}
@@ -1095,6 +1049,8 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       </div>
     );
   }
+
+  if (subview === 'dav') return <DavAccountEditor key={davTarget?.id || 'new'} account={davTarget} onClose={() => setSubview('list')} />;
 
   if (subview === 'add-imap') {
     return (
@@ -1120,25 +1076,9 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
     );
   }
 
-  if (subview === 'edit' && editTarget) {
-    return <MailAccountEditor key={editTarget.id} account={editTarget} onSave={handleEdit} reload={loadAccounts}
-      onClose={() => { setSubview('list'); setEditTarget(null); }}
-      renderForm={props => <AccountForm {...props} initial={editTarget} />} />;
-  }
-
-  if (subview === 'aliases' && editTarget) {
-    const backBtn = (
-      <button onClick={() => { setSubview('list'); setEditTarget(null); setAliasFormMode(null); setAliasFormError(''); }} style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        background: 'none', border: 'none', color: 'var(--text-secondary)',
-        cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
-      }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polyline points="15 18 9 12 15 6"/>
-        </svg>
-        {t('sidebar.backToAccounts')}
-      </button>
-    );
+  const renderAliases = () => {
+    if (!editTarget) return null;
+    const backBtn = aliasFormMode ? <button type="button" className="au-back" onClick={() => { setAliasFormMode(null); setAliasFormError(''); }}>{t('common.back')}</button> : null;
 
     if (aliasFormMode) {
       return (
@@ -1251,9 +1191,10 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       <ConfirmOverlay dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
       </>
     );
-  }
+  };
 
-  if (subview === 'folders' && editTarget) {
+  const renderFolders = () => {
+    if (!editTarget) return null;
     const FOLDER_ROLES = [
       { key: 'sent',    label: t('admin.folderMappings.sent'),    specialUse: '\\Sent' },
       { key: 'drafts',  label: t('admin.folderMappings.drafts'),  specialUse: '\\Drafts' },
@@ -1269,16 +1210,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
     };
     return (
       <div>
-        <button onClick={() => { setSubview('list'); setEditTarget(null); }} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          background: 'none', border: 'none', color: 'var(--text-secondary)',
-          cursor: 'pointer', fontSize: 13, padding: '0 0 16px 0',
-        }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-          {t('sidebar.backToAccounts')}
-        </button>
+
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
           {t('admin.folderMappings.title')}
         </div>
@@ -1288,6 +1220,8 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
           {t('admin.folderMappings.description')}
         </div>
+        {foldersError && <div className="au-notice au-error" role="alert">{foldersError === 'save' ? t('admin.accounts.saveFolderMappingsError') : t('admin.accounts.loadFoldersError')}
+          <Button onClick={() => void handleFolderMappingOpen(editTarget)}>{t('common.retry')}</Button></div>}
         {foldersLoading ? (
           <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
             {t('admin.folderMappings.loading')}
@@ -1332,6 +1266,15 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         </button>
       </div>
     );
+  };
+
+  if (subview === 'edit' && editTarget) {
+    return <MailAccountEditor key={editTarget.id} account={editTarget} onSave={handleEdit} reload={loadAccounts}
+      onClose={() => { setSubview('list'); setEditTarget(null); }}
+      onSectionChange={section => { if (section === 'folders') void handleFolderMappingOpen(editTarget); }}
+      aliases={renderAliases()} folders={renderFolders()}
+      diagnostics={<MailIndexDiagnostics accountId={editTarget.id} onReindex={() => handleReindex(editTarget.id)} onSyncFolders={() => handleSyncFolders(editTarget.id)} onReconnect={() => handleReconnect(editTarget.id)} />}
+      renderForm={props => <AccountForm {...props} initial={editTarget} />} />;
   }
 
   return (
@@ -1357,6 +1300,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         </button>
       </div>
 
+      <DavAccountsList onEdit={account => {setDavTarget(account);setSubview('dav');}}/>
       {accounts.length === 0 && (
         <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-tertiary)', fontSize: 14 }}>
           {t('admin.accounts.empty')}
@@ -1438,19 +1382,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
             <button type="button" onClick={() => { setEditTarget(account); setSubview('edit'); }} style={{ flexShrink: 0, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
               {t('common.edit')}
             </button>
-            <details style={{ position: 'relative', flexShrink: 0 }}>
-              <summary aria-label={t('message.more')} title={t('message.more')} style={{ listStyle: 'none', cursor: 'pointer', color: 'var(--text-tertiary)', padding: '5px 2px', lineHeight: 1 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
-              </summary>
-              <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 1, minWidth: 150, padding: 6, border: '1px solid var(--border-subtle)', borderRadius: 8, background: 'var(--bg-elevated)', boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)', display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                {account.sync_error && <IconBtn onClick={() => handleReconnect(account.id)} title={t('sidebar.accountMenu.reconnect')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></IconBtn>}
-                <IconBtn onClick={() => handleFolderMappingOpen(account)} title={t('admin.accounts.folderMappings')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></IconBtn>
-                <IconBtn onClick={() => handleAliasOpen(account)} title={t('admin.accounts.aliases')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></IconBtn>
-                <IconBtn onClick={() => handleSyncFolders(account.id)} title={t('admin.accounts.syncFolders')}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 012-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><path d="M9 13a3 3 0 015.4-1.5M15 15a3 3 0 01-5.4 1.5"/></svg></IconBtn>
-                <IconBtn onClick={() => handleReindex(account.id)} title={t('admin.accounts.reindex')} disabled={!!progress}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></IconBtn>
-                <IconBtn onClick={() => handleDelete(account.id)} title={t('common.remove')} danger><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg></IconBtn>
-              </div>
-            </details>
+            <AccountIconButton icon="trash" className="au-danger" label={`${t('common.remove')}: ${account.name || account.email_address}`} onClick={() => handleDelete(account.id)} />
           </div>
           <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 11, lineHeight: 1.5 }}>
             <span data-testid="account-card-transport" style={{ color: 'var(--text-secondary)' }}><span style={{ color: 'var(--text-tertiary)' }}>{t('admin.accounts.transport')} </span>{transport}</span>
@@ -1970,14 +1902,12 @@ function SwipeActionIcon({ action, size = 17 }: SwipeActionIconProps) {
   return <svg {...common}><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a1 1 0 001 1h14a1 1 0 001-1V8"/><polyline points="9 13 12 16 15 13"/><line x1="12" y1="11" x2="12" y2="16"/></svg>;
 }
 
-function CalendarAppearanceSettingsTab({ section = 'accounts' }: { section?: 'accounts' | 'appearance' }) {
-  const { t, i18n } = useTranslation();
-  const [accountSection, setAccountSection] = useState('accounts');
-  const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays, calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd, calendarWorkHoursError, calendarInviteAccountId, setCalendarInviteAccountId, accounts } = useStore();
-  // Only accounts that can actually send mail may be offered as a default sender.
-  const senderAccounts = (accounts || []).filter(account => account.enabled && account.smtp_host);
-  return <div data-testid="calendar-settings">
-      {section === 'appearance' && <div>
+function CalendarAppearanceSettingsTab() {
+  const { t } = useTranslation();
+  const { calendarWeekStartsOn, setCalendarWeekStartsOn, calendarWorkDays, setCalendarWorkDays,
+    calendarWorkHoursStart, setCalendarWorkHoursStart, calendarWorkHoursEnd, setCalendarWorkHoursEnd,
+    calendarWorkHoursError, calendarShowAgenda, setCalendarShowAgenda } = useStore();
+  return <div data-testid="calendar-settings"><div>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>
           {t('calendar.title')}
         </div>
@@ -2014,44 +1944,16 @@ function CalendarAppearanceSettingsTab({ section = 'accounts' }: { section?: 'ac
             <span className="settings-choice-description">{t('calendar.workHoursEndDescription')}</span>
           </label>
           {calendarWorkHoursError && <div id="calendar-work-hours-error" role="alert" style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--red)' }}>{calendarWorkHoursError}</div>}
-          <label style={{ display: 'grid', gap: 6, fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>
-            {t('calendar.defaultInviteAccount')}
-            <select data-testid="calendar-invite-account-setting" value={calendarInviteAccountId} onChange={event => setCalendarInviteAccountId(event.target.value)} style={inputStyle}>
-              <option value="">{t('calendar.defaultInviteAccountNone')}</option>
-              {senderAccounts.map(account => <option key={account.id} value={account.id}>{account.name || account.email_address} · {account.email_address}</option>)}
-            </select>
-            <span className="settings-choice-description">{t('calendar.defaultInviteAccountDescription')}</span>
-          </label>
+          <SettingsChoices label={t('calendar.dayAgenda')} description={t('calendar.showAgendaDescription')}
+            testId="calendar-agenda-setting" value={calendarShowAgenda ? 'show' : 'hide'}
+            onChange={value => setCalendarShowAgenda(value === 'show')}
+            options={[["show", t('calendar.show')], ["hide", t('calendar.hide')]]} />
         </div>
-      </div>}
-      {section === 'accounts' && <>
-        <SettingsSectionTabs
-          label={t('calendar.title')}
-          active={accountSection}
-          onChange={setAccountSection}
-          tabs={[
-            { id: 'accounts', label: t('admin.tabs.accounts') },
-            { id: 'resources', label: t('calendar.calendars') },
-            { id: 'import', label: t('calendar.subscribeTitle') },
-          ]}
-        />
-        {(accountSection === 'accounts' || accountSection === 'resources') && <div data-testid={`calendar-settings-${accountSection}`}>
-          <header style={{ marginBottom: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 15 }}>{accountSection === 'accounts' ? t('calendar.manageSources') : t('calendar.calendars')}</h2>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{accountSection === 'accounts' ? t('calendar.subscribeDescription') : t('calendar.providerManagedHint')}</p>
-          </header>
-          <CalendarSettingsManager locale={intlLocale(i18n.resolvedLanguage || i18n.language)} view={accountSection as 'accounts' | 'resources'} />
-        </div>}
-        {accountSection === 'import' && <div data-testid="calendar-settings-import">
-          <CalendarSubscriptionsSettings locale={intlLocale(i18n.resolvedLanguage || i18n.language)} />
-        </div>}
-      </>}
-
-  </div>;
+      </div></div>;
 }
 
 function CalendarSettingsTab({ section = 'accounts' }: { section?: 'accounts' | 'appearance' }) {
-  return section === 'appearance' ? <CalendarAppearanceSettingsTab section="appearance" /> : <CalendarAccountsSettings />;
+  return section === 'appearance' ? <CalendarAppearanceSettingsTab /> : <CalendarAccountsSettings />;
 }
 
 function ContactsSettingsTab() { return <ContactAccountsSettings />; }
@@ -6537,6 +6439,7 @@ function AppearanceTab({ initialSubTab }: SubTabSectionProps) {
     <SubTabs initialTab={initialSubTab} tabs={[
       { id: 'theme',  label: t('admin.tabs.theme'),          content: <ThemesTab /> },
       { id: 'layout', label: t('admin.appearance.layout'),   content: <LayoutsTab /> },
+      { id: 'calendar', label: t('calendar.title'), content: <CalendarAppearanceSettingsTab /> },
       { id: 'fonts',  label: t('admin.tabs.fontsAndLanguage'), content: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
           <LanguageTab />
@@ -7206,10 +7109,10 @@ function RulesTab() {
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+    <div className="au-workspace" data-testid="rules-settings">
+      <div className="au-heading">
         <span style={{ fontWeight: 600, fontSize: 15 }}>{t('admin.rules.title')}</span>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="au-actions">
           <button
             onClick={handleRunRules}
             disabled={runningRules}
@@ -7249,7 +7152,7 @@ function RulesTab() {
         return (
           <div
             key={rule.id}
-            className="no-callout"
+            className="no-callout au-rule-card"
             onDragOver={e => {
               e.preventDefault();
               setRuleDropIdx(idx);
@@ -7269,7 +7172,7 @@ function RulesTab() {
               marginBottom: 8,
               borderRadius: 8,
               touchAction: 'pan-y',
-              background: 'var(--bg-tertiary)',
+              background: 'var(--bg-primary)',
               opacity: isDragging ? 0.4 : 1,
               border: '1px solid var(--border)',
               borderTop: isDropTarget ? '1px solid var(--accent)' : '1px solid var(--border)'
@@ -7306,9 +7209,7 @@ function RulesTab() {
                     </svg>
                   </span>
                 )}
-                <label style={{ display: 'flex', alignItems: 'center', gap: 0, cursor: 'pointer', marginTop: 2, flexShrink: 0 }}>
-                  <input type="checkbox" checked={rule.enabled} onChange={() => handleToggle(rule)} />
-                </label>
+                <SettingSwitch label={rule.name || t('admin.rules.unnamed')} checked={Boolean(rule.enabled)} onChange={() => void handleToggle(rule)} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{rule.name || t('admin.rules.unnamed')}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -7322,12 +7223,7 @@ function RulesTab() {
                   >
                     {t('admin.rules.editButton')}
                   </button>
-                  <button
-                    onClick={() => setConfirmDelete(rule.id)}
-                    style={{ padding: '4px 10px', background: 'none', border: '1px solid var(--red)', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: 'var(--red)' }}
-                  >
-                    {t('admin.rules.deleteButton')}
-                  </button>
+                  <AccountIconButton icon="trash" className="au-danger" label={`${t('admin.rules.deleteButton')}: ${rule.name || t('admin.rules.unnamed')}`} onClick={() => setConfirmDelete(rule.id)} />
                 </div>
               </div>
             )}
@@ -7630,9 +7526,7 @@ function MailboxCleanupTab() {
 }
 
 const TAB_GROUPS = [
-  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'notifications', 'rules', 'categories', 'cleanup'] },
-  { id: 'calendar', labelKey: 'calendar.title', tabIds: ['calendar', 'calendar-appearance'] },
-  { id: 'contacts', labelKey: 'contacts.title', tabIds: ['contacts'] },
+  { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'calendar', 'contacts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
   { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'performance'] },
@@ -7660,9 +7554,8 @@ const TABS = [
     id: 'cleanup', labelKey: 'admin.tabs.cleanup', beta: true,
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M19 3l-6 6"/><path d="M14 4l6 6"/><path d="M11 8l-7 7c-1 1-1 3 0 4s3 1 4 0l7-7"/><path d="M6 20l-3-3"/></svg>,
   },
-  { id: 'calendar-appearance', labelKey: 'admin.tabs.appearance', icon: <span aria-hidden="true">◐</span> },
-  { id: 'contacts', labelKey: 'admin.tabs.accounts', icon: <span aria-hidden="true">☷</span> },
-  { id: 'calendar', labelKey: 'admin.tabs.accounts', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
+  { id: 'contacts', labelKey: 'contacts.title', icon: <span aria-hidden="true">☷</span> },
+  { id: 'calendar', labelKey: 'calendar.calendars', icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> },
   // Display
   {
     id: 'appearance', labelKey: 'admin.tabs.appearance',
@@ -9302,7 +9195,11 @@ export default function AdminPanel() {
   const { t } = useTranslation();
   const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
   const isMobile = useMobile();
-  const visibleTabs = TABS.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
+  const orderedTabs = [
+    ...TAB_GROUPS.flatMap(group => group.tabIds.flatMap(id => TABS.filter(tab => tab.id === id))),
+    ...TABS.filter(tab => !TAB_GROUPS.some(group => group.tabIds.includes(tab.id))),
+  ];
+  const visibleTabs = orderedTabs.filter(tab => (!tab.adminOnly || user?.isAdmin) && (!tab.mobileHidden || !isMobile));
 
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
   const [tabRightOverflow, setTabRightOverflow] = useState(false);
@@ -9383,7 +9280,7 @@ export default function AdminPanel() {
       {adminTab === 'categories' && <CategoriesSection initialSubTab={pendingSubTab} />}
       {adminTab === 'cleanup' && <MailboxCleanupTab />}
       {adminTab === 'calendar' && <CalendarSettingsTab />}
-      {adminTab === 'calendar-appearance' && <CalendarSettingsTab section="appearance" />}
+      {adminTab === 'calendar-appearance' && <AppearanceTab initialSubTab="calendar" />}
       {adminTab === 'contacts' && <ContactsSettingsTab />}
       {adminTab === 'appearance' && <AppearanceTab initialSubTab={pendingSubTab} />}
       {adminTab === 'integrations' && <IntegrationsTab />}
@@ -9463,8 +9360,6 @@ export default function AdminPanel() {
                 }}
               >
                 <span style={{ display: 'flex', opacity: adminTab === tab.id && !searchResults ? 1 : 0.7 }}>{tab.icon}</span>
-                {(tab.id === 'calendar' || tab.id === 'calendar-appearance') && `${t('calendar.title')} · `}
-                {tab.id === 'contacts' && `${t('contacts.title')} · `}
                 {t(tab.labelKey)}
                 {tab.beta && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', padding: '1px 4px', borderRadius: 3, background: adminTab === tab.id && !searchResults ? 'rgba(255,255,255,0.25)' : 'color-mix(in srgb, var(--accent) 15%, transparent)', color: adminTab === tab.id && !searchResults ? '#fff' : 'var(--accent)' }}>BETA</span>}
               </button>
@@ -9476,7 +9371,7 @@ export default function AdminPanel() {
 
         {/* Content — full width, scrollable */}
         <div
-          style={{ flex: 1, overflow: 'auto', padding: '20px 16px' }}
+          style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', padding: '20px 16px' }}
           onScroll={e => {
             const el = e.currentTarget;
             el.style.boxShadow = el.scrollTop > 4 ? 'inset 0 8px 8px -8px rgba(0,0,0,0.2)' : 'none';
@@ -9530,7 +9425,10 @@ export default function AdminPanel() {
               scrollbar. Labels wrap instead of overflowing (see the tab buttons below). */}
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {TAB_GROUPS.map((group, gi) => {
-            const groupTabs = visibleTabs.filter(tab => group.tabIds.includes(tab.id));
+            const groupTabs = group.tabIds.flatMap(id => {
+              const tab = visibleTabs.find(item => item.id === id);
+              return tab ? [tab] : [];
+            });
             if (groupTabs.length === 0) return null;
             return (
               <div key={group.id} style={{ marginBottom: gi < TAB_GROUPS.length - 1 ? 4 : 0 }}>
@@ -9624,7 +9522,7 @@ export default function AdminPanel() {
 
         {/* Content */}
         <div
-          style={{ flex: 1, overflow: 'auto', padding: '24px' }}
+          style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '24px' }}
           onScroll={e => {
             const el = e.currentTarget;
             el.style.boxShadow = el.scrollTop > 4 ? 'inset 0 8px 8px -8px rgba(0,0,0,0.2)' : 'none';

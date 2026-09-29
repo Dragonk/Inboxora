@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { query, decrypt, getConnectionPolicy } = vi.hoisted(() => ({
   query: vi.fn(),
-  decrypt: vi.fn((value: unknown) => value),
+  decrypt: vi.fn((value: unknown) => { if (typeof value !== 'string') throw new TypeError('Encrypted credential must be a string'); return value; }),
   getConnectionPolicy: vi.fn(),
 }));
 
@@ -41,6 +41,20 @@ describe('CardDAV source credential isolation', () => {
     expect(decrypt).not.toHaveBeenCalledWith('secret-a');
   });
 
+  it.each([undefined, null, {}, 42])('refuses a malformed stored credential (%s) without calling decryption', async password => {
+    query.mockResolvedValue({ rows: [{ collection_url: 'https://dav.example.test/books/', config: { username: 'owner', password } }] });
+    await expect(resolveDavSource({ kind: 'carddav', userId: 'user-1', externalUrl: null, localCollectionId: 'book-1' })).resolves.toBeNull();
+    expect(query).toHaveBeenCalledOnce();
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing legacy integration without a decryption error', async () => {
+    query.mockResolvedValue({ rows: [] });
+    await expect(resolveDavSource({ kind: 'carddav', userId: 'user-1', externalUrl: 'https://dav.example.test/books/' })).resolves.toBeNull();
+    expect(query).toHaveBeenCalledOnce();
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+
   it('refuses an unlinked book instead of falling back to another source credentials', async () => {
     query.mockResolvedValue({ rows: [] });
 
@@ -49,8 +63,6 @@ describe('CardDAV source credential isolation', () => {
     })).resolves.toBeNull();
 
     expect(query).toHaveBeenCalledOnce();
-    // The resolver may normalize the absent encrypted field, but it must never query a fallback
-    // integration or decrypt credentials belonging to a different source.
-    expect(decrypt).not.toHaveBeenCalledWith('secret-a');
+    expect(decrypt).not.toHaveBeenCalled();
   });
 });

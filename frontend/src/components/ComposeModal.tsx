@@ -1088,7 +1088,7 @@ export default function ComposeModal() {
           return;
         }
         addNotification({ title: isMergeQueue ? t('queue.mergeQueued', { count: queued.count }) : t('queue.queued'), body: subject || t('common.noSubject'),
-          actionLabel: t('queue.title'), onAction: () => { if (isCurrentSession()) window.dispatchEvent(new Event('inboxora:open-scheduled')); } });
+          actionLabel: t('queue.title'), onAction: () => { if (isCurrentSession()) window.dispatchEvent(new CustomEvent('inboxora:open-scheduled', { detail: { id: queued.id } })); } });
         closeCompose();
         if (sentDraftIdentity) api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity ?? null).catch(() => {});
         return;

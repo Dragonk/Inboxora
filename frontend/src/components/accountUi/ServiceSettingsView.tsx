@@ -18,6 +18,7 @@ export interface ServiceSettingsViewProps {
   contacts: boolean; view: 'accounts' | 'resources'; connections: readonly ServiceConnection[]; resources: readonly ServiceResource[];
   selectedSourceId: string | null; onSelectSource: (id: string | null) => void;
   onAddConnection: () => void; onCreateResource: () => void; onOpenResources: (sourceId?: string) => void;
+  onDeleteResource?: (id: string) => void; deletionBlocked?: (id: string) => boolean;
   onEditResource: (id: string) => void; onVisibility: (id: string, visible: boolean) => void;
   renderDetail: (source: ServiceConnection) => ReactNode;
   filter: string; onFilter: (filter: string) => void; busy?: boolean; loading?: boolean;
@@ -50,7 +51,8 @@ export default function ServiceSettingsView(props: ServiceSettingsViewProps) {
       const source = props.connections.find(item => item.id === id);
       return <section key={id}><div className="au-resource-group-title"><ProviderMark kind={source?.kind ?? 'local'}/><strong>{source?.name ?? t('accountUi.storedInInboxora')}</strong>{source?.identity && <span className="au-muted">· {source.identity}</span>}</div><div className="au-resource-group">{matching.filter(resource => resource.sourceId === id).map(resource => <div key={resource.id} className="au-resource" data-resource-id={resource.id}>
         <label className="au-resource-label"><Check checked={resource.visible} disabled={props.busy} onChange={event => props.onVisibility(resource.id, event.target.checked)}/>{!contacts && <span className="au-color-dot" style={{ background: resource.color || 'var(--accent)' }}/>}<span className="au-grow"><strong>{resource.name}</strong>{typeof resource.count === 'number' && <small>{t(contacts ? 'accountUi.contactsNumber' : 'accountUi.eventsNumber', { count: resource.count })}</small>}{!resource.visible && <small>{t('accountUi.hidden')}</small>}</span></label>
-        <span className="au-badge">{resource.readOnly && <Icon name="lock" size={10}/>} {t(resource.readOnly ? 'accountUi.readOnly' : 'accountUi.readWrite')}</span><IconButton icon="settings" label={t('accountUi.settingsFor', { name: resource.name })} onClick={() => props.onEditResource(resource.id)}/>
+        <span className="au-badge">{resource.readOnly && <Icon name="lock" size={10}/>} {t(resource.readOnly ? 'accountUi.readOnly' : 'accountUi.readWrite')}</span><div className="au-resource-actions"><IconButton icon="settings" label={t('accountUi.settingsFor', { name: resource.name })} onClick={() => props.onEditResource(resource.id)}/>
+        {props.onDeleteResource && <IconButton icon="trash" className="au-danger" label={`${t('accountUi.deleteResource')}: ${resource.name}`} disabled={props.busy || props.deletionBlocked?.(resource.id)} onClick={() => props.onDeleteResource?.(resource.id)} />}</div>
       </div>)}</div></section>;
     })}
     {!matching.length && <div className="au-empty">{t('accountUi.noResources')}</div>}

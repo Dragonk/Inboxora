@@ -79,7 +79,7 @@
 .au-popover.au-palette{width:min(296px,calc(100vw - 24px))}.au-palette-context{font-size:11px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.5;overflow-wrap:anywhere}
 .au-swatches{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-bottom:13px}
 .au-swatch{width:32px;height:32px;border-radius:50%;border:3px solid var(--bg-elevated);box-shadow:0 0 0 1px transparent;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
-.au-swatch[aria-pressed=true]{box-shadow:0 0 0 1.5px var(--accent)}.au-color-inputs{display:flex;gap:8px;align-items:center}.au-color-inputs input[type=color]{width:38px;height:33px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);padding:3px;flex-shrink:0}.au-color-inputs input[type=text]{width:100%;min-width:0;border:1px solid var(--border);border-radius:6px;padding:8px;font:12px var(--font-mono);background:var(--bg-primary);color:var(--text-primary)}
+.au-swatch[aria-pressed=true]{box-shadow:0 0 0 1.5px var(--accent)}.au-color-inputs{display:grid;grid-template-columns:38px minmax(0,1fr);gap:8px;align-items:center;min-width:0}.au-color-inputs input[type=color]{width:38px;height:33px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);padding:3px;flex-shrink:0}.au-color-inputs input[type=text]{width:100%;min-width:0;border:1px solid var(--border);border-radius:6px;padding:8px;font:12px var(--font-mono);background:var(--bg-primary);color:var(--text-primary)}
 .au-color-preview{border:1px solid var(--border-subtle);border-radius:7px;padding:10px;background:var(--bg-primary);margin:12px 0}.au-preview-event{display:block;border-radius:5px;padding:7px 9px;font-size:11px;font-weight:500;line-height:1.4}
 .au-palette-links{display:grid;gap:4px;margin-top:8px}.au-palette-links button{border:0;background:none;padding:5px 0;text-align:left;font-size:12px;color:var(--accent);cursor:pointer}
 .au-menu{display:grid;gap:2px}.au-menu button{display:flex;align-items:center;gap:8px;border:0;border-radius:6px;background:none;text-align:left;padding:8px;color:var(--text-secondary);font-size:12px;cursor:pointer}.au-menu button:hover{background:var(--bg-hover)}
@@ -106,3 +106,24 @@
 .au-page-head>.ui-button{font-size:13px;padding:8px 14px;border-radius:7px}
 
 .au-form-fieldset{border:0;margin:0;padding:0;min-width:0;width:100%}
+
+/* Inline settings screens share the surrounding modal's scrolling and theme. */
+.au-inline-editor{width:100%;max-width:100%;overflow-wrap:anywhere}
+.au-inline-editor>h2{margin-bottom:20px}
+.au-inline-editor>h2:focus{outline:2px solid var(--accent);outline-offset:1px}
+.au-inline-editor .ui-form{display:grid;gap:14px;min-width:0}
+.au-inline-editor .ui-form>label{display:grid;gap:6px;min-width:0;font-size:12px;color:var(--text-secondary)}
+.au-inline-editor :is(input:not([type=checkbox]):not([type=color]),select,textarea){box-sizing:border-box;max-width:100%;min-width:0;width:100%;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font:inherit}
+.au-inline-editor :is(input,select,textarea):focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.au-icon-button.au-danger{color:var(--red)}
+.au-icon-button.au-danger:hover:not(:disabled){color:var(--red);border-color:var(--red);background:color-mix(in srgb,var(--red) 12%,var(--bg-primary))}
+.au-resource-actions{display:flex;align-items:center;gap:4px;margin-left:auto;flex-shrink:0}
+.au-resource .au-grow{overflow-wrap:anywhere}
+
+.au-workspace [hidden]{display:none!important}
+
+.au-heading,.au-rule-card .au-actions{flex-wrap:wrap}
+.au-rule-card .au-switch{flex-shrink:0}
+@media(max-width:600px){.au-rule-card>div{flex-wrap:wrap}.au-rule-card .au-actions{margin-left:auto}}
+
+.au-inline-editor .ui-form .au-color-inputs input[type=color]{box-sizing:border-box;width:38px;max-width:38px;padding:3px}

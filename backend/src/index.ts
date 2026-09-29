@@ -43,6 +43,8 @@ import senderFaviconsRoutes from './routes/senderFavicons.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import carddavRouter from './routes/carddav.js';
 import caldavRouter from './routes/caldav.js';
+import davAccountsRouter from './routes/davAccounts.js';
+import { migrateAllDavAccounts } from './services/davAccountMigration.js';
 import carddavAccountRouter from './routes/carddavAccount.js';
 import davCredentialsRouter from './routes/davCredentials.js';
 import pushRoutes from './routes/push.js';
@@ -278,6 +280,7 @@ app.use('/api/block-list', blockListRoutes);
 app.use('/api/contacts', contactsRoutes);
 app.use('/api/todoist', todoistRoutes);
 app.use('/api/carddav', carddavAccountRouter);
+app.use('/api/dav-accounts', davAccountsRouter);
 app.use('/api/dav-credentials', davCredentialsRouter);
 // Native (Android) push device registry + the device-token-authenticated
 // background notification API. Absent configuration the routes still answer;
@@ -370,6 +373,8 @@ await reloadAuthSettings();
 
 // Encrypt any plaintext credentials left in the DB from before this feature was added
 await encryptExistingCredentials();
+await migrateAllDavAccounts();
+await query("UPDATE email_accounts SET reindex_error='REINDEX_INTERRUPTED' WHERE COALESCE(mail_transport,'imap')='imap' AND reindex_requested_at > COALESCE(reindex_completed_at,'-infinity'::timestamptz) AND reindex_error IS NULL");
 
 // Load OAuth integration configs from DB into process.env
 await loadIntegrationConfigs();

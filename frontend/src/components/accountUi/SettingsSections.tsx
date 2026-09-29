@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import CalendarSenderSettings from './CalendarSenderSettings.tsx';
 import CalendarSettingsManager from '../CalendarSettingsManager.tsx';
 import ContactsPage from '../ContactsPage.tsx';
 import { useStore } from '../../store/index.ts';
@@ -24,20 +25,20 @@ export function SectionTabs({ tabs, active, onChange, label, panelId }: {
   </div>;
 }
 type ServiceSection = 'accounts' | 'resources' | 'import';
-function sectionOf(value: string): ServiceSection { return value === 'resources' || value === 'import' ? value : 'accounts'; }
+function sectionOf(value: string): ServiceSection { return value === 'import' ? 'import' : 'resources'; }
 export function CalendarAccountsSettings() {
   const { t, i18n } = useTranslation(); const epoch = useStore(state => state.authEpoch);
-  const [section, setSection] = useState<ServiceSection>('accounts'); const id = useId();
-  useSettingsTarget('calendar', target => { if (target.module === 'calendar') setSection(target.section); });
+  const [section, setSection] = useState<ServiceSection>('resources'); const id = useId();
+  useSettingsTarget('calendar', target => { if (target.module === 'calendar') setSection(sectionOf(target.section)); });
   return <div className="au-workspace"><SectionTabs label={t('accountUi.calendarAccounts')} panelId={id} active={section} onChange={value => setSection(sectionOf(value))} tabs={[
-    { id: 'accounts', label: t('accountUi.accounts') }, { id: 'resources', label: t('accountUi.calendars') }, { id: 'import', label: t('accountUi.importSubscriptions') },
-  ]}/><section id={id} role="tabpanel" aria-labelledby={`${id}-tab-${section}`}><CalendarSettingsManager key={epoch} locale={i18n.resolvedLanguage || i18n.language} view={section}/></section></div>;
+    { id: 'resources', label: t('accountUi.calendars') }, { id: 'import', label: t('accountUi.importSubscriptions') },
+  ]}/><section id={id} role="tabpanel" aria-labelledby={`${id}-tab-${section}`}>{section === 'resources' && <CalendarSenderSettings />}<CalendarSettingsManager key={epoch} locale={i18n.resolvedLanguage || i18n.language} view={section}/></section></div>;
 }
 export function ContactAccountsSettings() {
   const { t } = useTranslation(); const epoch = useStore(state => state.authEpoch);
-  const [section, setSection] = useState<ServiceSection>('accounts'); const id = useId();
-  useSettingsTarget('contacts', target => { if (target.module === 'contacts') setSection(target.section); });
+  const [section, setSection] = useState<ServiceSection>('resources'); const id = useId();
+  useSettingsTarget('contacts', target => { if (target.module === 'contacts') setSection(sectionOf(target.section)); });
   return <div className="au-workspace"><SectionTabs label={t('accountUi.contactAccounts')} panelId={id} active={section} onChange={value => setSection(sectionOf(value))} tabs={[
-    { id: 'accounts', label: t('accountUi.accounts') }, { id: 'resources', label: t('accountUi.books') }, { id: 'import', label: t('accountUi.importExport') },
+    { id: 'resources', label: t('accountUi.books') }, { id: 'import', label: t('accountUi.importExport') },
   ]}/><section id={id} role="tabpanel" aria-labelledby={`${id}-tab-${section}`}><ContactsPage key={epoch} settingsOnly settingsSection={section}/></section></div>;
 }

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from Inboxora locale catalogs. Do not edit. -->
+<resources>
+    <string name="native_connect_title" formatted="false">Подключить Inboxora</string>
+    <string name="native_host_description" formatted="false">Введите адрес своего сервера Inboxora.</string>
+    <string name="native_host_label" formatted="false">Сервер Inboxora</string>
+    <string name="native_continue" formatted="false">Продолжить</string>
+    <string name="native_host_unavailable" formatted="false">Сервер недоступен</string>
+    <string name="native_host_unavailable_description" formatted="false">Inboxora не удалось подключиться к указанному серверу. Проверьте адрес или выберите другой сервер.</string>
+    <string name="native_change_host" formatted="false">Сменить сервер</string>
+    <string name="native_host_save_failed" formatted="false">Не удалось сохранить адрес сервера. Повторите попытку.</string>
+    <string name="native_invalid_host" formatted="false">Введите корректный адрес сервера, начинающийся с https:// или http://.</string>
+    <string name="native_host_https_required" formatted="false">Публичные серверы должны использовать HTTPS. HTTP разрешён только для localhost и частных IP-адресов.</string>
+    <string name="native_timeout" formatted="false">Приложение не ответило. Повторите попытку.</string>
+    <string name="native_http_title" formatted="false">Незашифрованное соединение</string>
+    <string name="native_http_message" formatted="false">Обмен данными с этим сервером Inboxora не зашифрован.</string>
+    <string name="native_http_detail" formatted="false">Любой, кто может наблюдать за этой сетью, может прочитать или изменить cookie сеанса и данные почты. Продолжайте только в доверенной частной сети.</string>
+    <string name="native_http_allow" formatted="false">Использовать незашифрованное соединение</string>
+    <string name="native_http_cancelled" formatted="false">Адрес незашифрованного сервера не сохранён.</string>
+    <string name="native_new_mail" formatted="false">Новое письмо</string>
+    <string name="native_new_mail_body" formatted="false">У вас новое письмо.</string>
+    <string name="native_new_mail_count" formatted="false">Новых писем: {{count}}</string>
+    <string name="native_channel_description" formatted="false">Уведомления о новых письмах в Inboxora.</string>
+    <string name="native_file" formatted="false">Файл</string>
+    <string name="native_edit_menu" formatted="false">Правка</string>
+    <string name="native_view_menu" formatted="false">Вид</string>
+    <string name="native_window_menu" formatted="false">Окно</string>
+    <string name="native_help" formatted="false">Справка</string>
+    <string name="native_redo" formatted="false">Повторить</string>
+    <string name="native_cut" formatted="false">Вырезать</string>
+    <string name="native_paste" formatted="false">Вставить</string>
+    <string name="native_paste_match" formatted="false">Вставить с текущим стилем</string>
+    <string name="native_full_screen" formatted="false">Переключить полноэкранный режим</string>
+    <string name="native_minimize" formatted="false">Свернуть</string>
+    <string name="native_zoom" formatted="false">Увеличить</string>
+    <string name="native_bring_to_front" formatted="false">Все окна на передний план</string>
+    <string name="native_learn_more" formatted="false">Подробнее</string>
+    <string name="native_report_issue" formatted="false">Сообщить о проблеме</string>
+    <string name="native_check_updates" formatted="false">Проверить обновления</string>
+    <string name="native_about" formatted="false">О программе {{name}}</string>
+    <string name="native_hide_app" formatted="false">Скрыть Inboxora</string>
+    <string name="native_show_app" formatted="false">Показать Inboxora</string>
+    <string name="native_hide_others" formatted="false">Скрыть остальные</string>
+    <string name="native_show_all" formatted="false">Показать все</string>
+    <string name="native_quit" formatted="false">Выйти</string>
+    <string name="native_open_link" formatted="false">Открыть ссылку</string>
+    <string name="native_copy_link" formatted="false">Копировать ссылку</string>
+    <string name="native_copy_image_address" formatted="false">Копировать адрес изображения</string>
+    <string name="native_compose" formatted="false">Написать</string>
+    <string name="native_calendar" formatted="false">Календарь</string>
+    <string name="native_contacts" formatted="false">Контакты</string>
+    <string name="native_sync" formatted="false">Синхронизировать</string>
+    <string name="native_reply" formatted="false">Ответить</string>
+    <string name="native_delete" formatted="false">Удалить</string>
+    <string name="native_star" formatted="false">Пометить звездой</string>
+    <string name="native_cancel" formatted="false">Отмена</string>
+    <string name="native_copy" formatted="false">Копировать</string>
+    <string name="native_undo" formatted="false">Отменить</string>
+    <string name="native_select_all" formatted="false">Выбрать все</string>
+    <string name="native_reload" formatted="false">Обновить</string>
+    <string name="native_close" formatted="false">Закрыть</string>
+    <string name="native_no_subject" formatted="false">(без темы)</string>
+    <string name="native_preferences" formatted="false">Настройки учётной записи</string>
+    <string name="native_services" formatted="false">Службы</string>
+</resources>

@@ -47,6 +47,7 @@ interface Props {
   /** Navigator into Settings → Integrations, for the administrator. */
   goToIntegrations: () => void;
   onChooseImap: () => void;
+  onChooseDav?: () => void;
   onClose: () => void;
   isAdmin: boolean;
   t: (key: string, vars?: Record<string, unknown>) => string;
@@ -57,7 +58,7 @@ export const MICROSOFT_MAIL_AUTHORIZE_PATH = '/oauth/provider/microsoft?purpose=
 /** The Google authorization a native mailbox needs: the Gmail scope, through the browser flow. */
 export const GOOGLE_MAIL_AUTHORIZE_PATH = '/oauth/google?purpose=new_account';
 
-export default function AddAccountFlow({ status, reloadAccounts, goToIntegrations, onChooseImap, onClose, isAdmin, t }: Props) {
+export default function AddAccountFlow({ status, reloadAccounts, goToIntegrations, onChooseImap, onChooseDav, onClose, isAdmin, t }: Props) {
   const [kind, setKind] = useState<Kind | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,13 +209,14 @@ export default function AddAccountFlow({ status, reloadAccounts, goToIntegration
           {([
             { key: 'microsoft' as const, label: t('admin.accounts.addAccountFlow.microsoft'), description: t('admin.accounts.addAccountFlow.microsoftDescription'), action: t('admin.accounts.addAccountFlow.connectMicrosoft') },
             { key: 'google' as const, label: t('admin.accounts.addAccountFlow.google'), description: t('admin.accounts.addAccountFlow.googleDescription'), action: t('admin.accounts.addAccountFlow.connectGoogle') },
+            ...(onChooseDav ? [{key:'dav' as const,label:t('contacts.booksManager.dav'),description:t('davAccount.description'),action:t('accountUi.connect')}] : []),
             { key: 'imap' as const, label: t('admin.accounts.addAccountFlow.imap'), description: t('admin.accounts.addAccountFlow.imapDescription'), action: t('admin.accounts.addAccountFlow.configureImap') },
           ]).map(choice => (
             <button
               key={choice.key}
               type="button"
               data-testid={`add-account-choice-${choice.key}`}
-              onClick={() => { setError(null); setNotice(null); if (choice.key === 'imap') onChooseImap(); else setKind(choice.key); }}
+              onClick={() => { setError(null); setNotice(null); if (choice.key === 'imap') onChooseImap(); else if (choice.key === 'dav') onChooseDav?.(); else setKind(choice.key); }}
               style={{ textAlign: 'start', padding: '10px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', cursor: 'pointer', minWidth: 0 }}
             >
               <div style={{ fontSize: 13, fontWeight: 600 }}>{choice.label}</div>

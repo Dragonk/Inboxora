@@ -21,7 +21,8 @@ test('Calendar has separate preferences and global navigation applies in every m
   await page.goto('/');
   await openSettings(page);
   const panel = page.locator('.admin-panel');
-  await panel.getByTestId('admin-tab-calendar-appearance').click();
+  await panel.getByTestId('admin-tab-appearance').click();
+  await panel.locator('.admin-subtab').filter({ hasText: /^Kalendarz$/ }).click();
   await expect(page.getByTestId('calendar-settings')).toBeVisible();
   await expect(page.getByTestId('mobile-navigation-position-setting')).toHaveCount(0);
   await page.getByTestId('calendar-week-start-setting').getByRole('button', { name: 'Niedziela' }).click();

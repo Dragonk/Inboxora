@@ -70,24 +70,28 @@
         opacity: 0.7;
       }
     </style>
+    <link rel="stylesheet" href="appearance.css" />
   </head>
-  <body>
+  <body data-native-title="hostUnavailable">
     <main>
       <img src="../electron/icons/512x512.png" alt="Inboxora" />
-      <h1>Host is not available</h1>
-      <p>Inboxora could not reach the configured server. Check the host address or choose a different Inboxora server.</p>
-      <button id="change-host-button" type="button">Change host</button>
+      <h1 data-native-i18n="hostUnavailable">Server unavailable</h1>
+      <p data-native-i18n="hostUnavailableDescription">Inboxora could not reach the configured server. Check the host address or choose a different Inboxora server.</p>
+      <button id="change-host-button" type="button" data-native-i18n="changeHost">Change server</button>
     </main>
 
+    <script src="locales.js"></script>
+    <script src="setup-i18n.js"></script>
     <script>
       const button = document.querySelector('#change-host-button');
 
       function installCapacitorNativeBridge() {
         const plugin = window.Capacitor?.Plugins?.InboxoraNative;
-        if (!plugin || window.inboxoraNative) return;
+        if (window.inboxoraNative?.resetHost) return;
+        if (!plugin && typeof window.Capacitor?.nativePromise !== 'function') return;
 
         window.inboxoraNative = {
-          resetHost: async () => plugin.resetHost(),
+          resetHost: async () => plugin?.resetHost ? plugin.resetHost() : window.Capacitor.nativePromise('InboxoraNative', 'resetHost', {}),
         };
       }
 

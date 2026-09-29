@@ -16,8 +16,9 @@ async function openSettings(page: Page) {
   else await page.getByText(/^Ustawienia$|^Settings$/).first().click();
 }
 async function openAliases(page: Page) {
-  await page.locator('summary').filter({ has: page.locator('svg') }).first().click();
-  await page.getByTitle(/^Aliasy$|^Aliases$/).click();
+  const panel = page.locator('.admin-panel');
+  await panel.getByRole('button', { name: /^Edytuj$|^Edit$/ }).click();
+  await panel.getByRole('tab', { name: /^Aliasy$|^Aliases$/ }).click();
   await expect(page.getByTestId('sender-addresses')).toBeVisible();
 }
 async function newMessage(page: Page) {

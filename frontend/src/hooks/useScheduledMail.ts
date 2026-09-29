@@ -21,6 +21,8 @@ export function useScheduledMail() {
   const [globalItems, setGlobalItems] = useState<ScheduledSummary[]>([]);
   const [items, setItems] = useState<ScheduledSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const requestedId = useRef<string | null>(null);
+  const [confirmation, setConfirmation] = useState<{ row: ScheduledSummary; kind: 'cancel' | 'dismiss' } | null>(null);
   const [picker, setPicker] = useState<ScheduledSummary | null>(null);
   const [error, setErrorKey] = useState('');
   const [loadError, setLoadError] = useState(false);
@@ -36,10 +38,14 @@ export function useScheduledMail() {
   const operation = useRef(0);
   // Successful cancellation is terminal, even if an older list response arrives later.
   const cancelled = useRef(new Set<string>());
-  const open = useCallback(() => {
+  const open = useCallback((event?: Event) => {
     const state = useStore.getState();
     if (!state.user || state.isLocked) return;
+    const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+    requestedId.current = detail && typeof detail === 'object' && 'id' in detail && typeof detail.id === 'string' ? detail.id : null;
+    if (requestedId.current) setSelectedId(requestedId.current);
     state.setShowAdmin(false); state.setShowScheduled(true);
+    visit.current?.invalidate(); visit.current?.refresh();
   }, []);
   const refresh = useCallback(() => { refreshGlobal.current(); visit.current?.refresh(); }, []);
   const invalidate = useCallback(() => { invalidateGlobal.current(); visit.current?.invalidate(); }, []);
@@ -75,8 +81,8 @@ export function useScheduledMail() {
   }, [authEpoch, userId, locked, open, refresh, invalidate]);
 
   useLayoutEffect(() => {
-    setItems([]); setSelectedId(null); setPicker(null); setLoadError(false); setSeenError(false); setHasMore(false);
-    if (!active) { visit.current = null; setLoading(false); return; }
+    setItems([]); setSelectedId(requestedId.current); setConfirmation(null); setPicker(null); setLoadError(false); setSeenError(false); setHasMore(false);
+    if (!active) { requestedId.current = null; visit.current = null; setLoading(false); return; }
     const controller = new AbortController();
     const current = () => !controller.signal.aborted && visit.current === currentVisit
       && useStore.getState().authEpoch === authEpoch && useStore.getState().user?.id === userId
@@ -92,6 +98,17 @@ export function useScheduledMail() {
           const result = await scheduledApi.page(controller.signal, cursor);
           fresh.push(...result.items); cursor = result.nextCursor ?? undefined;
           if (!cursor || !current()) break;
+        }
+        const target = requestedId.current;
+        if (target && !cancelled.current.has(target) && !fresh.some(row => row.id === target)) {
+          try {
+            const row = await scheduledApi.summary(target, controller.signal);
+            if (current() && requestedId.current === target && !cancelled.current.has(target)) fresh.push(row);
+          } catch (error) {
+            if (current() && requestedId.current === target) {
+              requestedId.current = null; setSelectedId(null); setErrorKey(scheduledActionErrorKey(error));
+            }
+          }
         }
         return { fresh, hasMore: Boolean(cursor) };
       },
@@ -124,7 +141,7 @@ export function useScheduledMail() {
     if (!currentVisit?.current() || loading || !hasMore) return;
     currentVisit.pages++; setLoading(true); currentVisit.invalidate(); currentVisit.refresh();
   };
-  const act = async (row: ScheduledSummary, kind: 'edit' | 'cancel' | 'reschedule' | 'dismiss', selection?: ScheduleSelection) => {
+  const act = async (row: ScheduledSummary, kind: 'edit' | 'cancel' | 'reschedule' | 'dismiss', selection?: ScheduleSelection, confirmed = false) => {
     const state = useStore.getState();
     if (busyRef.current || !state.user || state.isLocked || state.authEpoch !== authEpoch) return;
     if (kind === 'dismiss' && row.state !== 'uncertain') return;
@@ -134,7 +151,7 @@ export function useScheduledMail() {
     if (kind === 'edit' && state.composing && !(row.mode === 'undo' && row.state === 'pending')) {
       setErrorKey('queue.composeOpen'); return;
     }
-    if ((kind === 'cancel' || kind === 'dismiss') && !window.confirm(t(kind === 'cancel' ? 'queue.cancelConfirm' : 'queue.dismissConfirm'))) return;
+    if ((kind === 'cancel' || kind === 'dismiss') && !confirmed) { setErrorKey(''); setConfirmation({ row, kind }); return; }
     const serial = ++operation.current;
     const current = () => operation.current === serial && useStore.getState().authEpoch === authEpoch
       && useStore.getState().user?.id === userId && !useStore.getState().isLocked;
@@ -169,7 +186,7 @@ export function useScheduledMail() {
       }
       else if (kind === 'dismiss') await scheduledApi.dismiss(row.id, row.revision);
       else if (selection) await scheduledApi.reschedule(row.id, { revision: row.revision, ...selection });
-      if (current()) setPicker(null);
+      if (current()) { setPicker(null); setConfirmation(null); }
     } catch (caught) {
       if (current()) setErrorKey(scheduledActionErrorKey(caught));
     } finally {
@@ -177,6 +194,7 @@ export function useScheduledMail() {
     }
   };
   return { active, shown, authEpoch, items, globalItems, selectedId, select: setSelectedId, picker, setPicker: (row: ScheduledSummary | null) => { setErrorKey(''); setPicker(row); },
+    confirmation, closeConfirmation: () => { if (!busyRef.current) setConfirmation(null); }, confirm: () => confirmation && act(confirmation.row, confirmation.kind, undefined, true),
     error, loadError, seenError, loading, hasMore, busy, previewRefresh, refreshView, refresh, more, acknowledge, act, open };
 }
 export type ScheduledMailController = ReturnType<typeof useScheduledMail>;

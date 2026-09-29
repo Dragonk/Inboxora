@@ -1,3 +1,4 @@
+import { calendarPreferencePatch } from '../services/calendarPreferencePatch.js';
 import { validUndoSendSeconds } from '../utils/undoSend.js';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
@@ -794,6 +795,13 @@ router.get('/preferences', async (req, res) => {
 
 export async function patchPreferences(req: Request, res: Response) {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
+  let calendarPatch: Record<string, string | boolean>;
+  try { calendarPatch = await calendarPreferencePatch(req.session.userId, req.body); }
+  catch (caught) {
+    const error = toAppError(caught);
+    if (error.status === 400) return res.status(400).json({ error: error.message });
+    throw caught;
+  }
   const undoSendSeconds = req.body.undoSendSeconds;
   if (undoSendSeconds !== undefined && !validUndoSendSeconds(undoSendSeconds)) {
     return res.status(400).json({ error: 'undoSendSeconds must be an integer from 0 to 60' });
@@ -975,6 +983,7 @@ export async function patchPreferences(req: Request, res: Response) {
       || CASE WHEN $51::text IS NOT NULL THEN jsonb_build_object('themeDark', $51::text) ELSE '{}'::jsonb END
       || CASE WHEN $52::boolean IS NOT NULL THEN jsonb_build_object('mobileSidebarSwipeEnabled', $52::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $53::int IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $53::int) ELSE '{}'::jsonb END
+      || $54::jsonb
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -990,7 +999,7 @@ export async function patchPreferences(req: Request, res: Response) {
       calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
       persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null,
       themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark,
-      mobileSidebarSwipeEnabled ?? null, undoSendSeconds ?? null]);
+      mobileSidebarSwipeEnabled ?? null, undoSendSeconds ?? null, JSON.stringify(calendarPatch)]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

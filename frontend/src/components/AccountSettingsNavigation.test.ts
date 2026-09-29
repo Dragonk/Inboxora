@@ -9,12 +9,14 @@ test('account editor exposes shared settings navigation and provider service sec
   const editor = await read('accountUi/MailAccountEditor.tsx');
   assert.match(source, /role="tablist"/);
   assert.match(source, /aria-selected=\{active === tab\.id\}/);
-  for (const id of ['accounts', 'resources', 'import']) assert.match(source, new RegExp(`id: '${id}'`));
+  for (const id of ['resources', 'import']) assert.match(source, new RegExp(`id: '${id}'`));
+  assert.doesNotMatch(source, /id: 'accounts'/);
+  for (const section of ['folders','aliases','diagnostics']) assert.match(editor,new RegExp(`id: '${section}'`));
   assert.match(editor, /section === 'services'/);
   assert.match(editor, /section === 'servers'/);
 });
 
-test('calendar and contact settings share account/resource/import section grammar', async () => {
+test('calendar and contact settings share resource/import sections without duplicate account editors', async () => {
   const source = await read('accountUi/SettingsSections.tsx');
   assert.match(source, /export function CalendarAccountsSettings/);
   assert.match(source, /export function ContactAccountsSettings/);

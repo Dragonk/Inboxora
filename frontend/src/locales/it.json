@@ -141,9 +141,7 @@
       "reindex": "Reindicizza per la ricerca",
       "reindexing": "Indicizzazione messaggi...",
       "reindexProgress": "{{synced}} / {{total}} messaggi indicizzati",
-      "reindexError": "Impossibile avviare la reindicizzazione",
       "syncFolders": "Sincronizza cartelle",
-      "syncFoldersError": "Sincronizzazione delle cartelle non riuscita",
       "senderNamePh": "es. Alice Smith",
       "senderName": "Nome del mittente",
       "unifiedInboxSection": "Posta in arrivo unificata",
@@ -978,7 +976,7 @@
       "ai": "Assistente IA",
       "aiActions": "Azioni IA",
       "categories": "Categorie",
-      "groupAccountMail": "Account e posta",
+      "groupAccountMail": "Generali",
       "groupDisplay": "Schermo",
       "groupSecurityIntegrations": "Sicurezza e integrazioni",
       "groupAdmin": "Amministrazione",
@@ -2057,12 +2055,14 @@
     "maturity": "Modello {{level}} · {{count}} messaggi",
     "maturityDetail": "{{spam}} spam / {{ham}} ham campioni utilizzabili ({{events}} eventi di feedback)",
     "enable": "Attiva antispam",
-    "disable": "Disattiva antispam",
     "retrainNow": "Riallena ora",
     "enableAccount": "Classifica automaticamente su questo account",
     "enableAccountDesc": "Disattivato per impostazione predefinita. Le marcature manuali addestrano sempre.",
     "trustedAuthservId": "Authserv-id attendibile",
-    "trustedAuthservIdDesc": "Contano solo gli Authentication-Results di questo sistema. Vuoto = ignora tutto."
+    "trustedAuthservIdDesc": "Contano solo gli Authentication-Results di questo sistema. Vuoto = ignora tutto.",
+    "maturityMature": "Addestrato",
+    "maturityFresh": "In apprendimento",
+    "maturityInsufficient": "Campioni insufficienti"
   },
   "todoist": {
     "title": "Crea attività Todoist",
@@ -2100,7 +2100,6 @@
     "noCalendarsDiscovered": "Nessun calendario trovato finora.",
     "searchSources": "Cerca fonti o calendari",
     "serviceDisabled": "Il servizio calendario è disattivato.",
-    "providerManagedHint": "La creazione, la ridenominazione e l'eliminazione dei calendari sono gestite dal fornitore. Configura i servizi dell'account in Impostazioni → Account.",
     "nativeCalendarReconsent": "{{provider}} richiede l’autorizzazione per gestire i calendari. Ricollega l’account per continuare.",
     "nativeCalendarName": "Nome del calendario",
     "nativeCalendarCreate": "Crea calendario",
@@ -2163,7 +2162,6 @@
     "save": "Salva",
     "panel": "Pannello calendario",
     "calendars": "Calendari",
-    "manageSources": "Gestisci fonti",
     "firstDayOfWeek": "Primo giorno della settimana",
     "monday": "Lunedì",
     "sunday": "Domenica",
@@ -2241,7 +2239,7 @@
     "workHoursEndDescription": "Ultima ora dell'evidenziazione della giornata lavorativa.",
     "defaultInviteAccount": "Mittente predefinito degli inviti",
     "defaultInviteAccountNone": "Nessun predefinito — scegli per evento",
-    "defaultInviteAccountDescription": "L'account SMTP preselezionato quando inviti partecipanti a un evento.",
+    "defaultInviteAccountDescription": "L’account o l’alias preselezionato quando inviti partecipanti a un evento.",
     "openSourceMessage": "Apri il messaggio originale",
     "subscribeTitle": "Abbonamenti ai calendari",
     "subscribeDescription": "Abbonati a un calendario ICS o webcal pubblicato. Gli abbonamenti sono di sola lettura e si aggiornano con una pianificazione.",
@@ -2282,7 +2280,8 @@
     "providerSyncPartial": "Calendario {{provider}}: {{calendars}} calendari, {{created}} aggiunti, {{updated}} aggiornati, {{deleted}} rimossi; {{failed}} errori.",
     "importIcs": "Importa file .ics",
     "importDone": "{{count}} evento/i importato/i.",
-    "importProtected": "{{count}} evento/i sono rimasti invariati perché Inboxora ha inviato i relativi inviti."
+    "importProtected": "{{count}} evento/i sono rimasti invariati perché Inboxora ha inviato i relativi inviti.",
+    "showAgendaDescription": "Mostra l’agenda del giorno selezionato a destra del calendario sul computer."
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",
@@ -2385,7 +2384,6 @@
     }
   },
   "accountUi": {
-    "accounts": "Account",
     "accountSettings": "Impostazioni account",
     "calendarAccounts": "Account calendario",
     "contactAccounts": "Account contatti",
@@ -2521,7 +2519,6 @@
     "operationPending": "L’operazione remota non è ancora confermata. Non ripeterla con un nuovo identificativo di richiesta.",
     "targetUnavailable": "Questo account o questa risorsa non è più disponibile. Torna all’elenco e aggiornalo.",
     "deleteLocalWarning": "Questa operazione elimina la risorsa e il suo contenuto da Inboxora. Non può essere annullata.",
-    "providerDeletionUnavailable": "Non è possibile eliminare questa raccolta presso il fornitore. Le raccolte predefinite, di sistema e di sola lettura non possono essere eliminate qui.",
     "deleteRemoteWarning": "Questa operazione elimina la risorsa e il suo contenuto presso il fornitore. Non equivale a nasconderla o scollegarla.",
     "removeAccountHint": "Tutti i messaggi sincronizzati di questo account verranno rimossi da Inboxora. La casella presso il fornitore non viene eliminata.",
     "intervalMinutes_zero": "Minuti: {{count}}",
@@ -2634,5 +2631,34 @@
     "pendingBody": "Il provider di posta non ha ancora confermato questa modifica. Lo stato attuale della casella sarà verificato nuovamente.",
     "failedTitle": "Modifica non riuscita",
     "failedBody": "Il provider di posta non ha potuto applicare questa modifica. È stato ripristinato lo stato precedente."
+  },
+  "settingsIndex": {
+    "status": "Stato dell’indice",
+    "running": "Indicizzazione in corso",
+    "pending": "In attesa dell’indicizzazione",
+    "messages": "Messaggi indicizzati",
+    "folders": "Cartelle rilevate",
+    "folderSync": "Ultima sincronizzazione delle cartelle riuscita"
+  },
+  "davAccount": {
+    "title": "Account DAV",
+    "addTitle": "Aggiungi un account DAV",
+    "description": "Collega calendari e rubriche da un server DAV.",
+    "discover": "Rileva servizi",
+    "discoverFirst": "Inserisci prima i dati di connessione e rileva i servizi.",
+    "pauseHint": "Disattivando un servizio ne sospendi la sincronizzazione. Calendari, contatti e impostazioni locali vengono conservati.",
+    "removeTitle": "Disconnetti account DAV",
+    "removeDescription": "Disconnettere «{{name}}» e rimuovere i calendari e le rubriche locali da Inboxora? Nulla verrà eliminato sul server DAV.",
+    "invalidUrl": "Inserisci un URL valido del server DAV.",
+    "httpsRequired": "Usa HTTPS. HTTP è consentito solo per gli host privati autorizzati dall’amministratore.",
+    "hostBlocked": "Questo server è bloccato dai criteri di connessione.",
+    "authFailed": "Il server DAV ha rifiutato le credenziali. Controlla nome utente, password e autorizzazioni.",
+    "discoveryFailed": "Impossibile verificare i servizi DAV. Controlla il server e riprova. Nessuna impostazione è stata modificata.",
+    "unsupported": "Nessun servizio di calendario o contatti trovato a questo indirizzo.",
+    "serviceUnavailable": "Il servizio selezionato non è disponibile per questo account. Rileva nuovamente i servizi.",
+    "alreadyConnected": "Questa risorsa è già collegata tramite un altro account. Gestisci quell’account.",
+    "changed": "Questo account è stato modificato altrove. Torna indietro e riaprilo prima di salvare.",
+    "operationPending": "Un’operazione su una risorsa DAV è ancora in sospeso. Verificane l’esito prima di cambiare le credenziali o disconnettere l’account.",
+    "invalidSettings": "Controlla le impostazioni di connessione e l’intervallo di sincronizzazione."
   }
 }

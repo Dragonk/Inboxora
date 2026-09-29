@@ -3108,9 +3108,13 @@ export class ImapManager {
           console.log(`Folder sync for ${logAccount(account)}: dropped ${paths.length} folder(s) no longer on the server (${paths.join(', ')}) and ${dropped.rowCount} cached message(s)`);
         }
       }
+      await query('UPDATE email_accounts SET last_folder_sync = NOW() WHERE id = $1 AND user_id = $2', [account.id, account.user_id]);
     } catch (caught) {
       const err = toAppError(caught);
       console.error(`Folder sync error for ${logAccount(account)}:`, err.message);
+      // Callers publish completion only after folder metadata and its timestamp
+      // are durable; their existing error boundaries keep background sync alive.
+      throw caught;
     }
   }
 
@@ -3666,10 +3670,10 @@ export class ImapManager {
   //      quickly even on a fresh account with tens of thousands of messages.
   //   4. For non-Gmail providers also store body_html/body_text during backfill so
   //      clicking an old email never needs a live IMAP round-trip.
-  async backfillMessages(account: EmailAccountRow, folder = 'INBOX') {
+  async backfillMessages(account: EmailAccountRow, folder = 'INBOX'): Promise<'complete' | 'failed' | 'already_running'> {
     const manager = this;
     const backfillKey = `${account.id}:${folder}`;
-    if (this.backfillRunning.has(backfillKey)) return;
+    if (this.backfillRunning.has(backfillKey)) return 'already_running';
     this.backfillRunning.add(backfillKey);
 
     // Spread into a local copy so per-run mutations (e.g. batchSize reduction on rate-limit)
@@ -3720,7 +3724,7 @@ export class ImapManager {
         );
         if (Number(countRow.rows[0].n) >= Number(meta.total_count)) {
           logger.debug(`Backfill skipped for ${logAccount(account)}/${folder} — DB pre-check: ${countRow.rows[0].n} msgs ≥ cached total ${meta.total_count}`);
-          return;
+          return 'complete';
         }
       }
 
@@ -3742,8 +3746,8 @@ export class ImapManager {
             await query(
               'UPDATE folders SET total_count = 0, unread_count = 0 WHERE account_id = $1 AND path = $2',
               [account.id, folder]
-            ).catch(() => {});
-            return;
+            );
+            return 'complete';
           }
           serverUids = await searchUids(bf, { all: true });
 
@@ -3797,7 +3801,7 @@ export class ImapManager {
       // maxDbUid == maxServerUid even when thousands of older messages are missing.
       if (maxServerUid > 0 && maxDbUid >= maxServerUid && dbCount >= serverTotal) {
         console.log(`Backfill already complete for ${logAccount(account)}: maxDbUid=${maxDbUid}, maxServerUid=${maxServerUid}, dbCount=${dbCount}`);
-        return;
+        return 'complete';
       }
 
       // Step 2 — load UIDs we already have so we can diff precisely.
@@ -3827,8 +3831,8 @@ export class ImapManager {
                unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
            WHERE account_id = $1 AND path = $2`,
           [account.id, folder]
-        ).catch(() => {});
-        return;
+        );
+        return 'complete';
       }
 
       console.log(`Backfill ${logAccount(account)}: ${missingUids.length} missing of ${serverTotal} (${dbCount} already in DB)`);
@@ -3846,13 +3850,14 @@ export class ImapManager {
       // refreshed once at completion when the account is gtd_enabled — the tick's fingerprint
       // can't see rows backfill already wrote (before==after). See emitSectionsChanged.
       let backfilledRows = 0;
+      let hadMessageErrors = false;
 
       while (i < missingUids.length) {
         // Stop immediately if the account was deleted while backfilling
         const accountCheck = await query('SELECT id FROM email_accounts WHERE id = $1', [account.id]);
         if (!accountCheck.rows.length) {
           console.log(`Backfill stopping — account ${logAccount(account)} was deleted`);
-          return;
+          return 'failed';
         }
 
         // Periodically reconnect to keep connections fresh and pick up refreshed OAuth tokens
@@ -3900,6 +3905,7 @@ export class ImapManager {
                   sentFolderPath,
                 });
                 if (!parsed.uid) {
+                  hadMessageErrors = true;
                   console.warn(`Backfill skipped: IMAP FETCH returned no UID for ${account.email}/${folder}`);
                   continue;
                 }
@@ -4030,6 +4036,7 @@ export class ImapManager {
                   );
                 }
               } catch (caught) {
+                hadMessageErrors = true;
                 const parseErr = toAppError(caught);
                 console.error('Backfill parse error:', parseErr.message);
               }
@@ -4087,16 +4094,18 @@ export class ImapManager {
              unread_count = (SELECT COUNT(*) FILTER (WHERE is_read = false)  FROM messages m WHERE m.account_id = $1 AND m.folder = $2)
          WHERE account_id = $1 AND path = $2`,
         [account.id, folder]
-      ).catch(err => console.error(`Folder count update after backfill failed for ${logAccount(account)}/${folder}:`, err.message));
+      );
       this.broadcast({ type: 'backfill_complete', accountId: account.id }, account.user_id);
       // Backfill wrote rows the GTD tick's fingerprint can't detect (before==after); if this
       // folder is a designated GTD folder and any row changed, nudge GTD section clients. One emit per
       // affected folder (backfillAllFolders loops here); the client debounces. Gated cheaply
       // on gtd_enabled + changedCount>0 only.
       await emitSectionsChanged(this.pluginFacade, account, backfilledRows);
+      return hadMessageErrors ? 'failed' : 'complete';
     } catch (caught) {
       const err = toAppError(caught);
       console.error(`Backfill failed for ${logAccount(account)}/${folder}:`, err.message);
+      return 'failed';
     } finally {
       await closeImapClient(bfClient);
       this.backfillRunning.delete(backfillKey);
@@ -4216,8 +4225,8 @@ export class ImapManager {
   // Runs backfillMessages for every folder: INBOX first, then all others sequentially.
   // Skips provider-specific duplicate-view folders (e.g. Gmail's All Mail, Starred, Important)
   // to avoid storing tens of thousands of duplicate message rows.
-  async backfillAllFolders(account: EmailAccountRow) {
-    if (this.backfillAllRunning.has(account.id)) return;
+  async backfillAllFolders(account: EmailAccountRow): Promise<{ ran: boolean; failedFolders: number; skippedFolders: number }> {
+    if (this.backfillAllRunning.has(account.id)) return { ran: false, failedFolders: 0, skippedFolders: 0 };
     this.backfillAllRunning.add(account.id);
     const host = (account.imap_host || '').toLowerCase();
     // Broadcast start BEFORE waiting on the per-host semaphore so a queued reindex shows as
@@ -4234,8 +4243,19 @@ export class ImapManager {
       slotHeld = true;
       const { skipFolderPatterns, skipFolderNames } = providerProfile(account);
 
+      const outcome = { ran: true, failedFolders: 0, skippedFolders: 0 };
+      const backfill = async (folder: string) => {
+        try {
+          const result = await this.backfillMessages(account, folder);
+          if (result === 'failed') outcome.failedFolders++;
+          else if (result === 'already_running') outcome.skippedFolders++;
+        } catch (caught) {
+          outcome.failedFolders++;
+          console.warn(`Backfill failed for ${logAccount(account)}/${folder}:`, toAppError(caught).message);
+        }
+      };
       // INBOX first — highest priority, existing behaviour
-      await this.backfillMessages(account, 'INBOX');
+      await backfill('INBOX');
 
       // Then all other known folders (discovered at connect time by syncFolders)
       const folderResult = await query<{ path: string }>(
@@ -4247,11 +4267,9 @@ export class ImapManager {
         const pathLower = path.toLowerCase();
         if (skipFolderPatterns.some(pat => pathLower.includes(pat))) continue;
         if (skipFolderNames.includes(pathLower)) continue;
-        await this.backfillMessages(account, path).catch(err =>
-          console.warn(`Backfill skipped ${logAccount(account)}/${path}: ${err.message}`)
-        );
+        await backfill(path);
       }
-
+      return outcome;
     } finally {
       if (slotHeld) this._bgConnSem.release(host); // free the per-host slot for the next background job
       this.backfillAllRunning.delete(account.id);

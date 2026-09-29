@@ -18,7 +18,8 @@ suite('account-scoped address book presentation (PostgreSQL)', () => {
         CREATE TABLE contacts (id uuid PRIMARY KEY, user_id uuid, address_book_id uuid);
         CREATE TABLE integration_collections (id uuid PRIMARY KEY, user_id uuid, local_address_book_id uuid, kind text, connection_id uuid, source_connection_id uuid, account_id uuid, source_access text, user_access text);
         CREATE TABLE provider_connections (id uuid PRIMARY KEY, user_id uuid, provider text, provider_user_id text);
-        CREATE TABLE user_integrations (id uuid PRIMARY KEY, user_id uuid, provider text, label text, config jsonb DEFAULT '{}'::jsonb);
+        CREATE TABLE user_integrations (id uuid PRIMARY KEY, user_id uuid, provider text, label text, config jsonb DEFAULT '{}'::jsonb, dav_account_id uuid);
+        CREATE TABLE dav_accounts (id uuid PRIMARY KEY,user_id uuid,name text);
         CREATE TABLE source_connections (id uuid PRIMARY KEY, user_id uuid, integration_id uuid);
         CREATE TABLE email_accounts (id uuid PRIMARY KEY, user_id uuid, provider_connection_id uuid, email_address text, name text, created_at timestamptz DEFAULT now());
       `);
@@ -45,7 +46,7 @@ suite('account-scoped address book presentation (PostgreSQL)', () => {
       await client.query('UPDATE integration_collections SET account_id=$1 WHERE id=$2', [randomUUID(), collection]);
       expect((await list()).rows[0]).toMatchObject({ account_id: null, account_email: null });
       const davBook = randomUUID(); const source = randomUUID(); const integration = randomUUID();
-      await client.query("INSERT INTO user_integrations VALUES ($1,$2,'carddav','Test DAV','{}')", [integration, owner]);
+      await client.query("INSERT INTO user_integrations (id,user_id,provider,label,config) VALUES ($1,$2,'carddav','Test DAV','{}')", [integration, owner]);
        await client.query("INSERT INTO source_connections VALUES ($1,$2,$3)", [source, owner, integration]);
        await client.query("INSERT INTO address_books (id,user_id,name,source) VALUES ($1,$2,'Contacts','carddav')", [davBook, owner]);
       await client.query("INSERT INTO integration_collections (id,user_id,local_address_book_id,kind,source_connection_id) VALUES ($1,$2,$3,'address_book',$4)", [randomUUID(), owner, davBook, source]);

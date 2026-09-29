@@ -1898,7 +1898,7 @@ describe("connectAccount attaches 'error' before connect (#360)", () => {
     mgr.syncFolders = vi.fn(() => Promise.resolve());
     vi.spyOn(mgr, 'syncMessages').mockResolvedValue({ insertedCount: 0, broadcastedNewMessages: false });
     mgr._shouldAutoBackfillOnConnect = vi.fn(() => Promise.resolve(false));
-    mgr.backfillAllFolders = vi.fn(() => Promise.resolve());
+    mgr.backfillAllFolders = vi.fn(async () => ({ ran: true, failedFolders: 0, skippedFolders: 0 }));
     mgr._startSyncInterval = vi.fn();
     mgr.broadcast = vi.fn();
 
@@ -3087,4 +3087,160 @@ describe('durable IMAP flag observation and writes', () => {
     ImapManager.prototype._resolveFlagPush('account-1', 'message-1', '\\Seen');
     expect(query).not.toHaveBeenCalled();
   });
+});
+
+
+describe('manual IMAP reindex outcomes', () => {
+  let manager: ImapManager;
+  beforeEach(() => {
+    vi.resetAllMocks();
+    manager = new ImapManager({ clients: new Set() });
+    clearInterval(manager._healthCheckTimer); clearInterval(manager._snippetSchedulerTimer);
+    vi.spyOn(manager, 'broadcast').mockImplementation(() => {});
+    vi.spyOn(manager, 'refreshBulkFlags').mockResolvedValue(undefined);
+    vi.spyOn(manager, 'startSnippetIndexer').mockResolvedValue(undefined);
+    query.mockResolvedValue({ rows: [] });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+  it('reports an already active full backfill without claiming completion', async () => {
+    manager.backfillAllRunning.add(baseAccount.id);
+    const backfill = vi.spyOn(manager, 'backfillMessages');
+    await expect(manager.backfillAllFolders(baseAccount)).resolves.toEqual({ ran: false, failedFolders: 0, skippedFolders: 0 });
+    expect(backfill).not.toHaveBeenCalled();
+  });
+  it('reports a folder failure even when backfillMessages catches the error', async () => {
+    query.mockRejectedValue(new Error('folder lookup failed'));
+    await expect(manager.backfillMessages(baseAccount)).resolves.toBe('failed');
+    expect(manager.backfillRunning.size).toBe(0);
+  });
+  it('distinguishes verified cached coverage from an active folder backfill', async () => {
+    query.mockResolvedValueOnce({ rows: [{ uid_validity: 1, total_count: 5 }] }).mockResolvedValueOnce({ rows: [{ n: 5 }] });
+    await expect(manager.backfillMessages(baseAccount)).resolves.toBe('complete');
+    manager.backfillRunning.add(`${baseAccount.id}:INBOX`);
+    await expect(manager.backfillMessages(baseAccount)).resolves.toBe('already_running');
+  });
+  it('continues across failed and busy folders and counts both without false success', async () => {
+    query.mockResolvedValueOnce({ rows: [{ path: 'Archive' }, { path: 'Sent' }] });
+    vi.spyOn(manager, 'backfillMessages').mockResolvedValueOnce('failed').mockResolvedValueOnce('already_running').mockResolvedValueOnce('complete');
+    await expect(manager.backfillAllFolders(baseAccount)).resolves.toEqual({ ran: true, failedFolders: 1, skippedFolders: 1 });
+    expect(manager.backfillMessages).toHaveBeenCalledTimes(3);
+    expect(manager.backfillAllRunning.size).toBe(0);
+  });
+  it('does not report success after a per-message parser failure was logged and skipped', async () => {
+    const acct = { ...baseAccount, enabled: true };
+    getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true, allowNonstandardPorts: true });
+    resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+    decrypt.mockReturnValue('test-password');
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM email_accounts')) return { rows: [acct] };
+      if (sql.includes('COUNT(*) as count')) return { rows: [{ count: '0', max_uid: 0 }] };
+      return { rows: [] };
+    });
+    const client = mockImapClient(Object.assign(new EventEmitter(), {
+      connect: vi.fn(async () => {}), logout: vi.fn(async () => {}), close: vi.fn(),
+      getMailboxLock: vi.fn(async () => ({ release: vi.fn() })),
+      mailbox: { path: 'INBOX', exists: 1, uidValidity: 1 },
+      search: vi.fn(async () => [1]), capabilities: new Set<string>(),
+      fetch: async function* () { yield { uid: 1 }; },
+    }));
+    ImapFlow.mockImplementation(function () { return client; });
+    parseMessage.mockRejectedValue(new Error('invalid message'));
+    await expect(manager.backfillMessages(acct)).resolves.toBe('failed');
+    expect(parseMessage).toHaveBeenCalledOnce();
+    expect(manager.backfillRunning.size).toBe(0);
+  });
+  it('returns success only after each applicable folder completes', async () => {
+    query.mockResolvedValueOnce({ rows: [{ path: 'Archive' }] });
+    vi.spyOn(manager, 'backfillMessages').mockResolvedValue('complete');
+    await expect(manager.backfillAllFolders(baseAccount)).resolves.toEqual({ ran: true, failedFolders: 0, skippedFolders: 0 });
+    expect(manager.backfillMessages).toHaveBeenNthCalledWith(1, baseAccount, 'INBOX');
+    expect(manager.backfillMessages).toHaveBeenNthCalledWith(2, baseAccount, 'Archive');
+  });
+});
+
+
+describe('IMAP synchronization persistence outcomes', () => {
+  let manager: ImapManager;
+  const acct = { ...baseAccount, enabled: true };
+  beforeEach(() => {
+    vi.resetAllMocks();
+    manager = new ImapManager({ clients: new Set() });
+    clearInterval(manager._healthCheckTimer);
+    clearInterval(manager._snippetSchedulerTimer);
+    vi.spyOn(manager, 'broadcast').mockImplementation(() => {});
+    query.mockResolvedValue({ rows: [] });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('propagates a failed folder timestamp write', async () => {
+    const failure = new Error('folder timestamp unavailable');
+    query.mockImplementation(async sql => {
+      if (sql.includes('SET last_folder_sync')) throw failure;
+      return { rows: [] };
+    });
+    const client = mockImapClient({ list: vi.fn(async () => []) });
+    await expect(manager.syncFolders(acct, client)).rejects.toBe(failure);
+    expect(query).toHaveBeenCalledWith(
+      'UPDATE email_accounts SET last_folder_sync = NOW() WHERE id = $1 AND user_id = $2',
+      [acct.id, acct.user_id],
+    );
+  });
+
+  it.each([false, true])('manual folder sync broadcasts success only after persisted metadata (failure=%s)', async fail => {
+    query.mockImplementation(async sql => {
+      if (sql.includes('SELECT * FROM email_accounts')) return { rows: [acct] };
+      if (sql.includes('SET last_folder_sync') && fail) throw new Error('folder timestamp unavailable');
+      return { rows: [] };
+    });
+    const client = mockImapClient({ list: vi.fn(async () => []) });
+    manager.connections.set(acct.id, client);
+    await manager.syncFoldersNow(acct.user_id);
+    expect(client.list).toHaveBeenCalledOnce();
+    if (fail) {
+      expect(manager.broadcast).not.toHaveBeenCalled();
+      expect(manager.lastFolderSyncAt.has(acct.id)).toBe(false);
+    } else {
+      expect(manager.broadcast).toHaveBeenCalledExactlyOnceWith({ type: 'folders_synced', accountId: acct.id }, acct.user_id);
+      expect(manager.lastFolderSyncAt.get(acct.id)).toEqual(expect.any(Number));
+    }
+  });
+
+  for (const path of ['empty', 'cached', 'fetched'] as const) {
+    it.each([false, true])(`backfill ${path} reports count persistence outcome and releases resources (failure=%s)`, async fail => {
+      getConnectionPolicy.mockResolvedValue({ allowPrivateHosts: true, allowInsecureTls: true, allowNonstandardPorts: true });
+      resolveForConnection.mockResolvedValue({ host: '127.0.0.1', addresses: ['127.0.0.1'], servername: null });
+      decrypt.mockReturnValue('test-password');
+      const countWrites: string[] = [];
+      query.mockImplementation(async sql => {
+        if (sql.includes('FROM email_accounts')) return { rows: [acct] };
+        if (sql.includes('COUNT(*) as count')) return { rows: [{ count: '0', max_uid: 0 }] };
+        if (sql.startsWith('SELECT uid FROM messages')) return { rows: path === 'cached' ? [{ uid: 1 }] : [] };
+        if (/UPDATE folders\s+SET total_count/.test(sql)) {
+          countWrites.push(sql);
+          if (fail) throw new Error('folder counts unavailable');
+        }
+        return { rows: [] };
+      });
+      const release = vi.fn();
+      const client = mockImapClient(Object.assign(new EventEmitter(), {
+        connect: vi.fn(async () => {}), logout: vi.fn(async () => {}), close: vi.fn(),
+        getMailboxLock: vi.fn(async () => ({ release })),
+        mailbox: { path: 'INBOX', exists: path === 'empty' ? 0 : 1, uidValidity: 1 },
+        search: vi.fn(async () => [1]), capabilities: new Set<string>(),
+        // The searched UID may be expunged before FETCH. The normal completion
+        // path must still persist the reconciled counts before claiming success.
+        fetch: vi.fn(async function* () { yield* []; }),
+      }));
+      ImapFlow.mockImplementation(function () { return client; });
+      await expect(manager.backfillMessages(acct)).resolves.toBe(fail ? 'failed' : 'complete');
+      expect(countWrites).toHaveLength(1);
+      expect(manager.backfillRunning.size).toBe(0);
+      expect(release).toHaveBeenCalledTimes(path === 'fetched' ? 2 : 1);
+      expect(client.logout).toHaveBeenCalledOnce();
+      expect(client.fetch).toHaveBeenCalledTimes(path === 'fetched' ? 1 : 0);
+      if (fail) {
+        expect(manager.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'backfill_complete' }), acct.user_id);
+      }
+    });
+  }
 });

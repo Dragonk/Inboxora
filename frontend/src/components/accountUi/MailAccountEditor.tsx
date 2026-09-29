@@ -18,8 +18,9 @@ export interface MailEditorFormProps<T> {
   onSavingChange: (busy: boolean) => void; onErrorChange: (error: string) => void;
 }
 /** One draft/save boundary; moving between tabs never mounts a second form. */
-export default function MailAccountEditor<T>({ account, onSave, onClose, reload, renderForm }: {
+export default function MailAccountEditor<T>({ account, onSave, onClose, reload, renderForm, aliases, folders, diagnostics, onSectionChange }: {
   account: MailAccount; onSave: (form: T) => Promise<void>; onClose: () => void; reload: () => void;
+  aliases?: ReactNode; folders?: ReactNode; diagnostics?: ReactNode; onSectionChange?: (section: string) => void;
   renderForm: (props: MailEditorFormProps<T>) => ReactNode;
 }) {
   const { t, i18n } = useTranslation(); const epoch = useStore(state => state.authEpoch);
@@ -29,7 +30,7 @@ export default function MailAccountEditor<T>({ account, onSave, onClose, reload,
   const native = account.mail_transport === 'gmail_api' || account.mail_transport === 'microsoft_graph';
   useEffect(() => { life.current++; const cancel = () => { life.current++; }; return cancel; }, [epoch, account.id]);
   useSettingsTarget('accounts', target => {
-    if (target.module === 'accounts' && target.accountId === account.id && target.section) setSection(target.section === 'services' && !native ? 'servers' : target.section === 'servers' && native ? 'services' : target.section);
+    if (target.module === 'accounts' && target.accountId === account.id && target.section) { setSection(target.section === 'services' && !native ? 'servers' : target.section === 'servers' && native ? 'services' : target.section); onSectionChange?.(target.section); }
   });
   const close = () => { if (!busy) { setServiceChanges({}); onClose(); } };
   const save = async (form: T) => {
@@ -60,16 +61,17 @@ export default function MailAccountEditor<T>({ account, onSave, onClose, reload,
     ? new Intl.DateTimeFormat(intlLocale(i18n.resolvedLanguage || i18n.language), { dateStyle: 'short', timeStyle: 'short' }).format(new Date(account.last_sync)) : t('common.never');
   return <div className="au-workspace au-mail-editor">
     <Back onClick={close}>{t('accountUi.allAccounts')}</Back>
-    <SectionTabs label={t('accountUi.mailAccount')} panelId={panelId} active={section} onChange={setSection} tabs={[
-      { id: 'general', label: t('accountUi.general') }, { id: native ? 'services' : 'servers', label: t(native ? 'accountUi.services' : 'accountUi.servers') }, { id: 'diagnostics', label: t('accountUi.diagnostics') },
+    <SectionTabs label={t('accountUi.mailAccount')} panelId={panelId} active={section} onChange={value => { setSection(value); onSectionChange?.(value); }} tabs={[
+      { id: 'general', label: t('accountUi.general') }, { id: native ? 'services' : 'servers', label: t(native ? 'accountUi.services' : 'accountUi.servers') }, { id: 'folders', label: t('admin.accounts.folderMappings') }, { id: 'aliases', label: t('admin.accounts.aliases') }, { id: 'diagnostics', label: t('accountUi.diagnostics') },
     ]}/>
     <Header title={typeof account.name === 'string' && account.name ? account.name : t('accountUi.mailAccount')} description={account.email_address}/>
     <section id={panelId} role="tabpanel" aria-labelledby={`${panelId}-tab-${section}`}><fieldset disabled={busy} className="au-form-fieldset">
       <div hidden={section !== 'general' && section !== 'servers'}>{renderForm({ onSave: save, onComplete: saved, onCancel: close, section: section === 'servers' ? 'servers' : 'general', showProviderServices: false, hideActions: true, submitRef: submit, onSavingChange: setBusy, onErrorChange: setError })}</div>
       {native && <div hidden={section !== 'services'} className="au-service-detail"><AccountProviderServices accountId={account.id} reload={reload} t={t} deferServiceChanges onFeatureIntentChange={(service, enabled) => setServiceChanges(values => ({ ...values, [service]: enabled }))}/><div className="au-actions au-section"><Button onClick={() => openSettings({ module: 'calendar', section: 'resources', accountId: account.id })}><Icon name="calendar"/>{t('accountUi.calendarsOnAccount')}</Button><Button onClick={() => openSettings({ module: 'contacts', section: 'resources', accountId: account.id })}><Icon name="books"/>{t('accountUi.booksOnAccount')}</Button></div></div>}
-      <div hidden={section !== 'diagnostics'} className="au-service-detail">{!native && <dl className="au-meta"><dt>{t('accountUi.transport')}</dt><dd>{transportLabel(transport)}</dd><dt>{t('accountUi.lastSync')}</dt><dd>{lastSync}</dd><dt>{t('accountUi.connectionState')}</dt><dd>{t(account.sync_error ? 'accountUi.statusFailed' : account.last_sync ? 'accountUi.statusReady' : 'accountUi.statusUnknown')}</dd></dl>}{native && section === 'diagnostics' && <AccountProviderServices accountId={account.id} reload={reload} t={t} diagnosticsOnly/>}</div>
+      <div hidden={section !== 'aliases'}>{aliases}</div><div hidden={section !== 'folders'}>{folders}</div>
+      <div hidden={section !== 'diagnostics'} className="au-service-detail">{section === 'diagnostics' && diagnostics}{!native && <dl className="au-meta"><dt>{t('accountUi.transport')}</dt><dd>{transportLabel(transport)}</dd><dt>{t('accountUi.lastSync')}</dt><dd>{lastSync}</dd><dt>{t('accountUi.connectionState')}</dt><dd>{t(account.sync_error ? 'accountUi.statusFailed' : account.last_sync ? 'accountUi.statusReady' : 'accountUi.statusUnknown')}</dd></dl>}{native && section === 'diagnostics' && <AccountProviderServices accountId={account.id} reload={reload} t={t} diagnosticsOnly/>}</div>
     </fieldset></section>
     {error && <Notice danger>{error === t('accountUi.partialSave') ? error : t('accountUi.operationFailed')}</Notice>}
-    <div className="au-actions au-save-footer"><Button variant="primary" disabled={busy} onClick={() => void commit()}>{t(busy ? 'accountUi.saving' : 'accountUi.saveChanges')}</Button><Button disabled={busy} onClick={close}>{t('common.cancel')}</Button></div>
+    <div className="au-actions au-save-footer" hidden={section === 'aliases' || section === 'folders'}><Button variant="primary" disabled={busy} onClick={() => void commit()}>{t(busy ? 'accountUi.saving' : 'accountUi.saveChanges')}</Button><Button disabled={busy} onClick={close}>{t('common.cancel')}</Button></div>
   </div>;
 }

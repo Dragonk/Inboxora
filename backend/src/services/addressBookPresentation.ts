@@ -4,7 +4,7 @@ export const ADDRESS_BOOK_PRESENTATION_SQL = `
          ic.id AS collection_id, ic.connection_id, ic.source_connection_id,
          ic.source_access, ic.user_access, pc.provider,
          ea.id AS account_id, ea.email_address AS account_email, ea.name AS account_name,
-         sc.integration_id AS dav_source_id, ui.label AS source_label,
+         sc.integration_id AS dav_source_id, COALESCE(da.name, ui.label) AS source_label,
          ui.config->>'serverUrl' AS source_url, ui.config->>'username' AS source_username
     FROM address_books ab
     LEFT JOIN contacts c ON c.address_book_id = ab.id AND c.user_id = ab.user_id
@@ -13,6 +13,7 @@ export const ADDRESS_BOOK_PRESENTATION_SQL = `
     LEFT JOIN provider_connections pc ON pc.id = ic.connection_id AND pc.user_id = ab.user_id
     LEFT JOIN source_connections sc ON sc.id = ic.source_connection_id AND sc.user_id = ab.user_id
     LEFT JOIN user_integrations ui ON ui.id = sc.integration_id AND ui.user_id = ab.user_id AND ui.provider = 'carddav'
+    LEFT JOIN dav_accounts da ON da.id=ui.dav_account_id AND da.user_id=ab.user_id
     LEFT JOIN LATERAL (
       SELECT
         CASE WHEN COUNT(*) = 1 OR (ic.account_id IS NOT NULL AND COUNT(*) > 0)
@@ -59,5 +60,5 @@ export const ADDRESS_BOOK_PRESENTATION_SQL = `
             )
        )
      )
-   GROUP BY ab.id, ic.id, pc.provider, ea.id, ea.email_address, ea.name, sc.integration_id, ui.id
+   GROUP BY ab.id, ic.id, pc.provider, ea.id, ea.email_address, ea.name, sc.integration_id, ui.id, da.id
    ORDER BY ab.created_at ASC, ab.id ASC`;

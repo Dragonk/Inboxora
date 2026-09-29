@@ -43,6 +43,8 @@ import { setAuthEpoch } from '../utils/authEpoch.ts';
 /** A favourite folder entry. */
 let _undoSendPreferenceOperation = 0;
 let _preferencesLoadOperation = 0;
+let _calendarAgendaOperation = 0;
+let _calendarSenderOperation = 0;
 
 interface FavoriteFolderRow { accountId?: string; path: string; name?: string; label?: string; [key: string]: unknown }
 
@@ -228,6 +230,10 @@ export interface StoreState {
   setMobileNavigationPosition: (mobileNavigationPosition: string) => void;
   mobileSidebarSwipeEnabled: boolean;
   setMobileSidebarSwipeEnabled: (mobileSidebarSwipeEnabled: boolean) => void;
+  calendarShowAgenda: boolean;
+  setCalendarShowAgenda: (show: boolean) => void;
+  calendarInviteAliasId: string;
+  setCalendarInviteSender: (accountId: string, aliasId: string) => void;
   calendarInviteAccountId: string;
   setCalendarInviteAccountId: (calendarInviteAccountId: string | null) => void;
   calendarWorkDays: number[];
@@ -586,7 +592,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(identityChanged ? { authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
+      ...(identityChanged ? { calendarInviteAccountId: '', calendarInviteAliasId: '', calendarShowAgenda: true, authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
       ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
@@ -1096,11 +1102,21 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
   // The SMTP account the new-event dialog preselects for calendar invitations.
   // Empty means "no default": the dialog leaves the sender picker unselected.
+  calendarShowAgenda: true,
+  setCalendarShowAgenda: (calendarShowAgenda: boolean) => {
+    _calendarAgendaOperation++;
+    set({ calendarShowAgenda }); schedulePrefSave({ calendarShowAgenda });
+  },
+  calendarInviteAliasId: '',
+  setCalendarInviteSender: (calendarInviteAccountId: string, calendarInviteAliasId: string) => {
+    _calendarSenderOperation++;
+    const next = { calendarInviteAccountId, calendarInviteAliasId: calendarInviteAccountId ? calendarInviteAliasId : '' };
+    set(next); schedulePrefSave(next);
+  },
   calendarInviteAccountId: '',
   setCalendarInviteAccountId: (calendarInviteAccountId: string | null) =>{
     const value = typeof calendarInviteAccountId === 'string' ? calendarInviteAccountId : '';
-    set({ calendarInviteAccountId: value });
-    schedulePrefSave({ calendarInviteAccountId: value });
+    get().setCalendarInviteSender(value, '');
   },
   calendarWorkDays: [...DEFAULT_CALENDAR_PREFERENCES.calendarWorkDays],
   setCalendarWorkDays: (calendarWorkDays: number[]) =>{
@@ -1685,6 +1701,8 @@ export const useStore = create<StoreState>()((set, get) => ({
     const epoch = get().authEpoch;
     const undoOperation = _undoSendPreferenceOperation;
     const loadOperation = ++_preferencesLoadOperation;
+    const agendaOperation = _calendarAgendaOperation;
+    const senderOperation = _calendarSenderOperation;
     const faviconEpoch = get().senderFaviconsEpoch;
     try {
       const prefs = await api.getPreferences();
@@ -1838,8 +1856,15 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (typeof prefs.mobileSidebarSwipeEnabled === 'boolean') {
         set({ mobileSidebarSwipeEnabled: prefs.mobileSidebarSwipeEnabled });
       }
-      if (typeof prefs.calendarInviteAccountId === 'string') {
-        set({ calendarInviteAccountId: prefs.calendarInviteAccountId });
+      // A GET started before a local choice must not revert that choice. Treat
+      // the sender account and alias as one identity, independently of the agenda.
+      if (agendaOperation === _calendarAgendaOperation) {
+        set({ calendarShowAgenda: prefs.calendarShowAgenda !== false });
+      }
+      if (senderOperation === _calendarSenderOperation) {
+        const accountId = typeof prefs.calendarInviteAccountId === 'string' ? prefs.calendarInviteAccountId : '';
+        set({ calendarInviteAccountId: accountId,
+          calendarInviteAliasId: accountId && typeof prefs.calendarInviteAliasId === 'string' ? prefs.calendarInviteAliasId : '' });
       }
       if (Array.isArray(prefs.calendarWorkDays)) set({ calendarWorkDays: normalizeCalendarWorkDays(prefs.calendarWorkDays) });
       if (prefs.calendarWorkHoursStart || prefs.calendarWorkHoursEnd) {

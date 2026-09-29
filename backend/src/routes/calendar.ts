@@ -1,3 +1,4 @@
+import { withInvitationAlias, type InvitationAliasFields } from '../services/calendarInvitationSender.js';
 import { mapConcurrent } from '../utils/mapConcurrent.js';
 import { deleteRemoteDavCalendarCollection, getRemoteDavCollectionDeleteCapability } from '../services/davCollectionLifecycle.js';
 import { davCollectionDeletionResponse, validCollectionDeletionIntent } from '../services/davCollectionManagement.js';
@@ -53,6 +54,12 @@ import { projectCalendarResources } from '../services/calendarProjectionPool.js'
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
 import { queryString, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+
+function invitationAliasClientError(caught: unknown): { status: 400 | 409; message: string } | null {
+  if (!(caught instanceof Error)) return null;
+  const status = Number((caught as Error & { status?: unknown }).status);
+  return status === 400 || status === 409 ? { status, message: caught.message } : null;
+}
 
 const router = Router();
 const MAX_EVENT_RANGE_DAYS = 366;
@@ -192,7 +199,7 @@ type LocalEventIcalInput = {
 /** The values an invitation request carries, shared by the create and update paths. */
 type InvitationFields = {
   calendarId: string;
-  invitationAccount: EmailAccountRow;
+  invitationAccount: EmailAccountRow & InvitationAliasFields;
   normalizedAttendees: string[];
   times: { startsAt: Date; endsAt: Date };
   summary?: string | null;
@@ -267,7 +274,7 @@ function invitationRequestFingerprint(req: Request, fields: InvitationFields) {
   const { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount, rrule } = fields;
   return crypto.createHash('sha256').update(JSON.stringify({
     eventId: req.params.eventId || null, calendarId, summary: summary || null, description, location, url, organizer,
-    allDay: Boolean(allDay), timezone, attendees: normalizedAttendees, inviteAccountId: invitationAccount?.id || null,
+    allDay: Boolean(allDay), timezone, attendees: normalizedAttendees, inviteAccountId: invitationAccount?.id || null, inviteAliasId: invitationAccount?.invitation_alias_id || null,
     startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(),
     // `undefined` means "keep the stored rule" and `null` means "clear it"; the
     // two must not share an idempotency fingerprint.
@@ -293,32 +300,33 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
     const prior = await client.query('SELECT id, event_id, request_fingerprint, status, last_error, payload FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, key]);
     if (prior.rows[0]) {
       if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
-      const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [prior.rows[0].event_id, calendarId, req.session.userId])).rows[0];
+      const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [prior.rows[0].event_id, calendarId, req.session.userId])).rows[0];
       if (!event || event.id !== req.params.eventId) return { conflict: true };
       // An identical retry of an undelivered invitation must actually resend it,
       // not just replay the earlier error. The caller delivers after commit.
       if (prior.rows[0].status === 'sent') return { event, duplicate: true, delivered: { status: 'sent', lastError: null } };
       return { event, duplicate: true, outboxId: prior.rows[0].id, payload: prior.rows[0].payload };
     }
-    const existing = (await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    const existing = (await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId])).rows[0];
     if (!existing) return { notFound: true };
     const hadInvitation = Boolean(existing.invite_account_id && Array.isArray(existing.attendees) && existing.attendees.length);
-    const senderChanged = hadInvitation && invitationAccount.id !== existing.invite_account_id;
+    const senderChanged = hadInvitation && (invitationAccount.id !== existing.invite_account_id || (invitationAccount.invitation_alias_id || null) !== (existing.invite_alias_id || null));
     const cancelledAttendees = hadInvitation
       ? (senderChanged ? existing.attendees : existing.attendees.filter((email: string) => !normalizedAttendees.includes(email)))
       : [];
     let cancellationAccount = null;
     if (cancelledAttendees.length) {
-      cancellationAccount = invitationAccount.id === existing.invite_account_id
+      cancellationAccount = !senderChanged && invitationAccount.id === existing.invite_account_id
         ? invitationAccount
-        : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existing.invite_account_id, req.session.userId])).rows[0] || null;
+        : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [existing.invite_account_id, req.session.userId])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
+      cancellationAccount = await withInvitationAlias(cancellationAccount, existing.invite_alias_id, (sql,values) => client.query(sql,values));
     }
     const mergedIcal = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
     // `mergeCalendarResource` deliberately leaves RRULE alone (the DAV resource may
     // carry exceptions); a series-level edit applies the validated rule explicitly.
     const rawIcal = rrule === undefined ? mergedIcal : (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal);
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invite_alias_id = $16, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId, invitationAccount.invitation_alias_id || null]);
     const event = result.rows[0];
     const actions = [];
     if (cancelledAttendees.length) actions.push({ account: cancellationAccount, attendees: cancelledAttendees, summary: existing.summary, description: existing.description, location: existing.location, uid: existing.uid, allDay: Boolean(existing.all_day), method: 'CANCEL', sequence: Number(existing.invitation_sequence || 0) + 1, startsAt: new Date(existing.starts_at).toISOString(), endsAt: new Date(existing.ends_at).toISOString() });
@@ -919,7 +927,7 @@ router.get('/events', async (req, res) => {
               COALESCE(o.url, e.url) AS url,
               COALESCE(o.organizer, e.organizer) AS organizer,
               COALESCE(o.attendees, e.attendees) AS attendees,
-              e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invitation_sequence, e.cancellation_outbox_id,
+              e.calendar_id, e.uid, e.etag, e.invite_account_id, e.invite_alias_id, e.invitation_sequence, e.cancellation_outbox_id,
               CASE WHEN sa.id IS NOT NULL THEN e.source_message_id END AS source_message_id,
               sm.folder AS source_folder,
               sa.id AS source_account_id,
@@ -1002,7 +1010,7 @@ router.get('/events', async (req, res) => {
 });
 
 router.post('/events', async (req, res) => {
-  const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
+  const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, inviteAliasId, attendees } = req.body || {};
   const description = normalizeDescription(rawDescription);
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
@@ -1027,6 +1035,24 @@ router.post('/events', async (req, res) => {
   // A provider-backed calendar is written at the provider **first**. Microsoft notifies attendees itself
   // when an event carries them, and Google does when `sendUpdates` asks it to, so Inboxora's own
   // invitation mail is skipped on this path rather than sending a second copy.
+  const invitesHandledByProvider = target.kind !== 'local' && target.kind !== 'caldav';
+
+  let invitationAccount = null;
+  if (sendInvites && !invitesHandledByProvider) {
+    const sender = await query<EmailAccountRow>(
+      'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))',
+      [inviteAccountId, req.session.userId],
+    );
+    try {
+      invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
+    } catch (caught) {
+      const error = invitationAliasClientError(caught);
+      if (error) return res.status(error.status).json({ error: error.message });
+      throw caught;
+    }
+    if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+  }
+
   let providerEvent: { providerEventId: string; uid: string } | null = null;
   const providerIdempotencyKey = typeof req.headers['x-idempotency-key'] === 'string' ? req.headers['x-idempotency-key'].slice(0, 128) : null;
   const eventWrite = {
@@ -1084,14 +1110,10 @@ router.post('/events', async (req, res) => {
     // Invitations are Inboxora's on this path: a plain CalDAV server is not a scheduling service, so the
     // organiser's own mail client behaviour is reproduced here rather than assumed.
     if (sendInvites && normalizedAttendees.length) {
-      const sender = await query<EmailAccountRow>(
-        'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
-        [inviteAccountId, req.session.userId],
-      );
-      if (!sender.rows[0]) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+      if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
       try {
         await sendCalendarInvitation({
-          account: sender.rows[0], attendees: normalizedAttendees, summary: summary || null, description,
+          account: invitationAccount, attendees: normalizedAttendees, summary: summary || null, description,
           location, uid: caldavUid, startsAt: times.startsAt, endsAt: times.endsAt, allDay: Boolean(allDay),
           method: 'REQUEST', sequence: 0, rrule,
         });
@@ -1103,18 +1125,6 @@ router.post('/events', async (req, res) => {
     return res.status(201).json({ event: { id: stored.rows[0]?.id ?? null } });
   }
 
-  const invitesHandledByProvider = target.kind !== 'local';
-
-  let invitationAccount = null;
-  if (sendInvites && !invitesHandledByProvider) {
-    const sender = await query<EmailAccountRow>(
-      'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL',
-      [inviteAccountId, req.session.userId],
-    );
-    invitationAccount = sender.rows[0] || null;
-    if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
-  }
-
   if (sendInvites && !invitesHandledByProvider && invitationAccount) {
     const idempotencyKey = invitationOperationKey(req);
     const fingerprint = invitationRequestFingerprint(req, { calendarId, normalizedAttendees, times, summary, description, location, url, organizer, allDay, timezone, invitationAccount });
@@ -1124,17 +1134,17 @@ router.post('/events', async (req, res) => {
       const prior = await client.query('SELECT id, event_id, request_fingerprint, status, last_error, payload FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, idempotencyKey]);
       if (prior.rows[0]) {
         if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
-        const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = (SELECT event_id FROM calendar_invitation_outbox WHERE id = $1)', [prior.rows[0].id])).rows[0];
+        const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = (SELECT event_id FROM calendar_invitation_outbox WHERE id = $1)', [prior.rows[0].id])).rows[0];
         if (prior.rows[0].status === 'sent') return { event, duplicate: true, delivered: { status: 'sent', lastError: null } };
         return { event, duplicate: true, outboxId: prior.rows[0].id, payload: prior.rows[0].payload };
       }
       const uid = crypto.randomUUID();
       const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
       const result = await client.query(
-        `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-         RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
-        [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id],
+        `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`,
+        [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, invitationAccount.invitation_alias_id || null],
       );
       const event = result.rows[0];
       const outbox = await client.query(
@@ -1162,14 +1172,14 @@ router.post('/events', async (req, res) => {
 
   const uid = providerEvent?.uid ?? crypto.randomUUID();
   const rawIcal = localEventIcal({ uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
-  const result = await query<{ id: string; calendar_id: string; uid: string; etag?: string | null; summary?: string | null; description?: string | null; location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null; ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown; invite_account_id?: string | null; invitation_sequence?: number | null; created_at?: string | Date | null }>(
+  const result = await query<{ id: string; calendar_id: string; uid: string; etag?: string | null; summary?: string | null; description?: string | null; location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null; ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown; invite_account_id?: string | null; invite_alias_id?: string | null; invitation_sequence?: number | null; created_at?: string | Date | null }>(
     `INSERT INTO calendar_events (
        calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer,
-       starts_at, ends_at, all_day, timezone, attendees, invite_account_id
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer,
-               starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`,
-    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null],
+               starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`,
+    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, invitationAccount?.invitation_alias_id || null],
   );
   if (providerEvent) {
     // The link is recorded after the local row exists, so the next delta updates this row instead of
@@ -1468,7 +1478,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
 
   const outcome = await withTransaction(async client => {
     const row = (await client.query(
-      `SELECT uid, raw_ical, invite_account_id, invitation_sequence, summary, description, location,
+      `SELECT uid, raw_ical, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location,
               starts_at, ends_at, all_day, ${READ_ATTENDEES}
          FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`,
       [req.params.eventId, calendarId, req.session.userId],
@@ -1485,11 +1495,11 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
     } | null = null;
     if (row.invite_account_id && Array.isArray(row.attendees) && row.attendees.length) {
       const sender = (await client.query<EmailAccountRow>(
-        'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL',
+        'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))',
         [row.invite_account_id, req.session.userId],
       )).rows[0];
       if (!sender) return { status: 502, invitedFailure: true };
-      invitationPlan = { account: sender, messages: [] };
+      invitationPlan = { account: await withInvitationAlias(sender,row.invite_alias_id,(sql,values)=>client.query(sql,values)), messages: [] };
     }
     const sequence = Number(row.invitation_sequence || 0) + 1;
     if (scope === 'following') {
@@ -1644,11 +1654,11 @@ router.get('/events/:eventId', async (req, res) => {
     id: string; calendar_id: string; uid: string; summary?: string | null; description?: string | null;
     location?: string | null; url?: string | null; organizer?: string | null; starts_at?: string | Date | null;
     ends_at?: string | Date | null; all_day?: boolean | null; timezone?: string | null; attendees?: unknown;
-    invite_account_id?: string | null; recurring?: boolean | null; raw_ical?: string | null;
+    invite_account_id?: string | null; invite_alias_id?: string | null; recurring?: boolean | null; raw_ical?: string | null;
     read_only?: boolean | null; source?: string | null;
   }>(
     `SELECT e.id, e.calendar_id, e.uid, e.summary, e.description, e.location, e.url, e.organizer,
-            e.starts_at, e.ends_at, e.all_day, e.timezone, ${READ_ATTENDEES}, e.invite_account_id,
+            e.starts_at, e.ends_at, e.all_day, e.timezone, ${READ_ATTENDEES}, e.invite_account_id, e.invite_alias_id,
             e.recurring, e.raw_ical, c.read_only, c.source
        FROM calendar_events e
        JOIN calendars c ON c.id = e.calendar_id
@@ -1662,7 +1672,7 @@ router.get('/events/:eventId', async (req, res) => {
 });
 
 router.patch('/events/:eventId', async (req, res) => {
-  const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, attendees } = req.body || {};
+  const { calendarId, summary, description: rawDescription = null, location = null, url = null, organizer = null, allDay = false, timezone = null, sendInvites = false, inviteAccountId, inviteAliasId, attendees } = req.body || {};
   const description = normalizeDescription(rawDescription);
   const times = parseEventTimes(req.body);
   if (!calendarId || !times) return res.status(400).json({ error: 'calendarId and a valid event range are required' });
@@ -1707,6 +1717,19 @@ router.patch('/events/:eventId', async (req, res) => {
     }
   }
   if (target.kind === 'caldav') {
+    let davInvitationAccount: (EmailAccountRow & InvitationAliasFields) | null = null;
+    if (sendInvites) {
+      if (typeof inviteAccountId !== 'string' || !UUID_PATTERN.test(inviteAccountId)) return res.status(400).json({ error: 'Select a sender account' });
+      const account = (await query<EmailAccountRow>(`SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2 AND enabled=true AND (NULLIF(smtp_host, '') IS NOT NULL OR mail_transport IN ('gmail_api','microsoft_graph'))`, [inviteAccountId,req.session.userId])).rows[0];
+      if (!account) return res.status(400).json({ error: 'The selected sender account is unavailable' });
+      try {
+        davInvitationAccount = await withInvitationAlias(account,inviteAliasId);
+      } catch (caught) {
+        const error = invitationAliasClientError(caught);
+        if (error) return res.status(error.status).json({ error: error.message });
+        throw caught;
+      }
+    }
     const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
     if (!existing) return res.status(404).json({ error: 'Event not found' });
     const merged = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
@@ -1717,13 +1740,11 @@ router.patch('/events/:eventId', async (req, res) => {
       exists: true, localObjectId: req.params.eventId, localRevision: existing.etag,
     });
     if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
-    if (sendInvites && normalizedAttendees.length) {
-      const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
-      if (!sender.rows[0]) return res.status(400).json({ error: 'The selected sender account is unavailable' });
-      const stored = await query<{ invitation_sequence: number | null }>('SELECT invitation_sequence FROM calendar_events WHERE id = $1 AND user_id = $2', [req.params.eventId, req.session.userId]);
+    if (davInvitationAccount && normalizedAttendees.length) {
+      const stored = await query<{ invitation_sequence: number }>('SELECT invitation_sequence FROM calendar_events WHERE id=$1 AND calendar_id=$2 AND user_id=$3',[req.params.eventId,calendarId,req.session.userId]);
       try {
         await sendCalendarInvitation({
-          account: sender.rows[0], attendees: normalizedAttendees, summary: summary || null, description,
+          account: davInvitationAccount, attendees: normalizedAttendees, summary: summary || null, description,
           location, uid: existing.uid, startsAt: times.startsAt, endsAt: times.endsAt, allDay: Boolean(allDay),
           method: 'REQUEST', sequence: Number(stored.rows[0]?.invitation_sequence ?? 0) + 1,
           ...(seriesRecurrence ? { rrule } : {}),
@@ -1740,8 +1761,14 @@ router.patch('/events/:eventId', async (req, res) => {
 
   let invitationAccount = null;
   if (sendInvites && !invitesHandledByProvider) {
-    const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND smtp_host IS NOT NULL', [inviteAccountId, req.session.userId]);
-    invitationAccount = sender.rows[0] || null;
+    const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [inviteAccountId, req.session.userId]);
+    try {
+      invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
+    } catch (caught) {
+      const error = invitationAliasClientError(caught);
+      if (error) return res.status(error.status).json({ error: error.message });
+      throw caught;
+    }
     if (!invitationAccount) return res.status(400).json({ error: 'The selected sender account is unavailable' });
   }
 
@@ -1768,21 +1795,22 @@ router.patch('/events/:eventId', async (req, res) => {
   }
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
     const existingEvent = existing.rows[0];
     if (!existingEvent) return { notFound: true };
 
     const hadInvitation = Boolean(existingEvent.invite_account_id && Array.isArray(existingEvent.attendees) && existingEvent.attendees.length);
-    const senderChanged = hadInvitation && sendInvites && invitationAccount?.id !== existingEvent.invite_account_id;
+    const senderChanged = hadInvitation && sendInvites && (invitationAccount?.id !== existingEvent.invite_account_id || (invitationAccount?.invitation_alias_id || null) !== (existingEvent.invite_alias_id || null));
     const cancelledAttendees = hadInvitation ? (senderChanged || !sendInvites ? existingEvent.attendees : existingEvent.attendees.filter((email: string) => !normalizedAttendees.includes(email))) : [];
-    const cancellationAccount = invitationAccount?.id === existingEvent.invite_account_id
+    let cancellationAccount = !senderChanged && invitationAccount?.id === existingEvent.invite_account_id
       ? invitationAccount
       : cancelledAttendees.length
         // A disabled account retains SMTP settings for cancellation; referenced
         // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
-        ? (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
+        ? (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
         : null;
     if (cancelledAttendees.length && !cancellationAccount) return { cancelFailed: true };
+    if (cancellationAccount) cancellationAccount = await withInvitationAlias(cancellationAccount, existingEvent.invite_alias_id, (sql,values) => client.query(sql,values));
     const cancellationAction = cancelledAttendees.length && cancellationAccount
       ? { account: cancellationAccount, attendees: cancelledAttendees, summary: existingEvent.summary, description: existingEvent.description, location: existingEvent.location, uid: existingEvent.uid, allDay: Boolean(existingEvent.all_day), method: 'CANCEL', sequence: Number(existingEvent.invitation_sequence || 0) + 1, startsAt: new Date(existingEvent.starts_at).toISOString(), endsAt: new Date(existingEvent.ends_at).toISOString() }
       : null;
@@ -1791,7 +1819,7 @@ router.patch('/events/:eventId', async (req, res) => {
     // A series-level edit applies the validated rule; an occurrence edit or a plain
     // single-event edit leaves the stored rule (there is none) untouched.
     const rawIcal = seriesRecurrence ? (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal) : mergedIcal;
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invite_alias_id = $16, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId, invitationAccount?.invitation_alias_id || null]);
     if (!result.rows[0]) return { notFound: true };
 
     let cancellationOutboxId: string | null = null;
@@ -1882,7 +1910,7 @@ router.delete('/events/:eventId', async (req, res) => {
   }
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
     const event = existing.rows[0];
     if (!event) return { notFound: true };
 
@@ -1890,9 +1918,9 @@ router.delete('/events/:eventId', async (req, res) => {
     if (event.invite_account_id && Array.isArray(event.attendees) && event.attendees.length) {
       // A disabled account retains SMTP settings for cancellation. Persist the
       // action before deleting the event; migration 0086 keeps this outbox row.
-      const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND smtp_host IS NOT NULL', [event.invite_account_id, req.session.userId]);
+      const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [event.invite_account_id, req.session.userId]);
       if (!sender.rows[0]) return { cancelFailed: true };
-      const action = { account: sender.rows[0], attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at).toISOString(), endsAt: new Date(event.ends_at).toISOString() };
+      const action = { account: await withInvitationAlias(sender.rows[0], event.invite_alias_id, (sql,values) => client.query(sql,values)), attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at).toISOString(), endsAt: new Date(event.ends_at).toISOString() };
       const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, req.params.eventId, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([action]) })]);
       cancellationOutboxId = outbox?.rows?.[0]?.id || null;
     }

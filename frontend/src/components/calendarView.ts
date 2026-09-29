@@ -183,6 +183,7 @@ export interface CalendarEventForm {
   attendees?: string[];
   calendarId?: string;
   inviteAccountId?: string;
+  inviteAliasId?: string;
   organizer?: string;
   recurrenceId?: string | null;
   sendInvites?: boolean;
@@ -346,6 +347,7 @@ export function eventPayload(form: CalendarEventForm): Record<string, unknown> |
     attendees,
     sendInvites,
     inviteAccountId: sendInvites ? form.inviteAccountId : null,
+    ...(sendInvites && form.inviteAliasId ? { inviteAliasId: form.inviteAliasId } : {}),
   };
 }
 

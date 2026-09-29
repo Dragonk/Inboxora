@@ -33,7 +33,7 @@ describe('spam UI contract', () => {
   it('registers every new locale key in all locales', () => {
     const keys = [
       'badgeSpam', 'badgeUnsure', 'explainTitle', 'explainMethod',
-      'settingsTitle', 'maturity', 'maturityDetail', 'enable', 'disable', 'retrainNow',
+      'settingsTitle', 'maturity', 'maturityDetail', 'enable', 'retrainNow', 'maturityMature', 'maturityFresh', 'maturityInsufficient',
       'enableAccount', 'enableAccountDesc', 'trustedAuthservId', 'trustedAuthservIdDesc',
     ];
     for (const locale of ['en', 'de', 'fr', 'es', 'it', 'ru', 'zhCN', 'pl', 'cs']) {

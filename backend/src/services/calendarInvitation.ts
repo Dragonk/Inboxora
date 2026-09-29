@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import type { ComposedMail } from './composedMail.js';
+import { withInvitationAlias } from './calendarInvitationSender.js';
 import { descriptionContentLines } from '../utils/richText.js';
 
 function escapeICalendarText(value: unknown): string {
@@ -36,6 +39,8 @@ function foldICalendarLine(line: string) {
 
 /** One invitation to render and send. */
 interface InvitationInput {
+  aliasId?: string | null;
+  senderEmail?: string | null;
   uid: string;
   summary?: string | null;
   description?: string | null;
@@ -106,7 +111,39 @@ export type PreparedCalendarInvitation = {
   dispatch: () => Promise<CalendarInvitationDelivery>;
 };
 
-export async function prepareCalendarInvitation({ account, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0, rrule = null, recurrenceId = null }: InvitationInput & { account: InvitationAccount }): Promise<PreparedCalendarInvitation> {
+export async function prepareCalendarInvitation({ account, aliasId, senderEmail, attendees, summary, description = null, location = null, uid, startsAt, endsAt, allDay = false, method = 'REQUEST', sequence = 0, rrule = null, recurrenceId = null }: InvitationInput & { account: InvitationAccount }): Promise<PreparedCalendarInvitation> {
+  const selectedAliasId = aliasId ?? (typeof account.invitation_alias_id === 'string' ? account.invitation_alias_id : null);
+  const identity = selectedAliasId ? await withInvitationAlias(account,selectedAliasId) : account;
+  const selectedEmail = typeof identity.invitation_from_email === 'string' ? identity.invitation_from_email : identity.email_address;
+  if (senderEmail && senderEmail.toLowerCase() !== selectedEmail?.toLowerCase()) {
+    throw Object.assign(new Error('The invitation sender identity changed; delivery was stopped'),{status:409});
+  }
+  if (account.mail_transport === 'gmail_api' || account.mail_transport === 'microsoft_graph') {
+    if (!account.id || typeof account.user_id !== 'string') throw new Error('Invitation sender account is unavailable');
+    const { resolveMailTransportForSync } = await import('./mailTransportTarget.js');
+    const target=await resolveMailTransportForSync(account.user_id,account.id);
+    if (target.kind==='refused') throw Object.assign(new Error(target.error),{status:target.status});
+    const { createAccountMailTransport }=await import('./sendTransport.js');
+    const binding=await createAccountMailTransport({...account,user_id:account.user_id,
+      mail_transport:account.mail_transport,provider_connection_id:typeof account.provider_connection_id==='string' ? account.provider_connection_id : null});
+    if (!('transport' in binding)) throw Object.assign(new Error(binding.error),{status:binding.status});
+    if (!selectedEmail) throw new Error('Invitation sender address is unavailable');
+    const fromName=typeof identity.invitation_from_name==='string' ? identity.invitation_from_name : typeof account.sender_name==='string' ? account.sender_name : account.name || selectedEmail;
+    const content=invitationIcal({uid,summary,description,location,organizerEmail:selectedEmail,attendees,startsAt,endsAt,allDay,method,sequence,rrule,recurrenceId});
+    const composed:ComposedMail={messageId:`<${randomUUID()}@inboxora>`,from:{email:selectedEmail,name:fromName},to:attendees.map(email=>({email})),cc:[],bcc:[],
+      subject:`Invitation: ${summary || 'Meeting'}`,plainBody:`${fromName} invited you to ${summary || 'a meeting'}.`,
+      attachments:[{filename:'invitation.ics',content:Buffer.from(content),contentType:`text/calendar; charset=utf-8; method=${method}`} ]};
+    const refusal=await binding.transport.preflight?.(composed);
+    if(refusal)throw Object.assign(new Error(refusal.error),{status:refusal.statusCode});
+    return {dispatch:async()=>{
+      const result=await binding.transport.send({composed});
+      if(result.status==='accepted')return {accepted:[...attendees],rejected:[]};
+      if(result.status==='refused')return {accepted:[],rejected:[...attendees]};
+      // A provider timeout after dispatch is uncertain; the durable outbox must
+      // never reinterpret it as a definitely unsent message or fall back to SMTP.
+      throw new Error('Provider invitation delivery outcome is uncertain');
+    }};
+  }
   // Transport creation can refresh credentials, validate the TLS policy and resolve
   // DNS. None of those operations hands a message to SMTP, so an outbox can safely
   // retry an error raised before this function returns.
@@ -117,8 +154,8 @@ export async function prepareCalendarInvitation({ account, attendees, summary, d
   // catches the error branch, so this is unreachable - it exists so the compiler can see the same fact.
   if (!smtp.account || !smtp.transport) throw Object.assign(new Error(smtp.error || 'SMTP transport unavailable'), { status: smtp.status });
   const sendingAccount = smtp.account;
-  const fromEmail = sendingAccount.email_address;
-  const fromName = sendingAccount.sender_name || sendingAccount.name || fromEmail;
+  const fromEmail = selectedAliasId ? selectedEmail : sendingAccount.email_address;
+  const fromName = selectedAliasId && typeof identity.invitation_from_name === 'string' ? identity.invitation_from_name : sendingAccount.sender_name || sendingAccount.name || fromEmail;
   const content = invitationIcal({ uid, summary, description, location, organizerEmail: fromEmail, attendees, startsAt, endsAt, allDay, method, sequence, rrule, recurrenceId });
   return {
     dispatch: async () => {

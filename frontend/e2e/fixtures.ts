@@ -149,6 +149,8 @@ export const test = base.extend({
     // Keep optional boot calls from reaching the real backend. A 401 from one of
     // these non-auth endpoints dispatches session_expired in api.js and would log
     // the mocked user out before ConversationList/Pane finish mounting.
+    await page.route('**/api/dav-accounts', route => route.fulfill({ json: { accounts: [] } }));
+    await page.route('**/api/accounts/*/index-status', route => route.fulfill({ json: { status: 'ready', messages: 12, folders: 4, lastFolderSync: '2026-09-29T09:00:00Z' } }));
     await page.route('**/api/accounts', route => route.fulfill({ json: fixture.accounts }));
     await page.route('**/api/ai/status', route => route.fulfill({ json: { enabled: false } }));
     await page.route('**/api/todoist/status', route => route.fulfill({ json: { connected: false } }));

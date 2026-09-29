@@ -479,6 +479,8 @@ const dir = dirname(fileURLToPath(import.meta.url));
 type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
+  // General is the same section name in English and Spanish.
+  'admin.tabs.groupAccountMail': [['en', 'es']],
   // Protocol names and the noun "port" have identical spellings in these locales.
   'admin.systemEmail.starttlsOption': [['cs', 'en', 'fr', 'pl']],
   'admin.systemEmail.tlsOption': [['cs', 'en', 'fr', 'pl']],

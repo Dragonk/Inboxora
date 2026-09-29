@@ -1,3 +1,4 @@
+import { openNotificationMessage } from '../utils/notificationNavigation.ts';
 import { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
@@ -199,8 +200,16 @@ export function useWebSocket() {
           // Also skipped when all messages were silenced by a mark_read rule (alertCount === 0).
           if (isInbox && alertCount > 0) {
             const latest = alertMessages[0];
+            const notificationEpoch = useStore.getState().authEpoch;
             const notification = {
               type: 'new_mail',
+              actionLabel: t('common.view'),
+              onAction: () => { void openNotificationMessage(latest.id, accountId, notificationEpoch).catch(() => {
+                const state = useStore.getState();
+                if (state.authEpoch === notificationEpoch && state.user && !state.isLocked) {
+                  addNotification({ type: 'error', title: t('accountUi.targetUnavailable') });
+                }
+              }); },
               accountId,
               folder: folder || 'INBOX',
               messageId: latest.id,

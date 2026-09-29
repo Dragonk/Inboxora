@@ -9,7 +9,10 @@ test('integration settings keep provider cards collapsed until user interaction'
   assert.match(source, /useState\(false\)/);
   assert.match(source, /aria-expanded=/);
   assert.match(source, /aria-controls=/);
-  assert.match(source, /role="tablist"/);
+  assert.match(source, /<SectionTabs/);
+  const shared = await readFile(new URL('./accountUi/SettingsSections.tsx', import.meta.url), 'utf8');
+  assert.match(shared, /role="tablist"/);
+  assert.match(shared, /aria-selected=/);
 });
 
 test('integration cards use responsive action layout and translated hints', async () => {

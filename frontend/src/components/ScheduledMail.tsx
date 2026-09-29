@@ -17,7 +17,7 @@ import { MailListHeader, MailListTitle, MailRowAvatar, MailRowHeading, MailRowSe
 import { downloadMailAttachment, queuedAttachmentPath, queuedPreviewAttachments } from './mailPresentationDownloads.ts';
 import { LAYOUTS, normalizeLayout } from '../layouts.ts';
 import SchedulePicker from './SchedulePicker.tsx';
-import { Button, EmptyState, PanelResizeHandle } from './ui.tsx';
+import { Dialog, Button, EmptyState, PanelResizeHandle } from './ui.tsx';
 import { HeaderAction, MobileModuleHeader } from './MobileModuleHeader.tsx';
 import './scheduledMail.css';
 
@@ -180,7 +180,7 @@ export default function ScheduledMail({ controller, direction = 'row', compact =
           {!mobile && !(compact && selected) && <MailListHeader scrolled={listScrolled}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: narrow ? 6 : 10 }}>
               <MailListTitle>{t('queue.title')}</MailListTitle>
-              <ToolbarButton title={t('queue.refresh')} data-testid="scheduled-refresh" onClick={controller.refreshView}>{t('queue.refresh')}</ToolbarButton>
+              <Button title={t('queue.refresh')} data-testid="scheduled-refresh" onClick={controller.refreshView}>{t('queue.refresh')}</Button>
             </div>
           </MailListHeader>}
           {singlePane && !selected && controller.error && <div role="alert" className="ui-alert">{t(controller.error)}</div>}
@@ -221,7 +221,7 @@ export default function ScheduledMail({ controller, direction = 'row', compact =
       <div style={{ ...mailReaderPanelStyle, display: singlePane && !selected ? 'none' : 'flex' }}>
         {!mobile && compact && selected && <div className="tablet-reader-back" style={{ display: 'flex', justifyContent: 'space-between' }}>
           <Button variant="ghost" data-testid="scheduled-back" onClick={() => controller.select(null)}>‹ {t('common.back')}</Button>
-          <Button variant="ghost" data-testid="scheduled-refresh" onClick={controller.refreshView}>{t('queue.refresh')}</Button>
+          <Button data-testid="scheduled-refresh" onClick={controller.refreshView}>{t('queue.refresh')}</Button>
         </div>}
         {controller.error && <div role="alert" className="ui-alert">{t(controller.error)}</div>}
         {selected ? <QueueDetail key={`${selected.id}:${controller.authEpoch}`} row={selected} controller={controller} /> : <EmptyState title={t('queue.selectMessage')} />}
@@ -245,7 +245,7 @@ export function ScheduledUndo({ controller }: { controller: ScheduledMailControl
   const pending = controller.globalItems.filter(row => row.mode === 'undo' && row.state === 'pending' && Date.parse(row.scheduledAt) > now);
   if (controller.shown || (mobile && drawerOpen) || !pending.length) return null;
   return <aside className="scheduled-undo" aria-label={t('queue.undo')}>
-    <Button variant="ghost" onClick={controller.open}>{t('queue.title')}</Button>
+    <Button variant="ghost" onClick={() => controller.open()}>{t('queue.title')}</Button>
     {controller.error && <p role="alert">{t(controller.error)}</p>}
     {pending.map(row => <div key={row.id}><span>{row.subject || t('queue.noSubject')} · {t('queue.countdown', {
       count: Math.max(0, Math.ceil((Date.parse(row.scheduledAt) - now) / 1000)),
@@ -257,6 +257,17 @@ export function ScheduledUndo({ controller }: { controller: ScheduledMailControl
 export function ScheduledDialogs({ controller }: { controller: ScheduledMailController }) {
   const { t } = useTranslation();
   const row = controller.picker;
-  return row && controller.active ? <SchedulePicker initialScheduledAt={row.scheduledAt} busy={!!controller.busy} error={controller.error ? t(controller.error) : undefined}
-    onCancel={() => controller.setPicker(null)} onConfirm={selection => void controller.act(row, 'reschedule', selection)} /> : null;
+  if (!controller.active) return null;
+  const confirmation = controller.confirmation;
+  return <>
+    {row && <SchedulePicker initialScheduledAt={row.scheduledAt} busy={!!controller.busy} error={controller.error ? t(controller.error) : undefined}
+      onCancel={() => controller.setPicker(null)} onConfirm={selection => void controller.act(row, 'reschedule', selection)} />}
+    {confirmation && <Dialog title={t(confirmation.kind === 'cancel' ? 'queue.cancel' : 'queue.dismiss')}
+      closeLabel={t('common.close')} onClose={controller.closeConfirmation} busy={Boolean(controller.busy)} testId="scheduled-confirmation"
+      footer={<><Button disabled={Boolean(controller.busy)} onClick={controller.closeConfirmation}>{t('common.cancel')}</Button>
+        <Button variant="danger" disabled={Boolean(controller.busy)} onClick={() => void controller.confirm()}>{t(confirmation.kind === 'cancel' ? 'queue.cancel' : 'queue.dismiss')}</Button></>}>
+      <p>{t(confirmation.kind === 'cancel' ? 'queue.cancelConfirm' : 'queue.dismissConfirm')}</p>
+      {controller.error && <p role="alert">{t(controller.error)}</p>}
+    </Dialog>}
+  </>;
 }

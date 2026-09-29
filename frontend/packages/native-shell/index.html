@@ -101,15 +101,16 @@
         font-size: 14px;
       }
     </style>
+    <link rel="stylesheet" href="appearance.css" />
   </head>
   <body class="setup-pending">
     <main>
-      <h1>Connect Inboxora</h1>
-      <p>Enter the host for your Inboxora server.</p>
+      <h1 data-native-i18n="connectTitle">Connect Inboxora</h1>
+      <p data-native-i18n="hostDescription">Enter the address of your Inboxora server.</p>
 
       <form id="setup-form">
         <label>
-          Inboxora host
+          <span data-native-i18n="hostLabel">Inboxora server</span>
           <input
             id="host-input"
             name="host"
@@ -119,11 +120,13 @@
             required
           />
         </label>
-        <button id="submit-button" type="submit">Continue</button>
+        <button id="submit-button" type="submit" data-native-i18n="continue">Continue</button>
         <div id="error" class="error" role="alert"></div>
       </form>
     </main>
 
+    <script src="locales.js"></script>
+    <script src="setup-i18n.js"></script>
     <script>
       const STORAGE_KEY = 'inboxora.host';
       const form = document.querySelector('#setup-form');
@@ -163,7 +166,7 @@
           },
           saveHost: async (host) => {
             const result = await callNative('saveHost', { host }, null);
-            if (!result || !result.host) throw new Error('The native host could not be saved.');
+            if (!result || !result.host) throw new Error(nativeTranslate('hostSaveFailed'));
             return result.host;
           },
           checkNotificationPermission: async () => {
@@ -191,7 +194,7 @@
         const url = new URL(String(value || '').trim());
 
         if (!['https:', 'http:'].includes(url.protocol)) {
-          throw new Error('Host must start with https:// or http://');
+          throw new Error(nativeTranslate('invalidHost'));
         }
 
         url.username = '';
@@ -222,6 +225,7 @@
 
       async function restoreHost() {
         installCapacitorNativeBridge();
+        await window.nativeLanguageReady;
 
         if (window.inboxoraNative) {
           requestInitialNotificationPermission().catch(() => {});
@@ -248,7 +252,7 @@
             const savedHost = await withTimeout(
               window.inboxoraNative.saveHost(host),
               20000,
-              'The app did not answer. Please try again.',
+              nativeTranslate('timeout'),
             );
             loadHost(savedHost || host);
           } else {
@@ -256,7 +260,7 @@
             loadHost(host);
           }
         } catch (err) {
-          error.textContent = err.message || 'Enter a valid Inboxora host.';
+          error.textContent = err instanceof TypeError ? nativeTranslate('invalidHost') : err.message || nativeTranslate('hostSaveFailed');
           button.disabled = false;
         }
       });

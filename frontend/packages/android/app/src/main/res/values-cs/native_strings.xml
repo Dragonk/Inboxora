@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from Inboxora locale catalogs. Do not edit. -->
+<resources>
+    <string name="native_connect_title" formatted="false">Připojit Inboxora</string>
+    <string name="native_host_description" formatted="false">Zadejte adresu svého serveru Inboxora.</string>
+    <string name="native_host_label" formatted="false">Server Inboxora</string>
+    <string name="native_continue" formatted="false">Pokračovat</string>
+    <string name="native_host_unavailable" formatted="false">Server není dostupný</string>
+    <string name="native_host_unavailable_description" formatted="false">Inboxora se nemůže připojit k nastavenému serveru. Zkontrolujte adresu nebo vyberte jiný server.</string>
+    <string name="native_change_host" formatted="false">Změnit server</string>
+    <string name="native_host_save_failed" formatted="false">Adresu serveru se nepodařilo uložit. Zkuste to znovu.</string>
+    <string name="native_invalid_host" formatted="false">Zadejte platnou adresu serveru začínající https:// nebo http://.</string>
+    <string name="native_host_https_required" formatted="false">Veřejné servery musí používat HTTPS. HTTP je povoleno pouze pro localhost a soukromé IP adresy.</string>
+    <string name="native_timeout" formatted="false">Aplikace neodpověděla. Zkuste to znovu.</string>
+    <string name="native_http_title" formatted="false">Nešifrované připojení</string>
+    <string name="native_http_message" formatted="false">Přenos dat k tomuto serveru Inboxora není šifrovaný.</string>
+    <string name="native_http_detail" formatted="false">Kdokoli může sledovat tuto síť, může číst nebo měnit soubor cookie relace a data pošty. Pokračujte pouze v důvěryhodné soukromé síti.</string>
+    <string name="native_http_allow" formatted="false">Použít nešifrované připojení</string>
+    <string name="native_http_cancelled" formatted="false">Adresa nešifrovaného serveru nebyla uložena.</string>
+    <string name="native_new_mail" formatted="false">Nová zpráva</string>
+    <string name="native_new_mail_body" formatted="false">Máte novou zprávu.</string>
+    <string name="native_new_mail_count" formatted="false">Nové zprávy: {{count}}</string>
+    <string name="native_channel_description" formatted="false">Oznámení o nové poště v Inboxora.</string>
+    <string name="native_file" formatted="false">Soubor</string>
+    <string name="native_edit_menu" formatted="false">Úpravy</string>
+    <string name="native_view_menu" formatted="false">Zobrazení</string>
+    <string name="native_window_menu" formatted="false">Okno</string>
+    <string name="native_help" formatted="false">Nápověda</string>
+    <string name="native_redo" formatted="false">Znovu</string>
+    <string name="native_cut" formatted="false">Vyjmout</string>
+    <string name="native_paste" formatted="false">Vložit</string>
+    <string name="native_paste_match" formatted="false">Vložit a přizpůsobit styl</string>
+    <string name="native_full_screen" formatted="false">Přepnout celou obrazovku</string>
+    <string name="native_minimize" formatted="false">Minimalizovat</string>
+    <string name="native_zoom" formatted="false">Zvětšit</string>
+    <string name="native_bring_to_front" formatted="false">Přenést vše do popředí</string>
+    <string name="native_learn_more" formatted="false">Další informace</string>
+    <string name="native_report_issue" formatted="false">Nahlásit problém</string>
+    <string name="native_check_updates" formatted="false">Vyhledat aktualizace</string>
+    <string name="native_about" formatted="false">O aplikaci {{name}}</string>
+    <string name="native_hide_app" formatted="false">Skrýt Inboxora</string>
+    <string name="native_show_app" formatted="false">Zobrazit Inboxora</string>
+    <string name="native_hide_others" formatted="false">Skrýt ostatní</string>
+    <string name="native_show_all" formatted="false">Zobrazit vše</string>
+    <string name="native_quit" formatted="false">Ukončit</string>
+    <string name="native_open_link" formatted="false">Otevřít odkaz</string>
+    <string name="native_copy_link" formatted="false">Kopírovat odkaz</string>
+    <string name="native_copy_image_address" formatted="false">Kopírovat adresu obrázku</string>
+    <string name="native_compose" formatted="false">Napsat</string>
+    <string name="native_calendar" formatted="false">Kalendář</string>
+    <string name="native_contacts" formatted="false">Kontakty</string>
+    <string name="native_sync" formatted="false">Synchronizovat</string>
+    <string name="native_reply" formatted="false">Odpovědět</string>
+    <string name="native_delete" formatted="false">Smazat</string>
+    <string name="native_star" formatted="false">Označit hvězdičkou</string>
+    <string name="native_cancel" formatted="false">Zrušit</string>
+    <string name="native_copy" formatted="false">Kopírovat</string>
+    <string name="native_undo" formatted="false">Vrátit zpět</string>
+    <string name="native_select_all" formatted="false">Vybrat vše</string>
+    <string name="native_reload" formatted="false">Obnovit</string>
+    <string name="native_close" formatted="false">Zavřít</string>
+    <string name="native_no_subject" formatted="false">(bez předmětu)</string>
+    <string name="native_preferences" formatted="false">Nastavení účtu</string>
+    <string name="native_services" formatted="false">Služby</string>
+</resources>

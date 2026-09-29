@@ -44,6 +44,7 @@ export interface ScheduledPreview {
   context: ScheduledSource[]; contextMissing: boolean; sentCopy: ScheduledSource | null;
 }
 export const scheduledApi = {
+  summary: (id: string, signal?: AbortSignal): Promise<ScheduledSummary> => api.get(`${path(id)}/summary`, { signal }),
   page: async (signal?: AbortSignal, cursor?: string): Promise<ScheduledPage> => {
     const result: ScheduledPage | ScheduledSummary[] = await api.get(`/mail/scheduled?page=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal });
     // Older clients/servers can coexist briefly during a paired container update.

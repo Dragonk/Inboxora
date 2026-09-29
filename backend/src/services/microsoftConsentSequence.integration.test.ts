@@ -64,6 +64,11 @@ async function consent(input: {
       providerUserId: input.providerUserId ?? 'dragonk93@outlook.com',
       clientConfigId: 'client-1',
     });
+    // This fixture models incremental consent whose newly issued token retains earlier scopes.
+    // Historical grant scopes alone must not be treated as current authorization.
+    const previous = await client.query<{ current_scopes: string[] }>(
+      'SELECT current_scopes FROM oauth_grants WHERE connection_id = $1 AND audience = $2',
+      [id, MICROSOFT_GRANT_AUDIENCE]);
     await storeOAuthGrant(client, {
       connectionId: id,
       audience: MICROSOFT_GRANT_AUDIENCE,
@@ -71,7 +76,7 @@ async function consent(input: {
       // Only the first consent returns a refresh token; the later ones must not clear it.
       refreshToken: input.purpose === 'mail_migration' ? 'refresh-1' : null,
       expiresAt: new Date(Date.now() + 3600_000),
-      scopes: microsoftScopesForPurpose(input.purpose, input.access),
+      scopes: [...new Set([...(previous.rows[0]?.current_scopes ?? []), ...microsoftScopesForPurpose(input.purpose, input.access)])],
       clientIdAtIssue: 'client-1',
     });
     return id;
