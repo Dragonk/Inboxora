@@ -12,6 +12,8 @@ import { startStorageMaintenance, stopStorageMaintenance } from './services/stor
 import { redisClient } from './services/redis.js';
 
 import sendRoutes from './routes/send.js';
+import scheduledMailRoutes from './routes/scheduledMail.js';
+import { createScheduledMailWorker } from './services/scheduledMailWorker.js';
 import draftRoutes from './routes/draft.js';
 import oauthRoutes from './routes/oauth.js';
 import oauthGoogleRoutes from './routes/oauthGoogle.js';
@@ -175,6 +177,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // the per-transport limits; a body over this window is still refused (`REQUEST_TOO_LARGE`), and a body inside
 // it but above the transport's own ceiling is refused by the route with the dimension that was hit.
 app.use('/api/mail/send', express.json({ limit: sendHttpBodyWindowBytes() }));
+app.use('/api/mail/scheduled', express.json({ limit: sendHttpBodyWindowBytes() }));
+app.use('/api/mail/merge', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
@@ -263,6 +267,7 @@ app.use('/api/mail', conversationsRoutes);
 app.use('/api/mail', conversationRebuildRoutes);
 app.use('/api/mail', conversationOverridesRoutes);
 app.use('/api/mail', sendRoutes);
+app.use('/api/mail', scheduledMailRoutes);
 app.use('/api/mail', draftRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/admin', adminRoutes);
@@ -390,6 +395,8 @@ setInterval(() => retryConversationIngestFailures({ limit: 25 }).catch(err => co
 // Retry calendar invitations whose SMTP delivery failed, so a transient outage
 // does not leave a saved event whose invitation never reached the attendees.
 startCalendarInvitationOutboxWorker();
+const scheduledMailWorker = createScheduledMailWorker();
+if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 'true') scheduledMailWorker.start();
 // Hourly staggered full-retrain of per-user spam models (single-flight,
 // self-scheduling — a slow run delays the next tick instead of overlapping).
 startSpamRetrainScheduler();
@@ -435,7 +442,9 @@ httpServer.listen(PORT, () => {
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM received — shutting down gracefully');
+  const scheduledMailStopped = scheduledMailWorker.stop();
   httpServer.close(async () => {
+    await scheduledMailStopped;
     await stopStorageMaintenance();
     try { await redisClient.quit(); } catch { /* ignore */ }
     process.exit(0);

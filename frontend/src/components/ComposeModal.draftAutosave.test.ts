@@ -9,7 +9,7 @@ const draftSave = source.slice(draftSaveStart, draftSaveEnd);
 
 test('draft save uses its invocation snapshot as both payload and dirty baseline', () => {
   const snapshot = draftSave.indexOf('const draftSnapshot = {');
-  const request = draftSave.indexOf('const result = await api.saveDraft');
+  const request = draftSave.indexOf('const result = pausedSave ? await api.put');
   const baseline = draftSave.indexOf('initialBodyRef.current = draftSnapshot.body;');
 
   assert.ok(snapshot >= 0, 'draft save captures an invocation snapshot');
@@ -58,4 +58,14 @@ test('draft replacement keeps the prior account, UID and folder as one request s
   assert.match(draftSave, /\? \{ accountId: draftAccountId, uid: draftUid, folder: draftFolder, \.\.\.\(draftUidValidity != null \? \{ uidValidity: draftUidValidity \} : \{\}\) \}/);
   assert.match(draftSave, /draftSnapshot\.existingDraft \? \{ existingDraft: draftSnapshot\.existingDraft \}/);
   assert.doesNotMatch(draftSave, /existingUid:/);
+});
+
+
+test('explicit queued saves continue through the latest snapshot only after fenced acknowledgement replay', () => {
+  const replay = draftSave.indexOf('await autosaveReceiptRef.current();');
+  const continuation = draftSave.indexOf('await autosaveRef.current?.doSaveDraft({ closeAfter, silent });');
+  assert.ok(replay >= 0 && continuation > replay);
+  const replayBranch = draftSave.slice(replay, continuation);
+  assert.match(replayBranch, /!silent && currentCompose\(\) && !autosaveReceiptRef.current && !queuedConflictRef.current/);
+  assert.ok(continuation < draftSave.indexOf('const draftSnapshot = {'), 'reconcile before capturing a new version');
 });

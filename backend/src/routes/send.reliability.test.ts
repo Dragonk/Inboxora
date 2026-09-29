@@ -90,6 +90,18 @@ function mockExistingIntent(status: 'pending' | 'uncertain' | 'completed', resul
 }
 
 describe('send failure semantics', () => {
+  it.each(['scheduled:queue-id:1', 'scheduled:', `scheduled:${'x'.repeat(150)}`])(
+    'rejects worker-only receipt key %s before reading or claiming any delivery state', async key => {
+      const response = await post({ ...defaultBody, body: 'Unrelated direct message' }, key);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: 'SEND_RESERVED_KEY' });
+      expect(query).not.toHaveBeenCalled();
+      expect(redisClient.get).not.toHaveBeenCalled();
+      expect(redisClient.set).not.toHaveBeenCalled();
+      expect(createAccountSmtpTransport).not.toHaveBeenCalled();
+      expect(sendMail).not.toHaveBeenCalled();
+    },
+  );
   it('does not deliver when idempotency lookup fails', async () => {
     redisClient.get.mockRejectedValueOnce(new Error('Redis unavailable'));
     expect((await post()).status).toBe(503);
@@ -166,7 +178,7 @@ describe('send failure semantics', () => {
     sendMail.mockRejectedValueOnce(Object.assign(new Error('connection lost after DATA: ' + code), { code, command: 'DATA' }));
     const response = await post();
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
+    expect(await response.json()).toEqual({ code: 'SEND_OUTCOME_UNKNOWN', error: 'The mail server response was interrupted after dispatch began. This message will not be sent again automatically.' });
     expect(redisClient.eval).not.toHaveBeenCalledWith(expect.stringContaining("redis.call('DEL'"), expect.anything());
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'uncertain'"), expect.any(Array));
   });

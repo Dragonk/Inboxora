@@ -23,7 +23,7 @@ test('an unknown send outcome keeps its idempotency key', () => {
 });
 
 test('a forward uses the native forward intent even without forwarded attachments', () => {
-  assert.match(source, /sendKind: composeData\?\.isForward \? 'forward'/);
+  assert.match(source, /sendKind: composeData\?\.sendKind \?\? \(composeData\?\.isForward \? 'forward'/);
   assert.doesNotMatch(source, /sendKind: fwdAttachments\.length \? 'forward'/);
 });
 

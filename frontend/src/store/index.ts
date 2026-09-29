@@ -41,6 +41,9 @@ import { setAuthEpoch } from '../utils/authEpoch.ts';
 /** A message row as the store holds it. */
 /** The signed-in user as the store holds it. */
 /** A favourite folder entry. */
+let _undoSendPreferenceOperation = 0;
+let _preferencesLoadOperation = 0;
+
 interface FavoriteFolderRow { accountId?: string; path: string; name?: string; label?: string; [key: string]: unknown }
 
 export interface StoreUserRow { id?: string; username?: string; email?: string; displayName?: string; avatar?: string | null; isAdmin?: boolean; [key: string]: unknown }
@@ -62,6 +65,11 @@ export interface AppNotification {
 /** The store state; every member is declared explicitly by the store implementation. */
 /** The draft the compose window opens with. */
 export interface ComposeDraft {
+  queuedMail?: { id: string; revision: number; scheduledAt: string; timeZone: string };
+  queuedRetryRecipients?: boolean;
+  attachments?: Array<{ filename: string; content: string; encoding?: string; contentType?: string }>;
+  priority?: 'high' | 'normal' | 'low';
+  sendKind?: 'new' | 'reply' | 'reply_all' | 'forward';
   accountId?: string;
   aliasId?: string | null;
   to?: string | string[] | Array<{ email: string; name?: string | null }>;
@@ -206,6 +214,8 @@ export interface StoreState {
   adminTab: string;
   setShowAdmin: (v: boolean) => void;
   setAdminTab: (t: string) => void;
+  showScheduled: boolean;
+  setShowScheduled: (show: boolean) => void;
   showContacts: boolean;
   setShowContacts: (showContacts: boolean) => void;
   showCalendar: boolean;
@@ -357,6 +367,10 @@ export interface StoreState {
       accountId: string;
       path: string;
   }) => void;
+  undoSendSeconds: number;
+  undoSendPreferencesStatus: 'loading' | 'ready' | 'error';
+  undoSendSecondsSaving: boolean;
+  setUndoSendSeconds: (seconds: number) => Promise<void>;
   loadPreferences: () => Promise<void>;
 }
 
@@ -426,6 +440,7 @@ type StoreStateRead = Pick<StoreState,
   | 'senderFaviconsEpoch'
   | 'showCalendar'
   | 'showContacts'
+  | 'showScheduled'
   | 'sidebarCollapsed'
   | 'swipeActions'
   | 'threadMessages'
@@ -571,7 +586,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(identityChanged ? { authEpoch: state.authEpoch + 1 } : {}),
+      ...(identityChanged ? { authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
       ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
@@ -622,7 +637,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (selectedMessageId) localStorage.setItem('mailflow_locked_message', selectedMessageId);
       localStorage.setItem('mailflow_locked', '1');
       set({
-        isLocked: true,
+        isLocked: true, showScheduled: false,
         messages: [], searchResults: [], searchQuery: '',
         accounts: [], accountsReady: false,
         folders: {}, selectedMessageId: null,
@@ -692,8 +707,8 @@ export const useStore = create<StoreState>()((set, get) => ({
       // Returning from Calendar/Contacts is a presentation change, not a reload.
       // The mounted mail list still receives background updates. Preserve its
       // loaded pages, scroll position and native thread membership immediately.
-      if (!navChanged && (state.showCalendar || state.showContacts)) {
-        return { showContacts: false, showCalendar: false, selectedMessageId: null, mobileSidebarOpen: false };
+      if (!navChanged && (state.showCalendar || state.showContacts || state.showScheduled)) {
+        return { showContacts: false, showCalendar: false, showScheduled: false, selectedMessageId: null, mobileSidebarOpen: false };
       }
       return {
         selectedAccountId: accountId,
@@ -706,7 +721,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         messagesRefreshToken: state.messagesRefreshToken + 1,
         expandedThreadId: null,
         threadMessages: {},
-        showContacts: false, showCalendar: false,
+        showContacts: false, showCalendar: false, showScheduled: false,
         ...(navChanged && wasScopedSearch ? { searchQuery: '' } : {}),
       };
     });
@@ -1037,11 +1052,15 @@ export const useStore = create<StoreState>()((set, get) => ({
   setShowAdmin: (v: boolean) =>set({ showAdmin: v }),
   setAdminTab: (t: string) =>set({ adminTab: t }),
 
+  // Queue navigation is separate from the global Undo and worker lifecycle.
+  showScheduled: false,
+  setShowScheduled: (showScheduled: boolean) => set({ showScheduled,
+    ...(showScheduled ? { showContacts: false, showCalendar: false, mobileSidebarOpen: false } : {}) }),
   // Contacts view
   showContacts: false,
-  setShowContacts: (showContacts: boolean) =>set({ showContacts, ...(showContacts ? { showCalendar: false } : {}) }),
+  setShowContacts: (showContacts: boolean) =>set({ showContacts, ...(showContacts ? { showCalendar: false, showScheduled: false } : {}) }),
   showCalendar: false,
-  setShowCalendar: (showCalendar: boolean) =>set({ showCalendar, ...(showCalendar ? { showContacts: false } : {}) }),
+  setShowCalendar: (showCalendar: boolean) =>set({ showCalendar, ...(showCalendar ? { showContacts: false, showScheduled: false } : {}) }),
   // Calendar presentation preferences are persisted per user. A missing visibility list means
   // all known calendars are visible, so upgrades never hide an existing source unexpectedly.
   calendarWeekStartsOn: 1,
@@ -1632,14 +1651,45 @@ export const useStore = create<StoreState>()((set, get) => ({
     schedulePrefSave({ recentFolders: next });
   },
 
+  undoSendSeconds: 0,
+  undoSendPreferencesStatus: 'loading',
+  undoSendSecondsSaving: false,
+  setUndoSendSeconds: async (seconds: number) => {
+    if (!Number.isInteger(seconds) || seconds < 0 || seconds > 60) throw new RangeError('Invalid undo send delay');
+    if (get().undoSendSecondsSaving) throw new Error('Preference save already in progress');
+    const epoch = get().authEpoch;
+    const operation = ++_undoSendPreferenceOperation;
+    set({ undoSendSecondsSaving: true });
+    try {
+      await api.savePreferences({ undoSendSeconds: seconds });
+      if (get().authEpoch === epoch && operation === _undoSendPreferenceOperation) {
+        set({ undoSendSeconds: seconds, undoSendPreferencesStatus: 'ready' });
+      }
+    } catch (error) {
+      // A lost acknowledgement can hide a successful save. Require server hydration
+      // before sending again instead of trusting the previous (possibly zero) delay.
+      if (get().authEpoch === epoch && operation === _undoSendPreferenceOperation) set({ undoSendPreferencesStatus: 'error' });
+      throw error;
+    } finally {
+      if (get().authEpoch === epoch && operation === _undoSendPreferenceOperation) set({ undoSendSecondsSaving: false });
+    }
+  },
+
   // Fetch server preferences and apply them — call after any successful login.
   // Sets localStorage so subsequent page loads apply the right values instantly.
   loadPreferences: async () => {
-    const userId = get().user?.id;
+    const epoch = get().authEpoch;
+    const undoOperation = _undoSendPreferenceOperation;
+    const loadOperation = ++_preferencesLoadOperation;
     const faviconEpoch = get().senderFaviconsEpoch;
     try {
       const prefs = await api.getPreferences();
-      if (get().user?.id !== userId) return;
+      if (get().authEpoch !== epoch || loadOperation !== _preferencesLoadOperation) return;
+      if (undoOperation === _undoSendPreferenceOperation && !get().undoSendSecondsSaving) {
+        const seconds = prefs.undoSendSeconds ?? 0;
+        const valid = typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= 0 && seconds <= 60;
+        set(valid ? { undoSendSeconds: seconds, undoSendPreferencesStatus: 'ready' } : { undoSendPreferencesStatus: 'error' });
+      }
       // Per-user plugin activation. Absent = nothing activated (new users start with GTD off);
       // existing GTD users were grandfathered into ['gtd'] by migration 0042.
       set({ enabledPlugins: Array.isArray(prefs.enabledPlugins) ? prefs.enabledPlugins : [] });
@@ -1878,7 +1928,11 @@ export const useStore = create<StoreState>()((set, get) => ({
       if (prefs.customCss) {
         applyCustomCss(prefs.customCss);
       }
-    } catch { /* intentional */ }
+    } catch {
+      if (get().authEpoch === epoch && loadOperation === _preferencesLoadOperation && undoOperation === _undoSendPreferenceOperation) {
+        set({ undoSendPreferencesStatus: 'error' });
+      }
+    }
   },
 }));
 

@@ -130,6 +130,7 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
 
   function snapshotFrom(state: StoreState, messageId: string | null, hint?: ViewMessageHint): ViewSnapshot {
     const source: ViewSourceState = {
+      showScheduled: state.showScheduled,
       showContacts: state.showContacts,
       showCalendar: state.showCalendar,
       showAdmin: state.showAdmin,
@@ -270,6 +271,7 @@ export function createAppViewHistory(options: AppViewHistoryOptions = {}) {
     if (snapshot.surface !== 'settings') {
       state.setShowContacts(snapshot.surface === 'contacts');
       state.setShowCalendar(snapshot.surface === 'calendar');
+      state.setShowScheduled(snapshot.surface === 'scheduled');
     }
 
     // Selected unconditionally — even when the row is not on the loaded page, which
@@ -335,7 +337,7 @@ export function navigateAppHistory(direction: 'back' | 'forward'): void {
 /** Mounted once with the mail app; records every view transition. */
 export function AppViewHistoryRecorder() {
   const surface = useStore((state: StoreState) => (
-    state.showAdmin ? 'settings' : state.showContacts ? 'contacts' : state.showCalendar ? 'calendar' : 'mail'
+    state.showAdmin ? 'settings' : state.showContacts ? 'contacts' : state.showCalendar ? 'calendar' : state.showScheduled ? 'scheduled' : 'mail'
   ));
   const messageId = useStore((state: StoreState) => state.selectedMessageId);
   const accountId = useStore((state: StoreState) => state.selectedAccountId);

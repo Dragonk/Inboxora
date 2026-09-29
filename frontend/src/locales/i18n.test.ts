@@ -488,6 +488,8 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'messageList.searchHelp.example': [['cs', 'pl']],
   // Shared date nouns: Date (English/French), Data (Italian/Polish), Datum (Czech/German).
   'message.date': [['en', 'fr'], ['it', 'pl'], ['cs', 'de']],
+  // Minute is the same standard time-unit noun in these language groups.
+  'queue.minute': [['cs', 'pl'], ['de', 'en', 'fr'], ['es', 'it']],
   // Provider and protocol names are the same word in every language these files cover.
   'contacts.booksManager.sourceGoogle': 'any',
   'calendar.sourceCategoryGoogle': 'any',

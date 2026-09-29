@@ -287,7 +287,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
     accountsReady,
     sidebarWidth,
     isSidebarResizing,
-    showContacts, setShowContacts, showCalendar, setShowCalendar,
+    showContacts, setShowContacts, showCalendar, setShowCalendar, showScheduled, setShowScheduled,
   } = useStore();
 
   const isMobile = useMobile();
@@ -908,13 +908,16 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
             testId="all-inboxes"
             icon={ICONS.inbox}
             label={t('sidebar.allInboxes')}
-            active={isUnified && !showContacts && !showCalendar}
+            active={isUnified && !showContacts && !showCalendar && !showScheduled}
             collapsed={sidebarCollapsed}
             badge={unreadCounts.total}
             onClick={() => setSelectedAccount(null, 'INBOX')}
           />
         )}
 
+        <NavItem testId="sidebar-scheduled" icon={<svg width="16" height="16" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>}
+          label={t('queue.title')} active={showScheduled} collapsed={sidebarCollapsed} onClick={() => setShowScheduled(true)} />
         {!isMobile && (
           <NavItem testId="calendar-nav-primary" icon={ICONS.calendar} label={t('calendar.title')} active={showCalendar} collapsed={sidebarCollapsed} onClick={() => setShowCalendar(true)} />
         )}
@@ -962,7 +965,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
         {accounts.map(account => {
           const unread = unreadCounts.byAccount[account.id] || 0;
           const expanded = expandedAccounts[account.id];
-          const isSelected = !showContacts && !showCalendar && selectedAccountId === account.id;
+          const isSelected = !showContacts && !showCalendar && !showScheduled && selectedAccountId === account.id;
           const accountFolders = folders[account.id] || [];
 
           const selectInbox = () => setSelectedAccount(account.id, 'INBOX');
@@ -1174,7 +1177,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                   if (isHidden && !showingHidden) return null;
 
                   const isRenaming = renamingFolder?.accountId === account.id && renamingFolder?.path === folder.path;
-                  const isFolderSelected = !showContacts && !showCalendar && selectedAccountId === account.id && selectedFolder === folder.path;
+                  const isFolderSelected = !showContacts && !showCalendar && !showScheduled && selectedAccountId === account.id && selectedFolder === folder.path;
                   const visibleChildren = showingHidden ? children : children.filter(c => !accountHiddenPaths.includes(c.path));
                   const hasChildren = visibleChildren.length > 0;
                   const collapseKey = `${account.id}:${folder.path}`;
@@ -1402,7 +1405,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                 if (!account || !accountId) return null;
                 const accountFolders = folders[accountId] || [];
                 const folderObj = accountFolders.find(f => f.path === path);
-                const isActive = !showContacts && !showCalendar && selectedAccountId === accountId && selectedFolder === path;
+                const isActive = !showContacts && !showCalendar && !showScheduled && selectedAccountId === accountId && selectedFolder === path;
                 const unreadCount = folderObj?.unread_count || 0;
                 const isRenamingThis = renamingFav?.accountId === accountId && renamingFav?.path === path;
                 const isDragging = favDragIdx === idx;

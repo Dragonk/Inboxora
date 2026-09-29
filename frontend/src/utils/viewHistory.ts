@@ -10,7 +10,7 @@
  * unit-testable; `useAppViewHistory.tsx` is the binding.
  */
 
-export type ViewSurface = 'mail' | 'calendar' | 'contacts' | 'settings';
+export type ViewSurface = 'mail' | 'calendar' | 'contacts' | 'scheduled' | 'settings';
 
 export interface ViewSnapshot {
   surface: ViewSurface;
@@ -68,6 +68,7 @@ export const VIEW_HISTORY_LIMIT = 60;
 
 /** The store fields that make up a view. */
 export interface ViewSourceState {
+  showScheduled?: boolean;
   showContacts: boolean;
   showCalendar: boolean;
   showAdmin: boolean;
@@ -89,7 +90,7 @@ export interface ViewSourceState {
 export function viewSnapshotFromState(state: ViewSourceState, hint?: ViewMessageHint): ViewSnapshot {
   const messageId = state.selectedMessageId ?? null;
   return {
-    surface: state.showAdmin ? 'settings' : state.showContacts ? 'contacts' : state.showCalendar ? 'calendar' : 'mail',
+    surface: state.showAdmin ? 'settings' : state.showContacts ? 'contacts' : state.showCalendar ? 'calendar' : state.showScheduled ? 'scheduled' : 'mail',
     messageId,
     messageRef: hint?.ref ?? null,
     messageAccountId: hint?.accountId ?? null,

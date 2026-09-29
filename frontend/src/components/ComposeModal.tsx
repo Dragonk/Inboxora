@@ -8,6 +8,12 @@ import { isDraftSnapshotCurrent } from '../utils/draftSaveAcknowledgement.ts';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { useStore } from '../store/index.ts';
+import { createComposeTransactionGuard } from '../utils/composeTransactionGuard.ts';
+import { isDefiniteQueueRejection } from '../utils/queuedSubmission.ts';
+import SchedulePicker from './SchedulePicker.tsx';
+import { scheduledActionErrorKey } from '../utils/scheduledMail.ts';
+import { Button, Dialog } from './ui.tsx';
+import SendSplitButton from './SendSplitButton.tsx';
 import { api } from '../utils/api.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
@@ -24,7 +30,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { toAppError } from '../utils/errors.ts';
 import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
-import { partitionRejectedRecipients } from '../utils/retryRecipients.ts';
+import { normalizeMailbox, partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 import { DefaultRecipients, type RecipientField } from '../utils/defaultRecipients.ts';
 import { initialComposeSender } from '../utils/composeSender.ts';
@@ -199,10 +205,10 @@ function parseChips(val: unknown): string[] {
   return parts;
 }
 
-/** Edit one session-scoped message, applying visible account defaults only before retry recovery. */
+/** Compose session-scoped immediate or queued mail with visible defaults and immutable retry identities. */
 export default function ComposeModal() {
   const { t } = useTranslation();
-  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail: preferredPlaintext } = useStore();
+  const { closeCompose, composeData, accounts, addNotification, setSelectedAccount, plaintextEmail: preferredPlaintext, undoSendSeconds, undoSendPreferencesStatus, undoSendSecondsSaving } = useStore();
   // A persisted draft owns its editor format; profile preference only seeds new compose sessions.
   const [bodyIsHtml] = useState(() => resolveComposeBodyIsHtml(composeData?.bodyIsHtml, preferredPlaintext));
   const plaintextCompose = !bodyIsHtml;
@@ -233,7 +239,8 @@ export default function ComposeModal() {
     const accountId = sender.startsWith('alias:') ? sender.split(':')[2] : sender.replace('account:', '');
     const recipients = { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) };
     const owner = new DefaultRecipients(accounts.find(account => account.id === accountId), recipients,
-      composeData?.draftUid != null || !!composeData?.draftRowId, !!composeData?.isReplyAll);
+      composeData?.draftUid != null || !!composeData?.draftRowId || !!composeData?.queuedMail, !!composeData?.isReplyAll);
+    if (composeData?.queuedMail || composeData?.queuedRetryRecipients) owner.enterRetryMode();
     return { recipients, owner };
   });
   const [toChips, setToChipsState] = useState(() => recipientSeed.recipients.to);
@@ -244,7 +251,7 @@ export default function ComposeModal() {
   const [bccInput, setBccInputState] = useState('');
   /** Apply manual chip edits while preserving draft revisions and relinquishing matching automatic recipients. */
   const setRecipientChips = (field: RecipientField, value: string[]) => {
-    if (sendingRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const current = { to: toChips, cc: ccChips, bcc: bccChips };
     const next = recipientSeed.owner.editRecipients(field, value, current);
     if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
@@ -253,7 +260,7 @@ export default function ComposeModal() {
   };
   /** Reconcile unfinished input before keyboard submission and record the affected draft fields. */
   const setRecipientInput = (field: RecipientField, value: string) => {
-    if (sendingRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const current = { to: toChips, cc: ccChips, bcc: bccChips };
     const next = recipientSeed.owner.editPending(field, value, current);
     if (next.to !== current.to) { recordRecipientEdit('to'); setToChipsState(next.to); }
@@ -298,11 +305,14 @@ export default function ComposeModal() {
   const [draftUidValidity, setDraftUidValidity] = useState(() => composeData?.draftUidValidity ?? null);
   const [draftFolder, setDraftFolder] = useState(() => composeData?.draftFolder ?? null);
   const [draftAccountId, setDraftAccountId] = useState(() => composeData?.accountId ?? null);
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [savingDraft, setSavingDraftState] = useState(false);
+  const savingDraftRef = useRef(false);
+  /** Synchronize the save mutex before React renders submission disabled states. */
+  const setSavingDraft = (value: boolean) => { savingDraftRef.current = value; setSavingDraftState(value); };
   // A response may arrive after another draft request has started. Only the
   // latest invocation is allowed to advance the saved baseline.
   const draftSaveVersionRef = useRef(0);
-  const [attachments, setAttachmentsState] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>([]);
+  const [attachments, setAttachmentsState] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>(() => (composeData?.attachments ?? []).map(a => ({ name: a.filename, data: a.content, type: a.contentType, size: Math.floor(a.content.length * 3 / 4) })));
   const setAttachments = (value: React.SetStateAction<Array<{ name?: string; size?: number; [key: string]: unknown }>>) => { recordDraftEdit(); setAttachmentsState(value); };
   /**
    * The limits the sending account's transport is measured against, asked of the server (P06).
@@ -327,7 +337,7 @@ export default function ComposeModal() {
   const initialQuotedBodyHtmlRef = useRef<string | null>(composeData?.quotedBodyHtml || null);
   const initialEditedSignatureRef = useRef<string | null>(composeData?.editedSignature ?? null);
   // Start at fwdAttachments.length so pre-loaded forwarded attachments aren't dirty.
-  const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length);
+  const savedAttachmentCountRef = useRef((composeData?.forwardedAttachments || []).length + (composeData?.attachments ?? []).length);
   // True when the compose was opened by clicking an existing draft from the list.
   // Used by handleClose to decide whether to prompt about an unmodified draft.
   const draftWasPreExisting = useRef(composeData?.draftUid != null);
@@ -353,7 +363,7 @@ export default function ComposeModal() {
   const [fromValue, setFromValueState] = useState(initialFromValue);
   /** Change the sender while retaining explicit recipients and the partial-delivery retry destination set. */
   const setFromValue = (value: string) => {
-    if (sendingRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const accountId = resolveFrom(value).accountId;
     const next = recipientSeed.owner.switchAccount(accounts.find(account => account.id === accountId),
       { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
@@ -418,7 +428,31 @@ export default function ComposeModal() {
     setSendingState(value);
   };
   const [error, setError] = useState('');
-  const [priority, setPriority] = useState('normal');
+  const [priority, setPriorityState] = useState<string>(composeData?.priority ?? 'normal');
+  const setPriority = (value: string) => { recordDraftEdit(); setPriorityState(value); };
+  const initialPriorityRef = useRef(priority);
+  const initialAttachmentsRef = useRef(JSON.stringify({ attachments, fwdAttachments }));
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [showMergeConfirm, setShowMergeConfirm] = useState(false);
+  const mergeConfirmedRef = useRef(false);
+  const mergeRecipientCount = new Set([...toChips, toInput, ...ccChips, ccInput, ...bccChips, bccInput]
+    .map(value => value.trim()).filter(Boolean).map(normalizeMailbox)).size;
+  const mergePendingRef = useRef(false);
+  const queuedRevisionRef = useRef(composeData?.queuedMail?.revision);
+  const scheduleSelectionRef = useRef<{ scheduledAt: string; timeZone: string } | null>(null);
+  const frozenQueueRef = useRef<{ path: string; body: Record<string, unknown>; method: 'POST' | 'PUT' } | null>(null);
+  const [queueRetry, setQueueRetry] = useState(false);
+  // A replay closes over the original snapshot and revision, independently of explicit submissions.
+  const autosaveReceiptRef = useRef<(() => Promise<void>) | null>(null);
+  const [autosavePending, setAutosavePending] = useState(false);
+  const queuedConflictRef = useRef(false);
+  const [queuedConflict, setQueuedConflict] = useState(false);
+  const composeEpochRef = useRef(useStore.getState().authEpoch);
+  const composeAliveRef = useRef(true);
+  useEffect(() => { composeAliveRef.current = true; return () => { composeAliveRef.current = false; }; }, []);
+  /** Fence asynchronous completions and mutations to the original unlocked compose session. */
+  const currentCompose = () => composeAliveRef.current && useStore.getState().authEpoch === composeEpochRef.current
+    && !useStore.getState().isLocked && useStore.getState().composing && useStore.getState().composeData === initialComposeDataRef.current;
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -457,6 +491,7 @@ export default function ComposeModal() {
   const replyTypeRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const shouldPositionCursorRef = useRef(isReply || isForward);
+  const initialFocusRef = useRef(document.activeElement);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const signatureRef = useRef<HTMLDivElement | null>(null);
@@ -481,6 +516,7 @@ export default function ComposeModal() {
 
   const editor = useEditor({
     extensions: [
+      Extension.create({ name: 'frozenComposeGuard', addProseMirrorPlugins: () => [createComposeTransactionGuard(() => sendingRef.current || !!frozenQueueRef.current || !currentCompose())] }),
       StarterKit.configure({
         link: { openOnClick: false },
       }),
@@ -499,7 +535,18 @@ export default function ComposeModal() {
     ],
     content: composeData?.body || '',
     onUpdate: () => { lastEditAtRef.current = Date.now(); recordDraftEdit(); },
-    autofocus: (isReply || isForward) && !plaintextCompose ? 'start' : false,
+    // TipTap's deferred autofocus can steal a field already chosen by the user.
+    // Focus synchronously at creation, and only while the original focus is unchanged.
+    autofocus: false,
+    onCreate: ({ editor: createdEditor }) => {
+      if (!(isReply || isForward) || plaintextCompose || !currentCompose() || createdEditor.isDestroyed) return;
+      if (minimized || showDiscardSheet || showCloseDialog || showAttachWarnForDraft || showEmptySubjectWarn
+        || showForgottenAttachWarn || showSchedule || showMergeConfirm || showPrioritySheet || showReplyType || showCcBccMenu) return;
+      const active = document.activeElement;
+      if (active !== document.body && active !== initialFocusRef.current) return;
+      createdEditor.commands.setTextSelection(0);
+      createdEditor.view.focus();
+    },
     immediatelyRender: false,
     editorProps: {
       attributes: { spellcheck: 'true' },
@@ -516,6 +563,7 @@ export default function ComposeModal() {
         const file = imageItem.getAsFile();
         if (file) {
           resizeImageToDataUrl(file).then(dataUrl => {
+            if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
             view.dispatch(view.state.tr.replaceSelectionWith(
               view.state.schema.nodes.image.create({ src: dataUrl })
             ));
@@ -525,6 +573,9 @@ export default function ComposeModal() {
       },
     },
   });
+
+  const editorFrozen = sending || queueRetry || (!!composeData?.queuedMail && savingDraft && !!frozenQueueRef.current);
+  useEffect(() => { editor?.setEditable(!editorFrozen); }, [editor, editorFrozen]);
 
   useEffect(() => {
     if (!editor || isReply || isForward) return;
@@ -757,6 +808,7 @@ export default function ComposeModal() {
   // Does NOT reset on plain accounts-data refreshes (same fromValue, new array
   // reference) so that user edits survive background IMAP sync re-renders.
   useEffect(() => {
+    if (initialComposeDataRef.current?.queuedMail) return;
     const fromValueChanged = fromValue !== prevFromValueRef.current;
     if (fromValueChanged) {
       prevFromValueRef.current = fromValue;
@@ -821,6 +873,7 @@ export default function ComposeModal() {
       }
       const reader = new FileReader();
       reader.onload = (ev) => {
+        if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
         const result = ev.target?.result;
         const base64 = typeof result === 'string' ? result.split(',')[1] : '';
         setAttachments(prev => {
@@ -836,6 +889,9 @@ export default function ComposeModal() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
+      if (showEmptySubjectWarn || showForgottenAttachWarn || showSchedule || showMergeConfirm || showCloseDialog || showDiscardSheet || showAttachWarnForDraft) return;
+      mergePendingRef.current = false;
+      scheduleSelectionRef.current = null;
       handleSend();
     }
   };
@@ -895,65 +951,16 @@ export default function ComposeModal() {
     setAiPanel(null);
   };
 
-  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false } = {}) => {
-    if (sendingRef.current) return;
-    if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
-    // A saved draft is identified by its account, folder and compatibility number. `uidValidity` is the
-    // IMAP guard that confirms the identity; a provider account's draft has none (its identity is the
-    // provider's immutable id, held server-side), so requiring it here would strand every provider draft.
-    const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId
-      ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
-      : null;
+  /** Capture the complete queued payload, including attachment bytes and explicit sender identity. */
+  const buildMessage = () => {
     const { accountId, aliasId } = resolveFrom(fromValue);
     const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
     const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
     const bccFinal = [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])];
-    if ((!toFinal.length && !ccFinal.length && !bccFinal.length) || !accountId) return;
-
-    if (!skipSubjectWarn && subject.trim() === '') {
-      setShowEmptySubjectWarn(true);
-      return;
-    }
-
-    if (!skipAttachWarn) {
-      const composedText = plaintextCompose
-        ? body
-        : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
-      const keywords = t('compose.attachmentKeywords').split('|');
-      const lower = composedText.toLowerCase();
-      const hasAttachmentWord = keywords.some(kw => lower.includes(kw.toLowerCase()));
-      const hasNoAttachment = attachments.length === 0 && fwdAttachments.length === 0;
-      if (hasAttachmentWord && hasNoAttachment) {
-        setShowForgottenAttachWarn(true);
-        return;
-      }
-    }
-
-    const requestAuthEpoch = useStore.getState().authEpoch;
-    const isCurrentSession = () => useStore.getState().authEpoch === requestAuthEpoch;
-    localStorage.setItem('mailflow_last_from_account', accountId);
-    // An earlier send whose outcome the server could not confirm. An ordinary click must not dispatch again:
-    // the kept key makes the server answer with the same uncertain state. Sending a second copy is a separate,
-    // deliberate action, and the question says what the risk is (MAIL-05).
-    if (sendOutcomeUnknownRef.current) {
-      const confirmed = window.confirm(`${t('compose.sendUncertainTitle')}\n\n${t('compose.sendUncertainBody')}\n\n${t('compose.sendUncertainResend')}`);
-      if (!confirmed) return;
-      idempotencyKeyRef.current = null;
-      sendOutcomeUnknownRef.current = false;
-    }
-    setSending(true);
-    setShowReplyType(false);
-    setShowCcBccMenu(false);
-    setError('');
     const bodyToSend = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.getHTML() ?? ''));
     const signatureToSend = plaintextCompose ? plainSig : signatureContentRef.current;
     const hasSignatureOverride = shouldIncludeSignatureOverride(signatureToSend, hasPersistedSignature, fromSignature);
-    // crypto.randomUUID needs a secure context; fall back for plain-HTTP LAN deployments.
-    if (!idempotencyKeyRef.current) {
-      idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
-    try {
-      const sendResult = await api.post('/mail/send', {
+    return {
         accountId,
         ...(aliasId ? { aliasId } : {}),
         to: toFinal,
@@ -971,11 +978,11 @@ export default function ComposeModal() {
         references: composeData?.references || undefined,
         // MAIL-03: what this send semantically is. A provider with its own reply action needs it to create the
         // message as a reply rather than as a new message that merely carries RFC headers.
-        sendKind: composeData?.isForward ? 'forward'
+        sendKind: composeData?.sendKind ?? (composeData?.isForward ? 'forward'
           // Reply All is user intent, not an accidental consequence of whether
           // the deduplicated recipient set still has a Cc address.
           : (composeData?.replyToMessageId || composeData?.inReplyTo) ? (composeData?.isReplyAll ? 'reply_all' : 'reply')
-            : 'new',
+            : 'new'),
         ...(composeData?.replyToMessageId ? { replyToMessageId: composeData.replyToMessageId } : {}),
         ...(composeData?.replyParentMessageId ? { replyParentMessageId: composeData.replyParentMessageId } : {}),
         ...(composeData?.replyParentAccountId ? { replyParentAccountId: composeData.replyParentAccountId } : {}),
@@ -991,8 +998,104 @@ export default function ComposeModal() {
         ...(fwdAttachments.length ? {
           forwardedAttachments: fwdAttachments.map(a => ({ messageId: a.messageId, part: a.part })),
         } : {}),
-      }, { 'X-Idempotency-Key': idempotencyKeyRef.current });
+      };
+  };
+
+  /** Submit only after all autosave acknowledgements reconcile the queued revision. */
+  const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false, merge = false } = {}) => {
+    if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || !currentCompose()) return;
+    if (merge && composeData?.queuedMail) { setError(t('queue.mergeQueuedBlocked')); return; }
+    if (!frozenQueueRef.current && (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)) { setError(t('queue.preferencesLoading')); return; }
+    if (sending) return; // guard against a rapid double-submit (e.g. double Ctrl/Cmd+Enter)
+    // A saved draft is identified by its account, folder and compatibility number. `uidValidity` is the
+    // IMAP guard that confirms the identity; a provider account's draft has none (its identity is the
+    // provider's immutable id, held server-side), so requiring it here would strand every provider draft.
+    const sentDraftIdentity = draftUid != null && draftFolder != null && draftAccountId
+      ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
+      : null;
+    const { accountId } = resolveFrom(fromValue);
+    const toFinal = [...toChips, ...(toInput.trim() ? [toInput.trim()] : [])];
+    const ccFinal = [...ccChips, ...(ccInput.trim() ? [ccInput.trim()] : [])];
+    const bccFinal = [...bccChips, ...(bccInput.trim() ? [bccInput.trim()] : [])];
+    if (!frozenQueueRef.current && ((!toFinal.length && !ccFinal.length && !bccFinal.length) || !accountId)) return;
+
+    if (!frozenQueueRef.current && !skipSubjectWarn && subject.trim() === '') {
+      setShowEmptySubjectWarn(true);
+      return;
+    }
+
+    if (!frozenQueueRef.current && !skipAttachWarn) {
+      const composedText = plaintextCompose
+        ? body
+        : (htmlMode ? htmlSource.replace(/<[^>]+>/g, ' ') : (editor?.getText() ?? ''));
+      const keywords = t('compose.attachmentKeywords').split('|');
+      const lower = composedText.toLowerCase();
+      const hasAttachmentWord = keywords.some(kw => lower.includes(kw.toLowerCase()));
+      const hasNoAttachment = attachments.length === 0 && fwdAttachments.length === 0;
+      if (hasAttachmentWord && hasNoAttachment) {
+        setShowForgottenAttachWarn(true);
+        return;
+      }
+    }
+
+    const requestAuthEpoch = useStore.getState().authEpoch;
+    const isCurrentSession = () => useStore.getState().authEpoch === requestAuthEpoch;
+    const isCurrentOperation = () => isCurrentSession() && currentCompose();
+    localStorage.setItem('mailflow_last_from_account', accountId);
+    // An earlier send whose outcome the server could not confirm. An ordinary click must not dispatch again:
+    // the kept key makes the server answer with the same uncertain state. Sending a second copy is a separate,
+    // deliberate action, and the question says what the risk is (MAIL-05).
+    if (sendOutcomeUnknownRef.current) {
+      const confirmed = window.confirm(`${t('compose.sendUncertainTitle')}\n\n${t('compose.sendUncertainBody')}\n\n${t('compose.sendUncertainResend')}`);
+      if (!confirmed) return;
+      idempotencyKeyRef.current = null;
+      sendOutcomeUnknownRef.current = false;
+    }
+    setSending(true);
+    setShowReplyType(false);
+    setShowCcBccMenu(false);
+    setError('');
+    // crypto.randomUUID needs a secure context; fall back for plain-HTTP LAN deployments.
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    try {
+      const message = buildMessage();
+      if (frozenQueueRef.current || merge || scheduleSelectionRef.current || composeData?.queuedMail || undoSendSeconds > 0) {
+        if (!frozenQueueRef.current) {
+          const selection = scheduleSelectionRef.current;
+          const timeZone = selection?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+          frozenQueueRef.current = merge
+            ? { method: 'POST', path: '/mail/merge', body: { message } }
+            : composeData?.queuedMail
+            ? { method: 'PUT', path: `/mail/scheduled/${encodeURIComponent(composeData.queuedMail.id)}`,
+                body: { revision: queuedRevisionRef.current, message, ...(selection ?? { sendNow: true, timeZone }) } }
+            : { method: 'POST', path: '/mail/scheduled', body: { message,
+                mode: selection ? 'schedule' : 'undo', timeZone, ...(selection ? { scheduledAt: selection.scheduledAt } : {}) } };
+        }
+        const frozen = frozenQueueRef.current;
+        const isMergeQueue = frozen.path === '/mail/merge';
+        const queued = frozen.method === 'PUT' ? await api.put(frozen.path, frozen.body)
+          : await api.post(frozen.path, frozen.body, { 'X-Idempotency-Key': idempotencyKeyRef.current });
+        if (!isCurrentOperation()) return;
+        frozenQueueRef.current = null;
+        idempotencyKeyRef.current = null;
+        mergePendingRef.current = false;
+        window.dispatchEvent(new Event('inboxora:scheduled-changed'));
+        if (frozen.body.keepEditing === true) {
+          queuedRevisionRef.current = queued.revision;
+          setSending(false); setQueueRetry(false); setError('');
+          return;
+        }
+        addNotification({ title: isMergeQueue ? t('queue.mergeQueued', { count: queued.count }) : t('queue.queued'), body: subject || t('common.noSubject'),
+          actionLabel: t('queue.title'), onAction: () => { if (isCurrentSession()) window.dispatchEvent(new Event('inboxora:open-scheduled')); } });
+        closeCompose();
+        if (sentDraftIdentity) api.deleteDraft(sentDraftIdentity.accountId, sentDraftIdentity.uid, sentDraftIdentity.folder, sentDraftIdentity.uidValidity ?? null).catch(() => {});
+        return;
+      }
+      const sendResult = await api.post('/mail/send', message, { 'X-Idempotency-Key': idempotencyKeyRef.current });
       if (!isCurrentSession()) return;
+      if (!isCurrentOperation()) return;
       // Send confirmed — clear the key so a subsequent send from a reused modal gets a fresh one.
       idempotencyKeyRef.current = null;
       const rejectedRecipients = Array.isArray(sendResult?.rejected) ? sendResult.rejected.map(String) : [];
@@ -1051,7 +1154,17 @@ export default function ComposeModal() {
         conversationId: composeData?.conversationId,
       });
     } catch (err) {
-      if (!isCurrentSession()) return;
+      if (!isCurrentOperation()) return;
+      if (frozenQueueRef.current) {
+        const queueError = toAppError(err);
+        if (isDefiniteQueueRejection(queueError)) {
+          frozenQueueRef.current = null; idempotencyKeyRef.current = null; setQueueRetry(false);
+          setError(t(scheduledActionErrorKey(queueError)));
+        } else { setQueueRetry(true); setError(t('queue.pendingAcknowledgement')); }
+        setSending(false);
+        window.dispatchEvent(new Event('inboxora:scheduled-changed'));
+        return;
+      }
       const appError = toAppError(err);
       // The server answers a size refusal with a domain code, the dimension it refused on and the two byte
       // figures — never with English prose a client would have to match.
@@ -1088,16 +1201,69 @@ export default function ComposeModal() {
     }
   };
 
+  /** Confirm the unique audience before handing one private batch to the server. */
+  const startMerge = () => {
+    if (composeData?.queuedMail) { setError(t('queue.mergeQueuedBlocked')); return; }
+    if (frozenQueueRef.current || sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || !currentCompose()) return;
+    const recipients = [...toChips, toInput, ...ccChips, ccInput, ...bccChips, bccInput]
+      .map(value => value.trim()).filter(Boolean);
+    if (recipients.some(value => !/^[^\s<>@,;]+@[^\s<>@,;]+$/.test(normalizeMailbox(value))
+      || /[\r\n\0]/.test(value) || (value.includes('<') && !/^[^<>]*<[^<>]+>\s*$/.test(value)))) {
+      setError(t('queue.mergeInvalidRecipient'));
+      return;
+    }
+    const count = new Set(recipients.map(normalizeMailbox)).size;
+    if (!count) { setError(t('queue.mergeInvalidRecipient')); return; }
+    mergeConfirmedRef.current = false;
+    setShowMergeConfirm(true);
+  };
+
+  const pausedNotice = composeData?.queuedMail && <div className="ui-alert" role="note" data-testid="compose-queue-paused"
+    style={{ flexShrink: 0, padding: '8px 14px', margin: 0, fontSize: 12 }}>{t('queue.editingNotice')}</div>;
+
+  const scheduleControls = <>
+    {autosavePending && !savingDraft && <button type="button" data-testid="compose-autosave-retry" onClick={() => void doSaveDraft({ silent: true })}>{t('queue.retryEnqueue')}</button>}
+    {(undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) && <span role="status" data-testid="compose-preferences-loading">{t(undoSendPreferencesStatus === 'error' ? 'queue.preferencesError' : 'queue.preferencesLoading')}{undoSendPreferencesStatus === 'error' && <button type="button" onClick={() => void useStore.getState().loadPreferences()}>{t('queue.refresh')}</button>}</span>}
+    {showMergeConfirm && <Dialog title={t('queue.startMailMerge')} closeLabel={t('common.close')}
+      className="scheduled-dialog" testId="mail-merge-dialog"
+      busy={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'}
+      onClose={() => setShowMergeConfirm(false)} footer={<>
+        <Button disabled={sending || savingDraft} onClick={() => setShowMergeConfirm(false)}>{t('common.cancel')}</Button>
+        <Button variant="primary" data-testid="mail-merge-confirm"
+          disabled={!mergeRecipientCount || sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'}
+          aria-busy={sending} onClick={() => {
+            if (mergeConfirmedRef.current || sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current
+              || queuedConflictRef.current || frozenQueueRef.current || !currentCompose()
+              || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) return;
+            mergeConfirmedRef.current = true;
+            mergePendingRef.current = true;
+            scheduleSelectionRef.current = null;
+            setShowMergeConfirm(false);
+            void handleSend({ merge: true });
+          }}>{t('queue.startMailMerge')}</Button>
+      </>}><p className="scheduled-merge-summary">{t('queue.mergeConfirm', { count: mergeRecipientCount })}</p></Dialog>}
+    {showSchedule && <SchedulePicker busy={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendSecondsSaving || undoSendPreferencesStatus !== 'ready'}
+      initialScheduledAt={composeData?.queuedMail?.scheduledAt} onCancel={() => setShowSchedule(false)}
+      onConfirm={selection => {
+        if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || frozenQueueRef.current || !currentCompose()
+          || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) return;
+        scheduleSelectionRef.current = selection; setShowSchedule(false); void handleSend();
+      }} />}
+  </>;
+
   const hasRecipients = toChips.length > 0 || !!toInput.trim()
     || ccChips.length > 0 || !!ccInput.trim()
     || bccChips.length > 0 || !!bccInput.trim();
 
+  /** Compare live edits with the last acknowledged snapshot, including detached rich-text fields. */
   const isDirty = () => {
     const currentBody = plaintextCompose ? body : (htmlMode ? htmlSource : (editor?.isEmpty ? '' : (editor?.getHTML() ?? '')));
     const currentQuotedBodyHtml = quotedHtmlRef.current ? quotedHtmlRef.current.innerHTML : quotedBodyHtml;
     const currentSignature = plaintextCompose ? plainSig : signatureContentRef.current;
     return (
       currentBody !== initialBodyRef.current ||
+      priority !== initialPriorityRef.current ||
+      JSON.stringify({ attachments, fwdAttachments }) !== initialAttachmentsRef.current ||
       subject !== initialSubjectRef.current ||
       fromValue !== initialFromRef.current ||
       normalizeTo(toChips) !== initialToRef.current ||
@@ -1113,12 +1279,26 @@ export default function ComposeModal() {
     );
   };
 
+  /** Serialize saves; replay an uncertain autosave verbatim before capturing any newer edits. */
   const doSaveDraft = async ({ closeAfter = false, silent = false } = {}) => {
+    if (sendingRef.current || frozenQueueRef.current || savingDraftRef.current || !currentCompose()) return;
+    if (queuedConflictRef.current) return;
+    if (autosaveReceiptRef.current) {
+      await autosaveReceiptRef.current();
+      // Reconciliation acknowledges only the old snapshot. An explicit Save must
+      // then capture the latest rendered edits at the acknowledged queue revision,
+      // rather than reuse the click's closure or report those edits as saved.
+      if (!silent && currentCompose() && !autosaveReceiptRef.current && !queuedConflictRef.current) {
+        await autosaveRef.current?.doSaveDraft({ closeAfter, silent });
+      }
+      return;
+    }
     const { accountId, aliasId } = resolveFrom(fromValue);
     if (!accountId) return;
     const requestAuthEpoch = useStore.getState().authEpoch;
     const requestComposeData = initialComposeDataRef.current;
-    const isCurrentComposeSession = () => useStore.getState().authEpoch === requestAuthEpoch
+    /** Ignore late acknowledgements after logout, lock, unmount or compose replacement. */
+    const isCurrentComposeSession = () => currentCompose() && useStore.getState().authEpoch === requestAuthEpoch
       && useStore.getState().composing
       && useStore.getState().composeData === requestComposeData;
     setSavingDraft(true);
@@ -1161,81 +1341,106 @@ export default function ComposeModal() {
         ? { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) }
         : null,
       attachmentCount: attachments.length + fwdAttachments.length,
+      attachmentSnapshot: JSON.stringify({ attachments, fwdAttachments }),
+      priority,
     };
-    try {
-      const result = await api.saveDraft({
-        accountId: draftSnapshot.accountId,
-        ...(draftSnapshot.aliasId ? { aliasId: draftSnapshot.aliasId } : {}),
-        to: draftSnapshot.to,
-        cc: draftSnapshot.cc,
-        bcc: draftSnapshot.bcc,
-        subject: draftSnapshot.subject,
-        body: draftSnapshot.body,
-        bodyIsHtml: draftSnapshot.bodyIsHtml,
-        ...(draftSnapshot.quotedBody ? { quotedBody: draftSnapshot.quotedBody } : {}),
-        ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
-        // Draft snapshots always carry the signature value, including an intentional removal.
-        editedSignature: draftSnapshot.editedSignature,
-        editedSignatureIsHtml: !plaintextCompose,
-        ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
-        ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
-        ...(draftSnapshot.replyToMessageId ? { replyToMessageId: draftSnapshot.replyToMessageId } : {}),
-        ...(draftSnapshot.replyParentMessageId ? { replyParentMessageId: draftSnapshot.replyParentMessageId } : {}),
-        ...(draftSnapshot.replyParentAccountId ? { replyParentAccountId: draftSnapshot.replyParentAccountId } : {}),
-        ...(draftSnapshot.replyKind ? { replyKind: draftSnapshot.replyKind } : {}),
-        ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
-      });
+    const pausedSave = composeData?.queuedMail ? { method: 'PUT' as const, path: `/mail/scheduled/${encodeURIComponent(composeData.queuedMail.id)}`,
+      body: { revision: queuedRevisionRef.current, message: structuredClone(buildMessage()), keepEditing: true } } : null;
+    /** Reconcile only this immutable request; later edits retain their own dirty baseline. */
+    const persistSnapshot = async () => {
       if (!isCurrentComposeSession()) return;
-      // A newer request owns the current draft baseline, even when an older
-      // response finishes later. Leaving the editor dirty is safer than losing it.
-      if (draftSnapshot.version !== draftSaveVersionRef.current) return;
-      if (result.uid != null) {
-        setDraftUid(result.uid);
-        setDraftFolder(result.folder);
-        setDraftUidValidity(typeof result.uidValidity === 'number' && Number.isSafeInteger(result.uidValidity) && result.uidValidity > 0 ? result.uidValidity : null);
-        setDraftAccountId(draftSnapshot.accountId);
-      }
-      const snapshotStillCurrent = isDraftSnapshotCurrent(draftSnapshot.editRevision, draftEditRevisionRef.current);
-      if (!closeAfter) {
-        // Promote a pending address only when both parts of that recipient field
-        // remain unchanged. A removal, replacement, Enter or blur increments the
-        // revision and acknowledgement then leaves the newer state untouched.
-        if (pendingTo && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.to, recipientRevisionRef.current.to)) {
-          setToChipsState(prev => [...prev, pendingTo]);
-          setToInputState(value => value === pendingTo ? '' : value);
+      setSavingDraft(true);
+      try {
+        const result = pausedSave ? await api.put(pausedSave.path, pausedSave.body) : await api.saveDraft({
+          accountId: draftSnapshot.accountId,
+          ...(draftSnapshot.aliasId ? { aliasId: draftSnapshot.aliasId } : {}),
+          to: draftSnapshot.to,
+          cc: draftSnapshot.cc,
+          bcc: draftSnapshot.bcc,
+          subject: draftSnapshot.subject,
+          body: draftSnapshot.body,
+          bodyIsHtml: draftSnapshot.bodyIsHtml,
+          ...(draftSnapshot.quotedBody ? { quotedBody: draftSnapshot.quotedBody } : {}),
+          ...(draftSnapshot.includeQuotedBodyHtml ? { quotedBodyHtml: draftSnapshot.quotedBodyHtml } : {}),
+          // Draft snapshots always carry the signature value, including an intentional removal.
+          editedSignature: draftSnapshot.editedSignature,
+          editedSignatureIsHtml: !plaintextCompose,
+          ...(draftSnapshot.inReplyTo ? { inReplyTo: draftSnapshot.inReplyTo } : {}),
+          ...(draftSnapshot.references ? { references: draftSnapshot.references } : {}),
+          ...(draftSnapshot.replyToMessageId ? { replyToMessageId: draftSnapshot.replyToMessageId } : {}),
+          ...(draftSnapshot.replyParentMessageId ? { replyParentMessageId: draftSnapshot.replyParentMessageId } : {}),
+          ...(draftSnapshot.replyParentAccountId ? { replyParentAccountId: draftSnapshot.replyParentAccountId } : {}),
+          ...(draftSnapshot.replyKind ? { replyKind: draftSnapshot.replyKind } : {}),
+          ...(draftSnapshot.existingDraft ? { existingDraft: draftSnapshot.existingDraft } : {}),
+        });
+        if (!isCurrentComposeSession()) return;
+        if (!currentCompose() || sendingRef.current) return;
+        // A newer request owns the current draft baseline, even when an older
+        // response finishes later. Leaving the editor dirty is safer than losing it.
+        if (draftSnapshot.version !== draftSaveVersionRef.current) return;
+        if (pausedSave) { queuedRevisionRef.current = result.revision; frozenQueueRef.current = null; autosaveReceiptRef.current = null; setAutosavePending(false); setError(''); window.dispatchEvent(new Event('inboxora:scheduled-changed')); }
+        if (result.uid != null) {
+          setDraftUid(result.uid);
+          setDraftFolder(result.folder);
+          setDraftUidValidity(typeof result.uidValidity === 'number' && Number.isSafeInteger(result.uidValidity) && result.uidValidity > 0 ? result.uidValidity : null);
+          setDraftAccountId(draftSnapshot.accountId);
         }
-        if (pendingCc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.cc, recipientRevisionRef.current.cc)) {
-          setCcChipsState(prev => [...prev, pendingCc]);
-          setCcInputState(value => value === pendingCc ? '' : value);
+        const snapshotStillCurrent = isDraftSnapshotCurrent(draftSnapshot.editRevision, draftEditRevisionRef.current);
+        if (!closeAfter) {
+          // Promote a pending address only when both parts of that recipient field
+          // remain unchanged. A removal, replacement, Enter or blur increments the
+          // revision and acknowledgement then leaves the newer state untouched.
+          if (pendingTo && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.to, recipientRevisionRef.current.to)) {
+            setToChipsState(prev => [...prev, pendingTo]);
+            setToInputState(value => value === pendingTo ? '' : value);
+          }
+          if (pendingCc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.cc, recipientRevisionRef.current.cc)) {
+            setCcChipsState(prev => [...prev, pendingCc]);
+            setCcInputState(value => value === pendingCc ? '' : value);
+          }
+          if (pendingBcc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.bcc, recipientRevisionRef.current.bcc)) {
+            setBccChipsState(prev => [...prev, pendingBcc]);
+            setBccInputState(value => value === pendingBcc ? '' : value);
+          }
         }
-        if (pendingBcc && isDraftSnapshotCurrent(draftSnapshot.recipientRevisions.bcc, recipientRevisionRef.current.bcc)) {
-          setBccChipsState(prev => [...prev, pendingBcc]);
-          setBccInputState(value => value === pendingBcc ? '' : value);
-        }
-      }
 
-      // Advance baselines to the exact request snapshot, never current editor
-      // state. Later edits remain dirty and are retained for the next save.
-      initialBodyRef.current = draftSnapshot.body;
-      initialSubjectRef.current = draftSnapshot.subject;
-      initialToRef.current = normalizeTo(draftSnapshot.to);
-      initialCcRef.current = normalizeTo(draftSnapshot.cc);
-      initialBccRef.current = normalizeTo(draftSnapshot.bcc);
-      initialFromRef.current = draftSnapshot.fromValue;
-      initialQuotedBodyRef.current = draftSnapshot.quotedBody;
-      initialQuotedBodyHtmlRef.current = draftSnapshot.quotedBodyHtml;
-      initialEditedSignatureRef.current = draftSnapshot.editedSignature || '';
-      savedAttachmentCountRef.current = draftSnapshot.attachmentCount;
-      if (closeAfter && snapshotStillCurrent) {
-        closeCompose();
-      } else if (!silent) {
-        addNotification({ title: t('compose.draftSaved'), body: draftSnapshot.subject || t('common.noSubject') });
+        // Advance baselines to the exact request snapshot, never current editor
+        // state. Later edits remain dirty and are retained for the next save.
+        initialBodyRef.current = draftSnapshot.body;
+        initialSubjectRef.current = draftSnapshot.subject;
+        initialToRef.current = normalizeTo(draftSnapshot.to);
+        initialCcRef.current = normalizeTo(draftSnapshot.cc);
+        initialBccRef.current = normalizeTo(draftSnapshot.bcc);
+        initialFromRef.current = draftSnapshot.fromValue;
+        initialQuotedBodyRef.current = draftSnapshot.quotedBody;
+        initialQuotedBodyHtmlRef.current = draftSnapshot.quotedBodyHtml;
+        initialEditedSignatureRef.current = draftSnapshot.editedSignature || '';
+        savedAttachmentCountRef.current = draftSnapshot.attachmentCount;
+        initialPriorityRef.current = draftSnapshot.priority;
+        initialAttachmentsRef.current = draftSnapshot.attachmentSnapshot;
+        if (closeAfter && snapshotStillCurrent) {
+          closeCompose();
+        } else if (!silent) {
+          addNotification({ title: t('compose.draftSaved'), body: draftSnapshot.subject || t('common.noSubject') });
+        }
+      } catch (err) {
+        if (isCurrentComposeSession()) {
+          if (pausedSave) {
+            const queueError = toAppError(err);
+            if (isDefiniteQueueRejection(queueError)) { frozenQueueRef.current = null; autosaveReceiptRef.current = null; setAutosavePending(false); setQueueRetry(false); if (queueError.status === 409) { queuedConflictRef.current = true; setQueuedConflict(true); } setError(t(scheduledActionErrorKey(queueError))); }
+            else { if (!silent) setQueueRetry(true); setError(t('queue.pendingAcknowledgement')); }
+          }
+          else { setError(toAppError(err).message); console.error('Save draft failed:', toAppError(err).message); }
+        }
+      } finally {
+        if (isCurrentComposeSession()) setSavingDraft(false);
       }
-    } catch (err) {
-      if (isCurrentComposeSession()) console.error('Save draft failed:', toAppError(err).message);
-    } finally {
-      if (isCurrentComposeSession()) setSavingDraft(false);
+    };
+    if (pausedSave) {
+      if (silent) { autosaveReceiptRef.current = persistSnapshot; setAutosavePending(true); }
+      else frozenQueueRef.current = pausedSave;
     }
+    await persistSnapshot();
   };
 
   // Compose state is local to this modal. Autosave preserves edits across a
@@ -1256,6 +1461,7 @@ export default function ComposeModal() {
       dialogOpen: showCloseDialog || showDiscardSheet || showAttachWarnForDraft };
   });
 
+  /** Coalesce timer and visibility saves while retaining uncertain requests for exact replay. */
   const runAutosave = useCallback(async () => {
     try {
       const state = autosaveRef.current;
@@ -1310,8 +1516,9 @@ export default function ComposeModal() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
+  /** Explicit saves reconcile any prior autosave before accepting further submission work. */
   const handleSaveDraft = (closeAfter = false) => {
-    if ((attachments.length > 0 || fwdAttachments.length > 0) && !showAttachWarnForDraft) {
+    if (!composeData?.queuedMail && (attachments.length > 0 || fwdAttachments.length > 0) && !showAttachWarnForDraft) {
       setAttachWarnDraftCloseAfter(closeAfter);
       setShowAttachWarnForDraft(true);
       return;
@@ -1320,8 +1527,10 @@ export default function ComposeModal() {
     doSaveDraft({ closeAfter });
   };
 
+  /** Keep uncertain queue receipts attached to their compose until acknowledgement. */
   const handleClose = () => {
     if (sending || savingDraft) return;
+    if (frozenQueueRef.current || autosaveReceiptRef.current) { setError(t('queue.pendingAcknowledgement')); return; }
     if (isDirty() || (draftUid != null && draftWasPreExisting.current)) {
       if (isMobile) setShowDiscardSheet(true);
       else setShowCloseDialog(true);
@@ -1355,7 +1564,7 @@ export default function ComposeModal() {
   ) : (
     <div
       ref={signatureRef}
-      contentEditable
+      contentEditable={!editorFrozen}
       spellCheck={false}
       onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; recordDraftEdit(); }}
       style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
@@ -1380,9 +1589,17 @@ export default function ComposeModal() {
     </svg>
   );
 
+  const sendButton = <SendSplitButton mobile={isMobile} disabled={sending || savingDraft || autosavePending || queuedConflict || (!queueRetry && (!hasRecipients || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving))}
+    menuDisabled={sending || savingDraft || autosavePending || queuedConflict || queueRetry || undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving}
+    sendLabel={sending ? t('compose.sending') : queueRetry ? t('queue.retryEnqueue') : t('compose.send')}
+    scheduleLabel={t('queue.scheduleSend')} mergeLabel={t('queue.startMailMerge')} menuLabel={t('queue.sendOptions')}
+    title={sending ? undefined : t('compose.sendTooltip')}
+    onSend={() => { mergePendingRef.current = false; scheduleSelectionRef.current = null; void handleSend(); }}
+    onSchedule={() => { mergePendingRef.current = false; setShowSchedule(true); }} onMerge={startMerge}>{!isMobile && (sending ? sendSpinner : sendIcon)}</SendSplitButton>;
+
   /** Share reply-mode transitions between desktop and mobile without overriding retry recipients. */
   const switchReplyMode = (all: boolean) => {
-    if (sendingRef.current) return;
+    if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
     const next = recipientSeed.owner.switchReply(all, parseChips(composeData?.allRecipients || []),
       { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
     recordRecipientEdit('cc'); setCcChipsState(next.cc);
@@ -1422,7 +1639,13 @@ export default function ComposeModal() {
       }} />
       <div
         ref={composePanelRef}
+        data-testid="compose-editor"
         onKeyDown={handleKeyDown}
+      onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onKeyDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && event.key !== 'Tab' && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onPointerDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onMouseDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onBeforeInputCapture={event => { if (sendingRef.current || frozenQueueRef.current || !currentCompose()) { event.preventDefault(); event.stopPropagation(); } }}
         style={{
           position: 'fixed', top: 0, left: 0, right: 0,
           height: viewportHeight,
@@ -1472,24 +1695,12 @@ export default function ComposeModal() {
                 <line x1="4" y1="22" x2="4" y2="15" stroke="currentColor" strokeWidth="2" fill="none"/>
               </svg>
             </button>
-            <button
-              onClick={() => { void handleSend(); }}
-              disabled={sending || !hasRecipients}
-              style={{
-                background: 'none', border: 'none',
-                color: sending || !hasRecipients ? 'var(--text-tertiary)' : 'var(--accent)',
-                fontSize: 16, fontWeight: 600,
-                cursor: sending || !hasRecipients ? 'default' : 'pointer',
-                padding: '4px 0',
-                WebkitTapHighlightColor: 'transparent',
-                transition: 'color 0.15s',
-              }}
-            >
-              {sending ? sendSpinner : t('compose.send')}
-            </button>
+            {sendButton}
+            {scheduleControls}
           </div>
         </div>
 
+        {pausedNotice}
         {/* Reply/Reply All toggle */}
         {isReply && (
           <div style={{
@@ -1503,7 +1714,7 @@ export default function ComposeModal() {
             ].map(({ label, active, onTap }) => (
               <button
                 key={label}
-                disabled={sending}
+                disabled={sending || queueRetry}
                 onClick={onTap}
                 style={{
                   flex: 1, padding: '9px 0',
@@ -1531,7 +1742,7 @@ export default function ComposeModal() {
               value={fromValue}
             aria-label={t('compose.from')}
             data-testid="compose-from"
-            disabled={sending}
+            disabled={sending || queueRetry}
               onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
               style={{ ...mobileInputStyle, cursor: 'pointer' }}
             >
@@ -1565,7 +1776,7 @@ export default function ComposeModal() {
           <div style={fieldStyle}>
             <span style={labelStyle}>{t('compose.to')}</span>
             <ChipInput
-              disabled={sending} inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
+              disabled={sending || queueRetry} inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
               value={toInput} onChange={setToInput}
               placeholder={t('compose.toPh')}
               autoFocus={!isReply && !isForward}
@@ -1600,7 +1811,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.cc')}</span>
               <ChipInput
-                disabled={sending} inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
+                disabled={sending || queueRetry} inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
                 value={ccInput} onChange={setCcInput}
                 placeholder={t('compose.ccPh')}
                 inputStyle={mobileInputStyle}
@@ -1615,7 +1826,7 @@ export default function ComposeModal() {
             <div style={fieldStyle}>
               <span style={labelStyle}>{t('compose.bcc')}</span>
               <ChipInput
-                disabled={sending} inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
+                disabled={sending || queueRetry} inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
                 value={bccInput} onChange={setBccInput}
                 placeholder={t('compose.bccPh')}
                 inputStyle={mobileInputStyle}
@@ -1655,7 +1866,7 @@ export default function ComposeModal() {
             />
           ) : (
             <div className="tiptap-compose" style={{ flex: '1 0 auto', minHeight: 200, display: 'flex', flexDirection: 'column' }}>
-              {editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
+              {editor && !editorFrozen && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()}
                 htmlMode={htmlMode}
                 onToggleHtml={() => {
                   if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -1733,7 +1944,7 @@ export default function ComposeModal() {
             !plaintextCompose && quotedBodyHtml ? (
               <div
                 ref={quotedHtmlRef}
-                contentEditable
+                contentEditable={!editorFrozen}
                 onInput={recordDraftEdit}
                 spellCheck={false}
                 style={{
@@ -1909,7 +2120,7 @@ export default function ComposeModal() {
               {t('compose.emptySubject.title')}
             </div>
             <button
-              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true, merge: mergePendingRef.current }); }}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
               {t('compose.emptySubject.sendAnyway')}
@@ -1946,7 +2157,7 @@ export default function ComposeModal() {
               {t('compose.forgottenAttachment.body')}
             </div>
             <button
-              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true, merge: mergePendingRef.current }); }}
               style={{ width: '100%', padding: '16px 20px', textAlign: 'left', background: 'none', border: 'none', color: 'var(--accent)', fontSize: 16, fontWeight: 500, cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', WebkitTapHighlightColor: 'transparent' }}
             >
               {t('compose.forgottenAttachment.sendAnyway')}
@@ -2040,8 +2251,14 @@ export default function ComposeModal() {
       )}
     <div
       ref={composeWindowRef}
+      data-testid="compose-editor"
       className="compose-window"
       onKeyDown={handleKeyDown}
+      onClickCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onKeyDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && event.key !== 'Tab' && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onPointerDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onMouseDownCapture={event => { if ((sendingRef.current || frozenQueueRef.current || !currentCompose()) && !(event.target instanceof Element && event.target.closest('[data-testid="compose-send"]'))) { event.preventDefault(); event.stopPropagation(); } }}
+      onBeforeInputCapture={event => { if (sendingRef.current || frozenQueueRef.current || !currentCompose()) { event.preventDefault(); event.stopPropagation(); } }}
       style={maximized ? {
         position: 'fixed', top: 28, left: 28, right: 28, bottom: 28,
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
@@ -2050,7 +2267,7 @@ export default function ComposeModal() {
       } : pos ? {
         position: 'fixed', top: pos.y, left: pos.x,
         width: customSize?.width || 600,
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: 'var(--compose-max-height, 75vh)' }),
         maxWidth: 'calc(100vw - 16px)',
         background: 'var(--bg-secondary)', border: '1px solid var(--border)',
         borderRadius: 10, boxShadow: 'var(--shadow-modal)',
@@ -2060,7 +2277,7 @@ export default function ComposeModal() {
         // edge (no bottom border/radius) on the elevated surface.
         position: 'fixed', bottom: 0, right: 24,
         width: customSize?.width || 600, maxWidth: 'calc(100vw - 48px)',
-        ...(customSize?.height ? { height: customSize.height } : { maxHeight: '75vh' }),
+        ...(customSize?.height ? { height: customSize.height } : { maxHeight: 'var(--compose-max-height, 75vh)' }),
         background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
         borderBottom: 'none', borderRadius: '10px 10px 0 0',
         boxShadow: 'var(--shadow-modal)',
@@ -2082,7 +2299,7 @@ export default function ComposeModal() {
         {isReply ? (
           <div ref={replyTypeRef} style={{ position: 'relative' }}>
             <button
-              disabled={sending}
+              disabled={sending || queueRetry}
               onClick={() => setShowReplyType(!showReplyType)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
@@ -2168,6 +2385,7 @@ export default function ComposeModal() {
         </div>
       </div>
 
+      {pausedNotice}
       {/* Bound expanded copy fields without pushing the editor or Send outside the viewport.
           Leave the ordinary From/To/Subject layout unchanged when both copy fields are closed.
           The rich toolbar remains a sibling so its dropdowns are not clipped. */}
@@ -2181,7 +2399,7 @@ export default function ComposeModal() {
             value={fromValue}
             aria-label={t('compose.from')}
             data-testid="compose-from"
-            disabled={sending}
+            disabled={sending || queueRetry}
             onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setFromValue(e.target.value)}
             style={{ flex: 1, padding: '8px 4px', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: 13, outline: 'none', cursor: 'pointer' }}
           >
@@ -2215,7 +2433,7 @@ export default function ComposeModal() {
         <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
           <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.to')}</span>
           <ChipInput
-            disabled={sending} inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
+            disabled={sending || queueRetry} inputTestId="compose-to" chips={toChips} onChipsChange={setToChips}
             value={toInput} onChange={setToInput}
             placeholder={t('compose.toPh')}
             autoFocus={!isReply && !isForward}
@@ -2243,7 +2461,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.cc')}</span>
             <ChipInput
-              disabled={sending} inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
+              disabled={sending || queueRetry} inputTestId="compose-cc" chips={ccChips} onChipsChange={setCcChips}
               value={ccInput} onChange={setCcInput}
               placeholder={t('compose.ccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
@@ -2257,7 +2475,7 @@ export default function ComposeModal() {
           <div style={{ display: 'flex', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', padding: '0 12px' }}>
             <span style={{ fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-tertiary)', width: 52, flexShrink: 0, paddingTop: 9 }}>{t('compose.bcc')}</span>
             <ChipInput
-              disabled={sending} inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
+              disabled={sending || queueRetry} inputTestId="compose-bcc" chips={bccChips} onChipsChange={setBccChips}
               value={bccInput} onChange={setBccInput}
               placeholder={t('compose.bccPh')}
               inputStyle={{ ...inputStyle, borderBottom: 'none', padding: '6px 4px' }}
@@ -2278,7 +2496,7 @@ export default function ComposeModal() {
       </div>
 
       {/* Toolbar — sits outside overflow container so dropdowns are never clipped */}
-      {!plaintextCompose && editor && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
+      {!plaintextCompose && editor && !editorFrozen && <RichToolbar editor={editor} onAttach={() => fileInputRef.current?.click()} onInsertImage={() => imageInputRef.current?.click()}
         htmlMode={htmlMode}
         onToggleHtml={() => {
           if (!htmlMode) { setHtmlSource(editor?.getHTML() ?? ''); setHtmlMode(true); }
@@ -2329,7 +2547,7 @@ export default function ComposeModal() {
       )}
 
       {/* Scrollable body area */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div data-testid="compose-body-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {/* Body */}
         {plaintextCompose ? (
           <textarea
@@ -2381,7 +2599,7 @@ export default function ComposeModal() {
           !plaintextCompose && quotedBodyHtml ? (
             <div
               ref={quotedHtmlRef}
-              contentEditable
+              contentEditable={!editorFrozen}
               onInput={recordDraftEdit}
               spellCheck={false}
               style={{
@@ -2418,23 +2636,8 @@ export default function ComposeModal() {
         padding: '10px 14px', borderTop: '1px solid var(--border-subtle)',
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
       }}>
-        <button
-          onClick={() => { void handleSend(); }}
-          disabled={sending || !hasRecipients}
-          title={sending ? undefined : t('compose.sendTooltip')}
-          style={{
-            padding: '8px 20px', background: 'var(--accent)',
-            border: 'none', borderRadius: 7, color: 'var(--accent-text)',
-            fontSize: 13, fontWeight: 500,
-            cursor: sending || !hasRecipients ? 'not-allowed' : 'pointer',
-            opacity: sending || !hasRecipients ? 0.6 : 1,
-            display: 'flex', alignItems: 'center', gap: 6,
-            transition: 'opacity 0.15s',
-          }}
-        >
-          {sending ? sendSpinner : sendIcon}
-          {sending ? t('compose.sending') : t('compose.send')}
-        </button>
+        {sendButton}
+        {scheduleControls}
 
         {plaintextCompose && (
           <button
@@ -2520,7 +2723,7 @@ export default function ComposeModal() {
               {t('compose.emptySubject.cancel')}
             </button>
             <button
-              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true }); }}
+              onClick={() => { setShowEmptySubjectWarn(false); handleSend({ skipSubjectWarn: true, merge: mergePendingRef.current }); }}
               style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.emptySubject.sendAnyway')}
@@ -2557,7 +2760,7 @@ export default function ComposeModal() {
               {t('compose.forgottenAttachment.cancel')}
             </button>
             <button
-              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true }); }}
+              onClick={() => { setShowForgottenAttachWarn(false); handleSend({ skipSubjectWarn: true, skipAttachWarn: true, merge: mergePendingRef.current }); }}
               style={{ padding: '7px 14px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-text)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               {t('compose.forgottenAttachment.sendAnyway')}

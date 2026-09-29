@@ -246,7 +246,8 @@ test('the day agenda keeps a width separate from the shared list column', t => {
 test('the stacked mail list fills its column instead of a percentage of the width', () => {
   const messageList = read('MessageList.tsx');
   assert.doesNotMatch(messageList, /isColumn \? '0 0 42%'/);
-  assert.match(messageList, /width: '100%',\n\s+minWidth: 0,\n\s+flex: 1,/);
+  assert.match(messageList, /mailListSurfaceStyle\(isMobile, isColumn\)/);
+  assert.match(read('MailListPresentation.tsx'), /width: '100%',\s*minWidth: 0,\s*flex: 1,/);
 });
 
 test('narrow screens present the calendar panel and day agenda as one bottom sheet', () => {

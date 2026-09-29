@@ -137,6 +137,7 @@ jobs:
           # would report the durable send intent as covered while never running it.
           REQUIRE_SEND_POSTGRES: "1"
           REQUIRE_DEFAULT_RECIPIENTS_POSTGRES: "1"
+          REQUIRE_SCHEDULED_MAIL_POSTGRES: "1"
         # `providerSchemaUpgrade.integration.test.ts` creates and drops a database of
         # its own, so the role needs CREATEDB (the service user has it) and this job
         # must not share its database with another.
@@ -165,6 +166,7 @@ jobs:
             src/services/accountNotices.integration.test.ts \
             src/services/defaultSender.integration.test.ts \
             src/services/defaultRecipients.integration.test.ts \
+            src/services/scheduledMail.integration.test.ts \
             src/services/carddavSourceOwnership.integration.test.ts \
             src/services/carddavUneditedContact.integration.test.ts \
             src/services/calendarOccurrences.integration.test.ts \

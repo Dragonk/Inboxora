@@ -4,6 +4,25 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 describe('migration integrity', () => {
+  it('adds seen receipts after merge batches without rewriting delivery state or retained content', () => {
+    const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
+    expect(files[files.indexOf('0154_mail_merge_batches.sql') + 1]).toBe('0155_scheduled_mail_seen.sql');
+    const sql = readFileSync(join(process.cwd(), 'migrations/0155_scheduled_mail_seen.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN sent_seen_at TIMESTAMPTZ');
+    expect(sql).toContain("ADD COLUMN sent_metadata JSONB NOT NULL DEFAULT '{}'::jsonb");
+    expect(sql).toContain("WHERE state = 'sent' AND sent_seen_at IS NULL");
+    expect(sql).not.toMatch(/UPDATE\s+scheduled_mail|DELETE\s+FROM|DROP\s+/i);
+  });
+  it('adds durable, bounded mail merge receipts after scheduled-mail dismissal', () => {
+    const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
+    expect(files[files.indexOf('0153_scheduled_mail_dismissal.sql') + 1]).toBe('0154_mail_merge_batches.sql');
+    const sql = readFileSync(join(process.cwd(), 'migrations/0154_mail_merge_batches.sql'), 'utf8');
+    expect(sql).toContain('CREATE TABLE mail_merge_batches');
+    expect(sql).toContain('user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE');
+    expect(sql).toContain('UNIQUE (user_id, idempotency_key)');
+    expect(sql).toContain('CHECK (cardinality(item_ids) BETWEEN 1 AND 100)');
+    expect(sql).not.toMatch(/UPDATE\s+scheduled_mail|DELETE\s+FROM\s+scheduled_mail/i);
+  });
   it('adds bounded account compose defaults immediately after 0150', () => {
     const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
     expect(files[files.indexOf('0150_account_default_sender.sql') + 1]).toBe('0151_account_default_recipients.sql');

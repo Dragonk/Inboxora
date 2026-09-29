@@ -594,7 +594,7 @@ it('the legacy mailbox sign-in no longer owns the canonical callback path', asyn
  * which is what this pins, together with the ownership check that keeps the lookup to the caller's own mailbox.
  */
 it('resolves the reply edge from the stored message when the payload omits it', async () => {
-  const source = await readFile(new URL('./send.ts', import.meta.url), 'utf8');
+  const source = await readFile(new URL('../services/sendMail.ts', import.meta.url), 'utf8');
   assert.match(source, /replyToMessageId\?: string;/);
   // The physical parent is authoritative even when a stale client supplied RFC headers;
   // Graph still needs its native ID for createReply.

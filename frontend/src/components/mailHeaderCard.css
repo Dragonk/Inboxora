@@ -1,0 +1,10 @@
+/* Adapt the shared inbox/Scheduled header to its actual pane, not the screen width. */
+.mail-header-card { container-type: inline-size; container-name: mail-header; }
+.mail-header-sender { overflow-wrap: anywhere; }
+@container mail-header (max-width: 460px) {
+  .mail-header-metadata { flex-wrap: wrap; }
+  .mail-header-sender :is(div, span) { white-space: normal !important; overflow-wrap: anywhere; }
+  .mail-header-date { flex-basis: calc(100% - 52px); min-width: 0; margin-left: 52px; text-align: left !important; }
+  .mail-header-date > div:first-child { white-space: normal !important; color: var(--text-secondary) !important; }
+  .mail-header-date > div:last-child { justify-content: flex-start !important; }
+}
