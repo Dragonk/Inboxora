@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: conversation-engine-postgres-${{ github.event.pull_request.number || github.ref }}
@@ -26,9 +27,18 @@ env:
   ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
 
 jobs:
-  migrations-and-postgres:
-    name: Migrations and PostgreSQL integration
-    runs-on: ubuntu-latest
+  changes:
+    uses: ./.github/workflows/ci-plan.yml
+  validation:
+    name: PostgreSQL ${{ matrix.stage }}
+    needs: changes
+    if: needs.changes.outputs.run_tests == 'true'
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [upgrade, regression, scale]
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -50,6 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ needs.changes.outputs.source_sha }}
           fetch-depth: 1
 
       - name: Assert exact tested SHA
@@ -59,12 +70,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci --prefix backend && npm ci --prefix frontend
+        run: npm ci --prefix backend
 
       - name: Verify PostgreSQL and Redis readiness
         working-directory: backend
@@ -86,6 +95,7 @@ jobs:
             "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('uq_logical_messages_account_canonical_collision','uq_logical_messages_account_no_message_id_fingerprint','idx_conversations_user_account_latest','idx_logical_messages_user_account_message')" | grep -qx 4
 
       - name: Populated legacy and account-identity migration gates
+        if: matrix.stage == 'upgrade'
         working-directory: backend
         env:
           PGHOST: 127.0.0.1
@@ -107,6 +117,7 @@ jobs:
           node --import tsx --input-type=module -e "import { runMigrations } from './src/services/migrations.ts'; await runMigrations();"
 
       - name: PostgreSQL integration and required regression suites
+        if: matrix.stage == 'regression'
         working-directory: backend
         env:
           REQUIRE_CE_POSTGRES: '1'
@@ -120,6 +131,7 @@ jobs:
 
 
       - name: PostgreSQL EXPLAIN scale gate
+        if: matrix.stage == 'scale'
         working-directory: backend
         env:
           REQUIRE_DB_PERF_GATE: '1'
@@ -133,8 +145,28 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: conversation-engine-postgres-${{ github.run_id }}
+          name: conversation-engine-postgres-${{ matrix.stage }}-${{ github.run_id }}
           if-no-files-found: warn
           path: |
             artifacts-*.log
             artifacts-*.json
+
+  migrations-and-postgres:
+    name: Migrations and PostgreSQL integration
+    needs: [changes, validation]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every applicable validation stage
+        env:
+          PLAN_RESULT: ${{ needs.changes.result }}
+          RUN_TESTS: ${{ needs.changes.outputs.run_tests }}
+          TEST_RESULT: ${{ needs.validation.result }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          set -euo pipefail
+          test "$PLAN_RESULT" = success
+          if [ "$RUN_TESTS" = true ]; then test "$TEST_RESULT" = success;
+          else test "$RUN_TESTS" = false; test "$TEST_RESULT" = skipped; fi
+          printf '%s\n' "$REASON" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,48 @@
+name: CI change plan
+on:
+  workflow_call:
+    inputs:
+      expected_sha:
+        required: false
+        type: string
+        default: ''
+    outputs:
+      run_tests:
+        value: ${{ jobs.plan.outputs.run_tests }}
+      docs_only:
+        value: ${{ jobs.plan.outputs.docs_only }}
+      duplicate_push:
+        value: ${{ jobs.plan.outputs.duplicate_push }}
+      reason:
+        value: ${{ jobs.plan.outputs.reason }}
+      source_sha:
+        value: ${{ jobs.plan.outputs.source_sha }}
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run_tests: ${{ steps.plan.outputs.run_tests }}
+      docs_only: ${{ steps.plan.outputs.docs_only }}
+      duplicate_push: ${{ steps.plan.outputs.duplicate_push }}
+      reason: ${{ steps.plan.outputs.reason }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Test the CI planner and gate contracts
+        run: node --test scripts/ci-plan.test.mjs scripts/release-source.test.mjs
+      - name: Classify changes and avoid duplicate push work
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: node scripts/ci-plan.mjs

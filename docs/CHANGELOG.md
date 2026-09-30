@@ -44,6 +44,8 @@ No unreleased changes.
 - **Upgrade order:** apply `0150_account_default_sender.sql` after `0149_body_cache_retention.sql` and before starting the updated backend. Existing accounts keep their primary default; the migration scopes the optional alias reference to its account and clears it on alias deletion. No new environment setting is required. See [4.2.0 release notes](wiki/Release-notes-4.2.0.md).
 
 ### Changed
+- Avoid duplicate push/PR CI for the same dev revision and omit runtime/browser/database work for documentation-only changes while still validating documentation. Split the unchanged browser matrix into four isolated shards and PostgreSQL migration/regression/scale checks into three jobs; keep explicit final gates and reviewed visual thresholds.
+- Build both release-image architectures on native runners, verify immutable versioned manifests before promoting `latest`, and keep app releases as drafts until their signed artifacts are checked. Release tags are created only from merged main with matching application versions.
 - Publish 4.2.0 documentation with a shorter README and a Wiki Archive for all older release notes, preserving existing page addresses.
 - Group Accounts, Calendars and Contacts under General. Move calendar appearance into Appearance, and edit calendars/address books inline with separate row-level delete actions.
 - Align Rules and Antispam with shared, theme-aware settings controls; keep folder-mapping drafts when switching account tabs.

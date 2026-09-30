@@ -1,16 +1,12 @@
 name: Release
 
-# Publishes the versioned container images for a git tag:
-#   ghcr.io/<owner>/inboxora-backend  : v4.0.0, 4.0.0, latest
-#   ghcr.io/<owner>/inboxora-frontend : v4.0.0, 4.0.0, latest
-# All three tags come from one build of the tagged SHA, so they can never drift.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to (re-)publish, e.g. v4.0.3"
+        description: "Existing immutable release tag to publish, e.g. v4.2.0"
         required: true
         type: string
 
@@ -18,107 +14,192 @@ permissions:
   contents: read
   packages: write
 
-jobs:
-  images:
-    name: GHCR release images
-    runs-on: ubuntu-latest
+concurrency:
+  group: inboxora-release-images
+  cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      owner: ${{ steps.source.outputs.owner }}
+      tag: ${{ steps.source.outputs.tag }}
+      version: ${{ steps.source.outputs.version }}
+      latest: ${{ steps.source.outputs.latest }}
     steps:
-      - name: Checkout the tagged revision
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
-
-      - name: Resolve and assert the release tag
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Validate the release tag, main ancestry and app versions
+        id: source
         env:
-          REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          set -euo pipefail
-
-          tag="${REQUESTED_TAG:-$GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
-            printf 'Not a release tag: %s\n' "$tag" >&2
-            exit 1
-          fi
-
-          if ! git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
-            printf 'Tag does not exist in this repository: %s\n' "$tag" >&2
-            exit 1
-          fi
-
-          tag_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
-          head_sha="$(git rev-parse HEAD)"
-          if [ "$head_sha" != "$tag_sha" ]; then
-            printf 'Checked out %s, but %s points at %s\n' "$head_sha" "$tag" "$tag_sha" >&2
-            exit 1
-          fi
-
-          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
-          echo "RELEASE_VERSION=${tag#v}" >> "$GITHUB_ENV"
-          echo "RELEASE_SHA=$tag_sha" >> "$GITHUB_ENV"
-          printf 'Publishing release images for %s from %s\n' "$tag" "$tag_sha"
-
+          node scripts/validate-release-source.mjs
+          echo "owner=${REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
       - name: Translation release gate
         uses: ./.github/actions/translation-gate
 
-      - uses: docker/setup-qemu-action@v3
+  build:
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.sha }}
+      IMAGE_OWNER: ${{ needs.source.outputs.owner }}
+      RELEASE_TAG: ${{ needs.source.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.source.outputs.version }}
+      PROMOTE_LATEST: ${{ needs.source.outputs.latest }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+      - run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
       - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata (backend)
-        id: meta-backend
+      - name: Backend labels (no mutable tag is pushed by matrix jobs)
+        id: backend-labels
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/inboxora-backend
-          tags: |
-            type=raw,value=${{ env.RELEASE_TAG }}
-            type=raw,value=${{ env.RELEASE_VERSION }}
-            type=raw,value=latest
-
-      - name: Build and push backend
+          images: ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-backend
+          tags: type=raw,value=${{ env.RELEASE_VERSION }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Build backend by immutable digest
+        id: backend
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./backend/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-backend,push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.backend-labels.outputs.labels }}
           provenance: false
           build-args: |
-            BUILD_SHA=${{ env.RELEASE_SHA }}
-            APP_VERSION=${{ env.RELEASE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Extract metadata (frontend)
-        id: meta-frontend
+            BUILD_SHA=${{ env.SOURCE_SHA }}
+            APP_VERSION=${{ env.RELEASE_VERSION }}
+          cache-from: type=gha,scope=release-backend-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-backend-${{ matrix.arch }},mode=max
+      - name: Frontend labels
+        id: frontend-labels
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/inboxora-frontend
-          tags: |
-            type=raw,value=${{ env.RELEASE_TAG }}
-            type=raw,value=${{ env.RELEASE_VERSION }}
-            type=raw,value=latest
-
-      - name: Build and push frontend
+          images: ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-frontend
+          tags: type=raw,value=${{ env.RELEASE_VERSION }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Build frontend by immutable digest
+        id: frontend
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./frontend/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=ghcr.io/${{ env.IMAGE_OWNER }}/inboxora-frontend,push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.frontend-labels.outputs.labels }}
           provenance: false
-          build-args: |
-            VITE_BUILD_SHA=${{ env.RELEASE_SHA }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: VITE_BUILD_SHA=${{ env.SOURCE_SHA }}
+          cache-from: type=gha,scope=release-frontend-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-frontend-${{ matrix.arch }},mode=max
+      - name: Verify the backend maintenance entry points in the built image
+        env:
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+        run: |
+          image="ghcr.io/$IMAGE_OWNER/inboxora-backend@$BACKEND_DIGEST"
+          docker run --rm "$image" node dist/scripts/repairConversationHeaders.js --help
+          docker run --rm "$image" node dist/scripts/storageMaintenanceStatus.js --help
+      - name: Record verified platform digests
+        env:
+          ARCH: ${{ matrix.arch }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          mkdir -p digests
+          python3 - <<'PY'
+          import json, os, re
+          for key in ('BACKEND_DIGEST', 'FRONTEND_DIGEST'):
+              assert re.fullmatch(r'sha256:[0-9a-f]{64}', os.environ[key])
+          with open('digests/' + os.environ['ARCH'] + '.json', 'w') as output:
+              json.dump({key: os.environ[key] for key in ('ARCH','SOURCE_SHA','BACKEND_DIGEST','FRONTEND_DIGEST')}, output)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-digests-${{ matrix.arch }}
+          path: digests/*.json
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [source, build]
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.sha }}
+      IMAGE_OWNER: ${{ needs.source.outputs.owner }}
+      RELEASE_TAG: ${{ needs.source.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.source.outputs.version }}
+      PROMOTE_LATEST: ${{ needs.source.outputs.latest }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-digests-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify versioned manifests before promoting the release
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+          root = pathlib.Path('digests')
+          assert sorted(path.name for path in root.glob('*.json')) == ['amd64.json','arm64.json']
+          records = [json.loads((root / (arch + '.json')).read_text()) for arch in ('amd64','arm64')]
+          for arch, record in zip(('amd64','arm64'), records):
+              assert record['ARCH'] == arch and record['SOURCE_SHA'] == os.environ['SOURCE_SHA']
+              for key in ('BACKEND_DIGEST','FRONTEND_DIGEST'):
+                  assert re.fullmatch(r'sha256:[0-9a-f]{64}', record[key])
+          candidates = []
+          for component in ('backend','frontend'):
+              image = 'ghcr.io/' + os.environ['IMAGE_OWNER'] + '/inboxora-' + component
+              candidate = image + ':release-build-' + os.environ['SOURCE_SHA']
+              digests = [image + '@' + record[component.upper() + '_DIGEST'] for record in records]
+              subprocess.run(['docker','buildx','imagetools','create','--tag',candidate,*digests], check=True)
+              manifest = json.loads(subprocess.check_output(['docker','buildx','imagetools','inspect','--raw',candidate]))
+              platforms = {(item['platform']['os'],item['platform']['architecture']) for item in manifest['manifests']}
+              assert platforms == {('linux','amd64'),('linux','arm64')}, platforms
+              candidates.append((image, candidate))
+          # Both complete manifests are verified before either shared tag moves.
+          # Registries do not offer a transaction spanning two image repositories.
+          for image, candidate in candidates:
+              tags = [os.environ['RELEASE_TAG'], os.environ['RELEASE_VERSION']]
+              if os.environ['PROMOTE_LATEST'] == 'true':
+                  tags.append('latest')
+              command = ['docker','buildx','imagetools','create']
+              for tag in tags:
+                  command += ['--tag', image + ':' + tag]
+              subprocess.run([*command, candidate], check=True)
+              print(image, tags)
+
+          PY

@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: push-stack-${{ github.ref }}
@@ -29,7 +30,11 @@ defaults:
     shell: bash -euo pipefail {0}
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-plan.yml
   push-stack:
+    needs: changes
+    if: needs.changes.outputs.run_tests == 'true'
     name: Built-in ntfy behind /push
     runs-on: ubuntu-latest
     env:
@@ -103,3 +108,27 @@ jobs:
         run: |
           docker rm -f push-proxy || true
           docker compose -f docker-compose.yml down -v || true
+
+  result:
+    name: push-stack result
+    if: always()
+    needs: [changes, push-stack]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Propagate failures, cancellations and the reason for omitted work
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYGATE'
+          import json, os
+          needs = json.loads(os.environ['RESULTS'])
+          assert needs['changes']['result'] == 'success', needs
+          full = needs['changes']['outputs']['run_tests'] == 'true'
+          for name, job in needs.items():
+              if name == 'changes': continue
+              expected = 'success' if (needs['changes']['outputs'].get('docs_only') == 'true' if name == 'documentation' else full) else 'skipped'
+              assert job['result'] == expected, (name, job['result'], expected)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write(needs['changes']['outputs']['reason'] + '\n')
+          PYGATE

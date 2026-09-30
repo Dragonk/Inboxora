@@ -182,3 +182,28 @@ separate root-level audit reports.
 - Use concise Conventional Commit subjects, for example `fix: handle calendar ETag conflicts`.
 - Contributions are accepted under AGPL-3.0-only; see
   [CONTRIBUTING.md](https://github.com/Dragonk/Inboxora/blob/main/CONTRIBUTING.md).
+
+## CI selection and parallel validation
+
+The shared `ci-plan.yml` workflow validates the checkout and classifies changed paths using a
+real Git diff (including both sides of renames, with no API file-list truncation). Markdown
+documentation changes are checked by the lightweight documentation job. Every unknown file,
+configuration, dependency, fixture and source change requires full validation. Manual dispatch
+is the way to force a complete workflow regardless of changed paths.
+
+A dev push with an open matching PR is covered by that PR's merge-revision tests; the push
+reports why its duplicate jobs were omitted. If the PR query or planner fails, the final gate
+fails. The branches remain protected by the process of review and successful applicable checks;
+no status check is disabled to make a failing build mergeable.
+
+Browser tests run as four shards with the same five projects, one worker per shard and
+unchanged retries/visual thresholds. PostgreSQL upgrade, regression and scale stages each get
+a fresh service instance. Their final named gates require every applicable stage to succeed.
+Documentation-only runs still emit a final result rather than leaving path-filtered required
+checks pending. A skipped/not-applicable result is not reported as executed test coverage.
+
+Create version changes in dev and merge the release PR before using `scripts/release.sh`.
+The helper only tags an already-merged, version-matched main commit and never pushes main.
+Versioned Docker publishing validates both native architectures before changing `latest`.
+The separate native-app workflow checks the same existing tag before using signing keys and
+keeps its release draft until the complete artifact set is verified.

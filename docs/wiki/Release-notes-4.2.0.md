@@ -267,3 +267,26 @@ started against a schema-0165 fixture and verified to clear the false host artif
 preserving real errors, messages, events and contacts. Final release builds are recorded in
 GitHub Actions on the tagged source; this is not a guarantee against every provider-specific
 or device-specific issue.
+
+## CI and release delivery
+
+Documentation-only changes run the documentation/link/version checks, not the browser or
+database suites. Unknown paths, application code, dependencies, fixtures and CI configuration
+still select full validation; manual workflow dispatch always runs the full selected workflow.
+When an open same-repository PR targets dev/main at the exact pushed head, its merge-revision
+checks cover that push, so a second heavy push matrix is unnecessary. Standalone dev pushes
+remain tested. Failed change detection does not silently skip tests or pass the final gate.
+
+The full five-project Playwright set is partitioned into four isolated shards, each with one
+worker and the same retries, browser settings and visual thresholds. All four must pass the
+existing named check; their reports are combined. No tests are removed. Unit tests run in CI
+rather than being repeated inside the browser workflow. Mocked browser jobs no longer start
+an unused PostgreSQL service. PostgreSQL upgrade, regression and 10k/50k/100k EXPLAIN scale
+validation run on three separate service instances, avoiding shared mutable fixtures. They
+install backend dependencies only and retain all existing migration and data-safety checks.
+
+Versioned Docker images use native AMD64/ARM64 runners. Both architectures and both component
+manifests are verified before promotion to the release tags; `latest` is promoted only for a
+stable version matching main. App signing builds use a validated existing tag and attach to
+a draft release, which is published after artifact verification. The release helper no longer
+suggests a direct push to main or creates an unreviewed version-bump commit.
