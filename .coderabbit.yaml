@@ -50,6 +50,10 @@ reviews:
     - "!.toolchain/**"
     - "!media/**"
     - "!docs/screenshots/**"
+    # Synthetic attachment documents are data, not source. Keep their generators,
+    # regression assertions, provenance and licensing in review; CI still tests every fixture.
+    - "!backend/fixtures/attachments/*.{pdf,png,jpg,gif,webp,avif,bmp,svg,tiff,docx,xlsx,xls,ods,doc,ppt,pptx,odt,odp,zip,mp3,ogg,wav,mp4,webm,ics,vcf,eml,csv,tsv,jsonc,xml,html}"
+    - "!backend/fixtures/attachments/*.{eml,ics,vcf}.json"
   path_instructions:
     - path: "backend/src/**"
       instructions: >

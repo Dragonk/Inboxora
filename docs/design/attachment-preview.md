@@ -136,7 +136,7 @@ network resources. The processing location disables nginx request/response buffe
 is used for validation. The PDF viewer uses the current public engine/TextLayer/signature APIs
 rather than copying an older viewer API contract.
 
-Regression fixtures and tests are committed with the feature. The browser matrix uses the
+Regression fixtures and tests are committed with the feature. Generated document fixtures are excluded only from the AI review file count; their generators, test assertions and provenance remain reviewable, and every fixture remains in CI. The browser matrix uses the
 production CSP and also runs against the authenticated real backend processor in the existing
 real-app workflow. It includes complete-document print preparation and clipboard operations;
 the print-dialog trigger is instrumented in headless tests rather than sent to an actual printer.
