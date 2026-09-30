@@ -50,6 +50,7 @@ const physicalMailActions = createPhysicalMailActions({ getState: useStore.getSt
 
 const ContactsPage = lazy(() => import('./ContactsPage.tsx'));
 const CalendarPage = lazy(() => import('./CalendarPage.tsx'));
+const AttachmentPreviewModal = lazy(() => import('./attachments/AttachmentPreviewModal.tsx'));
 const WindowLayer  = lazy(() => import('./WindowLayer.tsx'));
 
 const ComposeModal = lazy(() => import('./ComposeModal.tsx'));
@@ -1067,6 +1068,7 @@ export default function MailApp() {
         ))}
       </Suspense>
       <Suspense fallback={lazyFallback}>{showAdmin && <AdminPanel />}</Suspense>
+      <Suspense fallback={null}><AttachmentPreviewModal /></Suspense>
       {/* Detached message windows (#219) — desktop only. */}
       {!isMobile && <Suspense fallback={null}><WindowLayer /></Suspense>}
       <Suspense fallback={null}>{hasNativeBridge && <ElectronNotificationBridge />}</Suspense>

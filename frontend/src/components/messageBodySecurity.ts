@@ -134,7 +134,7 @@ export function adaptMessageForDarkCanvas(root: ParentNode | null) {
   }
 }
 
-export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, tone = null }: { remoteImages?: boolean; tone?: string | null } = {}): string {
+export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, tone = null, blockAllNetwork = false }: { remoteImages?: boolean; tone?: string | null; blockAllNetwork?: boolean } = {}): string {
   const purify = purifier();
   const sanitized = purify.sanitize(preserveCid(String(html)), {
     ...EMAIL_SANITIZE_POLICY,
@@ -169,6 +169,28 @@ export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, 
       image.removeAttribute('srcset');
     }
   }
+  if (blockAllNetwork) {
+    // CSP is a second boundary; passive previews should contain no automatic resource requests.
+    const resourceCss = (css: string): string => {
+      let root;
+      try { root = postcss.parse(css); } catch { return ''; }
+      root.walkAtRules(rule => { if (!['media', 'supports'].includes(rule.name.toLowerCase())) rule.remove(); });
+      root.walkDecls(declaration => {
+        if (declaration.value.includes(String.fromCharCode(92)) || /(?:url|image-set|cross-fade|paint|element)\s*\(/i.test(declaration.value)) declaration.remove();
+      });
+      return root.toString();
+    };
+    for (const element of template.content.querySelectorAll('*')) {
+      if (['LINK', 'BASE', 'META'].includes(element.tagName)) { element.remove(); continue; }
+      for (const attribute of [...element.attributes]) {
+        if (['srcset', 'background', 'poster', 'data', 'data-mailflow-remote-src'].includes(attribute.name)) element.removeAttributeNode(attribute);
+        else if (attribute.localName === 'src' && !(element.tagName === 'IMG' && /^data:image\//i.test(attribute.value))) element.removeAttributeNode(attribute);
+        else if (attribute.localName === 'href' && element.tagName !== 'A' && !attribute.value.startsWith('#')) element.removeAttributeNode(attribute);
+      }
+      if (element.hasAttribute('style')) element.setAttribute('style', resourceCss(element.getAttribute('style') || ''));
+      if (element.tagName === 'STYLE') element.textContent = resourceCss(element.textContent || '');
+    }
+  }
   return template.innerHTML;
 }
 
@@ -182,7 +204,8 @@ export function escapeMessageText(text = '') {
     .replace(/'/g, '&#39;');
 }
 
-export function emailCsp({ remoteImages = false } = {}) {
+export function emailCsp({ remoteImages = false, blockAllNetwork = false } = {}) {
+  if (blockAllNetwork) return "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'";
   return remoteImages
     ? "default-src 'none'; img-src 'self' data: cid: https:; style-src 'unsafe-inline'; media-src 'self' data:"
     : "default-src 'none'; img-src 'self' data: cid:; style-src 'unsafe-inline'; media-src 'self' data:";
@@ -243,8 +266,8 @@ function emailSurfaceCss(surface: EmailSurfaceLike | null | undefined) {
   return `\n  /* Mail body surface, declared from the app theme. Scoped to this document only. */\n${rules.join('\n')}`;
 }
 
-export function buildSrcDoc(html: unknown, { remoteImages = false, surface = null }: { remoteImages?: boolean; surface?: EmailSurfaceLike | null } = {}): string {
-  const csp = emailCsp({ remoteImages });
+export function buildSrcDoc(html: unknown, { remoteImages = false, surface = null, blockAllNetwork = false }: { remoteImages?: boolean; surface?: EmailSurfaceLike | null; blockAllNetwork?: boolean } = {}): string {
+  const csp = emailCsp({ remoteImages, blockAllNetwork });
   const resolved = resolveEmailSurface(surface);
   const surfaceCss = emailSurfaceCss(resolved);
   // The colour-scheme meta is the documented counterpart of the backend stripping an

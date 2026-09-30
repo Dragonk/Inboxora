@@ -20,7 +20,15 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+- In-app attachment previews with a shared full-screen reader, separate downloads, lazy image thumbnails, an image gallery, and desktop floating windows.
+- Interactive PDF reading with lazy pages, search, selection, page navigation, outline, thumbnails, zoom, rotation, complete-document printing, local password prompts and unverified signature metadata.
+- DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
+
+### Security
+- Session- and queue-revision-scoped attachment caching; passive document frames, local workers, archive/image/workbook limits, bounded processing, rate-limited password attempts and unbuffered processing routes. Unsupported formats remain downloadable.
+
+See [Development release notes](wiki/Release-notes-Unreleased.md) for format limitations and proxy requirements.
 
 ## [4.2.0] - 2026-09-30
 

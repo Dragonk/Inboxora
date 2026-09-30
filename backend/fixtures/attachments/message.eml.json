@@ -1,0 +1,21 @@
+{
+  "html": "<h1>EML safe body</h1><img src=\"https://attachment-tracker.example.test/eml.png\"><script>window.__attachmentExecuted=true</script>\n",
+  "text": "EML plain text body\n",
+  "subject": "EML fixture",
+  "from": "sender@example.test",
+  "date": "",
+  "attachments": [
+    {
+      "index": 0,
+      "filename": "inner.txt",
+      "type": "text/plain",
+      "size": 28
+    },
+    {
+      "index": 1,
+      "filename": "inner.sh",
+      "type": "application/x-sh",
+      "size": 75
+    }
+  ]
+}

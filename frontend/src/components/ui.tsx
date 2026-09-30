@@ -77,24 +77,28 @@ interface DialogProps {
   testId?: string;
   className?: string;
   busy?: boolean;
+  backPriority?: number;
+  onEscape?: () => void;
 }
 
 /** The pointer-drag state of a sheet being pushed back down. */
 interface SheetDragState { pointerId: number; startY: number; startedAt: number; dy: number }
 
-export function Dialog({ title, closeLabel, onClose, children, footer = null, testId = undefined, className = '', busy = false }: DialogProps) {
+export function Dialog({ title, closeLabel, onClose, children, footer = null, testId = undefined, className = '', busy = false, backPriority = 4500, onEscape }: DialogProps) {
   const titleId = useId();
   const scale = useUiScale();
   const panel = useRef<HTMLDivElement | null>(null);
   const trigger = useRef<Element | null>(document.activeElement);
   const close = useRef(onClose);
+  const escape = useRef(onEscape || onClose);
+  escape.current = onEscape || onClose;
   const busyRef = useRef(busy);
   const drag = useRef<SheetDragState | null>(null);
   const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   close.current = onClose;
   busyRef.current = busy;
   const isSheet = className.split(/\s+/).includes('ui-sheet');
-  useBackLayer(true, () => { if (!busyRef.current) close.current(); }, 4500);
+  useBackLayer(true, () => { if (!busyRef.current) close.current(); }, backPriority);
   useEffect(() => {
     const element = panel.current;
     if (!element) return;
@@ -104,7 +108,7 @@ export function Dialog({ title, closeLabel, onClose, children, footer = null, te
     if (!element.contains(document.activeElement)) (element.querySelector<HTMLElement>('[autofocus]') || focusable()[0] || element).focus();
     const keydown = (event: KeyboardEvent) => {
       if (dialogs.at(-1) !== element) return;
-      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) close.current(); }
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); if (!busyRef.current) escape.current(); }
       if (event.key === 'Tab') {
         const nodes = focusable();
         const first = nodes[0]; const last = nodes.at(-1);

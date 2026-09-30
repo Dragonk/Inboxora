@@ -57,3 +57,6 @@ pnpm-workspace.yaml
 # Local git bundles/backups (not part of the project)
 # NOTE: tsconfig.strict.json is intentionally tracked - it is the strict reference config.
 .backup/
+
+# Generated from the pinned pdfjs-dist package during frontend build/dev.
+/frontend/public/pdf-assets/

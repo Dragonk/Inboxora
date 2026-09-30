@@ -1,0 +1,20 @@
+{
+  "cards": [
+    {
+      "raw": "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:preview-event-1\r\nDTSTART:20261001T100000Z\r\nDTEND:20261001T110000Z\r\nSUMMARY:First fixture event\r\nEND:VEVENT\r\nEND:VCALENDAR",
+      "title": "First fixture event",
+      "details": [],
+      "startsAt": "2026-10-01T10:00:00.000Z",
+      "endsAt": "2026-10-01T11:00:00.000Z",
+      "allDay": false
+    },
+    {
+      "raw": "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:preview-event-2\r\nDTSTART:20261002T100000Z\r\nDTEND:20261002T110000Z\r\nSUMMARY:Second fixture event\r\nEND:VEVENT\r\nEND:VCALENDAR",
+      "title": "Second fixture event",
+      "details": [],
+      "startsAt": "2026-10-02T10:00:00.000Z",
+      "endsAt": "2026-10-02T11:00:00.000Z",
+      "allDay": false
+    }
+  ]
+}

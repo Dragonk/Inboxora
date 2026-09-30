@@ -1,0 +1,12 @@
+BEGIN:VCARD
+VERSION:3.0
+UID:preview-contact-1
+FN:First Fixture
+EMAIL:first@example.test
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+UID:preview-contact-2
+FN:Second Fixture
+EMAIL:second@example.test
+END:VCARD

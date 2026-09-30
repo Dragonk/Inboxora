@@ -169,6 +169,26 @@ test('a server-authoritative past-time rejection keeps the schedule dialog edita
   await expect(page.getByTestId('scheduled-item-deadline')).toHaveCount(1);
 });
 
+test('queued attachment preview is revision-scoped and does not pause or mutate the queue', async ({ page }) => {
+  const server = await startBeforeDeadline(page);
+  server.previewOverrides.set('deadline', { message: { ...queueMessage,
+    attachments: [{ filename: 'milestones.txt', contentType: 'text/plain', size: 20 }],
+  } });
+  const reads: string[] = [];
+  await page.route('**/api/mail/scheduled/deadline/attachments/*', route => {
+    reads.push(route.request().url());
+    expect(new URL(route.request().url()).searchParams.get('revision')).toBe('1');
+    return route.fulfill({ contentType: 'text/plain', body: 'Queued preview text' });
+  });
+  await page.getByTestId('scheduled-refresh').click();
+  await page.getByTestId('scheduled-preview').locator('[data-message-detail-attachment="0"]').click();
+  const dialog = page.getByTestId('attachment-preview-dialog');
+  await expect(dialog.locator('pre')).toContainText('Queued preview text');
+  await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+  expect(reads).toHaveLength(1); expect(server.mutations).toEqual([]); expect(server.sendCalls).toBe(0);
+  expect(server.rows[0].state).toBe('pending');
+});
+
 test('queued attachments reuse inbox controls and dangerous-file confirmation without inbox operations or pausing', async ({ page }) => {
   const server = await startBeforeDeadline(page);
   server.previewOverrides.set('deadline', { message: { ...queueMessage,
@@ -196,15 +216,15 @@ test('queued attachments reuse inbox controls and dangerous-file confirmation wi
   await expect(preview.locator('[data-message-detail-attachment]')).toHaveCount(3);
   await expect(preview.locator('[data-message-detail-download-all]')).toHaveCount(0);
   const downloaded = page.waitForEvent('download');
-  await preview.locator('[data-message-detail-attachment="0"]').click();
+  await preview.locator('[data-message-detail-download="0"]').click();
   expect((await downloaded).suggestedFilename()).toBe('milestones.txt');
   expect(downloads).toEqual(['/api/mail/scheduled/deadline/attachments/0']);
-  await preview.locator('[data-message-detail-attachment="1"]').click();
+  await preview.locator('[data-message-detail-download="1"]').click();
   await expect(page.getByTestId('dangerous-attachment-download-dialog')).toBeVisible();
   expect(downloads).toHaveLength(1);
   await page.getByTestId('dangerous-attachment-download-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(downloads).toHaveLength(1);
-  await preview.locator('[data-message-detail-attachment="1"]').click();
+  await preview.locator('[data-message-detail-download="1"]').click();
   const confirmed = page.waitForEvent('download');
   await page.getByTestId('dangerous-attachment-download-confirm').click();
   expect((await confirmed).suggestedFilename()).toBe('program.exe');

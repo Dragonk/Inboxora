@@ -1,0 +1,44 @@
+From: sender@example.test
+To: recipient@example.test
+Subject: EML fixture
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============5115157734352725476=="
+
+--===============5115157734352725476==
+Content-Type: multipart/alternative;
+ boundary="===============6771498539127990740=="
+
+--===============6771498539127990740==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+EML plain text body
+
+--===============6771498539127990740==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<h1>EML safe body</h1><img src=3D"https://attachment-tracker.example.test/eml=
+.png"><script>window.__attachmentExecuted=3Dtrue</script>
+
+--===============6771498539127990740==--
+
+--===============5115157734352725476==
+Content-Type: text/plain
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="inner.txt"
+MIME-Version: 1.0
+
+TmVzdGVkIEVNTCBhdHRhY2htZW50IGJ5dGVzCg==
+
+--===============5115157734352725476==
+Content-Type: application/x-sh
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="inner.sh"
+MIME-Version: 1.0
+
+IyEvYmluL3NoCiMgUGFzc2l2ZSBhdHRhY2htZW50IGZpeHR1cmUsIG5ldmVyIGV4ZWN1dGVkLgpw
+cmludGYgImZpeHR1cmVcbiIK
+
+--===============5115157734352725476==--

@@ -50,6 +50,23 @@ cache expiry is not mail deletion, and freed PostgreSQL pages need not immediate
 - **Desktop and mobile.** Resizable panes, themes, nine languages, installable PWA, Windows/Linux
   desktop apps and an Android app with UnifiedPush notifications.
 
+## Attachment previews in development
+
+The `dev` images add an in-app attachment reader. Click an attachment to preview it; the
+separate download button remains available. Images, PDF, DOCX, XLSX/XLS/ODS, Markdown with
+Mermaid, JSON/JSONC, XML, CSV/TSV, plain text, ZIP entries, native media, HTML/EML and ICS/VCF
+cards share the same preview surface. Desktop previews can be detached into floating windows.
+
+PDFs have page navigation, search, outline, thumbnails, zoom, rotation and printing. PDF
+passwords stay in the browser; supported encrypted Office documents are unlocked in memory
+on your Inboxora server. Signature metadata is informational, not a validity check.
+
+PPTX, DOC, PPT, ODT, ODP, macro-enabled documents and encrypted ZIP entries are download-only.
+Large or malformed files can hit explicit preview limits without losing the download option.
+There is no LibreOffice service or third-party document-viewing service. This is development
+work after 4.2.0; see [unreleased notes](docs/wiki/Release-notes-Unreleased.md) for limits,
+security details and reverse-proxy requirements.
+
 ## Screenshots
 
 Captured from the running application in one consistent style, on desktop (1440×900) and phone

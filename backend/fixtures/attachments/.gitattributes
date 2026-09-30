@@ -1,0 +1,6 @@
+# Preserve document bytes and protocol CRLF across Windows/Linux checkouts.
+*.pdf binary
+*.ics -text whitespace=cr-at-eol
+*.vcf -text whitespace=cr-at-eol
+*.eml -text whitespace=cr-at-eol
+polish.txt -text

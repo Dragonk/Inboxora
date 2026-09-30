@@ -1,3 +1,5 @@
+import { createAttachmentSlice, type AttachmentState } from './attachmentSlice.ts';
+import { clearAttachmentCache } from '../utils/attachments/fetchAttachment.ts';
 import { messageMatchesMailbox } from '../utils/mailViewScope.ts';
 import { appendPhysicalMessages, missingPhysicalMessages } from '../utils/nativeThreadMembership.ts';
 import { projectMailFlagIntents, projectMailThreadRows, scopedThreadUnreadCount } from '../utils/mailFlagIntents.ts';
@@ -108,7 +110,7 @@ export interface ComposeDraft {
 }
 
 
-export interface StoreState {
+export interface StoreState extends AttachmentState {
   user: StoreUserRow | null;
   /** Monotonic generation for invalidating asynchronous work from prior auth sessions. */
   authEpoch: number;
@@ -566,6 +568,7 @@ const NAVIGATION_OWNER_KEY = 'mailflow_selected_navigation_owner';
 // The store shape is intentionally typed as `any` for now: it is a large,
 // dynamically-composed slice object, and typing it in full is tracked as part of
 export const useStore = create<StoreState>()((set, get) => ({
+  ...createAttachmentSlice(set, get),
   // Auth
   user: null,
   authEpoch: 0,
@@ -578,6 +581,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
     const resetPrivateState = identityChanged && !isOwnedBootstrap;
     if (identityChanged) {
+      clearAttachmentCache();
       invalidateMailListCache();
       setAuthEpoch(get().authEpoch + 1);
       cancelPendingPrefSave();
@@ -592,7 +596,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(identityChanged ? { calendarInviteAccountId: '', calendarInviteAliasId: '', calendarShowAgenda: true, authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
+      ...(identityChanged ? { attachmentPreview: null, attachmentWindows: [], calendarInviteAccountId: '', calendarInviteAliasId: '', calendarShowAgenda: true, authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
       ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,

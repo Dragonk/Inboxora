@@ -1,0 +1,4 @@
+Inboxora text fixture
+needle first
+second needle
+Zażółć gęślą jaźń
