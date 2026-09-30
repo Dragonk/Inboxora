@@ -93,6 +93,9 @@ finalized below and dated with its publication date.
 
 ### Security
 
+- Update Nodemailer to 10.0.13 and the existing brace-expansion override to 5.0.12 after the dependency audit reported high-severity advisories. Use Nodemailer's explicit SMTP result/options types; Node 20+ is supported by the existing Node 22 build. Keep the high-severity audit gate and all TLS, endpoint-validation and send-idempotency policies unchanged.
+
+
 - Update the backend HTTP client to `undici` 6.29.0, covering GHSA-rfgv-xxqx-mfg5 and related upstream fixes. Keep the existing high-severity dependency-audit gate enabled; no HTTP/provider policy changes.
 
 ## [4.1.2] - 2026-09-28

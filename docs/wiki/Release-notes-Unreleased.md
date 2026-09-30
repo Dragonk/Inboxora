@@ -31,6 +31,15 @@ surviving an old callback. Real PostgreSQL tests check authorization, status wri
 on a cutover transaction, both successful migrations, and idempotent narrow data cleanup.
 The public host validation and TLS checks are unchanged.
 
+The backend audit also required Nodemailer 10.0.13 and brace-expansion 5.0.12. Nodemailer
+10 requires Node 20+ (the existing image/CI use Node 22) and provides built-in types;
+the SMTP wrapper now names those types explicitly instead of inferring a callback's
+`void` result or treating message defaults as connection options. The sending, MIME,
+recipient, TLS and integration suites remain active. This is separate from the false
+IMAP-host status: dependency advisories are not being presented as its cause. Existing
+moderate advisories in other packages remain reported; no audit exclusions were added.
+
+
 ## Large-account header repair (#16)
 
 This follow-up is based on current dev including the merged settings and folder-sync
