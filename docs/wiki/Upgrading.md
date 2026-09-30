@@ -27,25 +27,78 @@ Coming from MailFlow rather than an earlier Inboxora? Use
 
 ## Standard upgrade
 
+Run these commands from the directory containing your current Compose file and `.env`.
+Use the database identity from the running backend, not the default in a newly downloaded
+Compose file. A deployment migrated from MailFlow may still use `mailflow`.
+
 ```bash
-# 1. Back up
-docker compose exec -T postgres pg_dump -U "$DB_USER" "$DB_NAME" > inboxora-$(date +%F).sql
+set -e
+umask 077
+DB_USER=$(docker compose exec -T backend printenv DB_USER)
+DB_NAME=$(docker compose exec -T backend printenv DB_NAME)
+BACKUP="inboxora-$(date +%Y%m%d-%H%M%S).dump"
+docker compose exec -T postgres pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc > "$BACKUP"
+test -s "$BACKUP"
+docker compose exec -T postgres pg_restore --list < "$BACKUP" > /dev/null
 cp .env .env.backup
-
-# 2. Update the pinned version in .env, then
-docker compose pull
-docker compose up -d
-
-# 3. Verify
-docker compose ps
-curl -fsS "$APP_URL/api/health"
 ```
 
-Watch the backend logs for migrations on the first start after an upgrade:
+A readable archive is a basic check, not a substitute for testing a restore. Keep the
+backup and matching `.env` securely outside the database volume. Then set
+`INBOXORA_VERSION=4.2.0` in the existing `.env` when using the supplied GHCR Compose file.
+A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
+Do not overwrite secrets, rename the database or recreate its volume.
 
 ```bash
-docker compose logs -f backend
+docker compose pull backend frontend
+docker compose up -d --no-deps backend frontend
+docker compose ps
+docker compose logs --tail=100 backend
 ```
+
+Replace all backend replicas together. Allow startup migrations to finish before directing
+users to the new application, then check its health through the configured public URL.
+
+## Upgrading to 4.2.0
+
+From 4.1.2, normal startup applies **0150 through 0166 in filename order**, with no 0157
+file. The complete list and purpose of each file are in
+[Release notes 4.2.0](Release-notes-4.2.0.md#upgrade-requirements). This includes sender and
+recipient defaults, the durable sending/flag queues, collection lifecycle, DAV account
+associations and invitation aliases. Older installations first apply the intervening chain.
+Already-applied matching migrations are not repeated.
+
+**0165** builds the account/UUID header-repair index concurrently. An interrupted attempt
+can be retried by the normal runner; do not remove unrelated indexes or reset checksums.
+**0166** clears only the exact false `Host must be a string` legacy status on native
+Gmail/Graph accounts, without erasing genuine provider or IMAP errors. Refresh the account
+list after upgrade. Account recreation or renewed provider consent is not required for
+these fixes.
+
+Use the supported PostgreSQL 16 stack and matching backend/frontend images. Source builds
+use Node 22; Nodemailer 10 requires at least Node 20. No new environment setting or blanket
+provider permission is required. Keep existing prefetch/retention settings and account
+identities. New accounts start with empty default CC/BCC; Undo Send stays off unless enabled.
+
+Inspect ongoing storage repair without changing data:
+
+```bash
+docker compose exec -T backend node dist/scripts/storageMaintenanceStatus.js --summary
+```
+
+Wait for `initial_sweep: complete` before comparing the report's before/current database
+sizes. `header_scan_rows` can grow while `headers_repaired` remains constant; the worker may
+be inspecting already-correct rows. Use the full report for failure stage and retry deadline.
+PostgreSQL can reuse freed space without reducing file size. No automatic VACUUM FULL or
+mailbox reset is part of this upgrade.
+
+Check Scheduled for pending or uncertain deliveries before and after maintenance. An
+uncertain outcome is not automatically sent again: inspect the provider's Sent folder before
+any deliberate retry. Rollback means restoring a matching application/database backup; an
+older image is not guaranteed to understand new queue states or the migrated schema.
+
+Earlier release-specific guidance is retained below for installations upgrading from those
+versions. Historical feature descriptions are not the current feature list; see [Archive](Archive.md).
 
 ## Upgrading to 4.1.2
 
@@ -196,10 +249,10 @@ whole provider layer can be switched off for an installation with `PROVIDER_INTE
 
 ## If a migration is interrupted
 
-The migrations are **additive**: they add tables, columns and indexes and rewrite none, so an interruption leaves a
-partially extended schema rather than damaged data. What it can leave behind is an **invalid index**, because five of the
-files build indexes with `CREATE INDEX CONCURRENTLY` outside a transaction — a cancelled or failed concurrent build
-leaves the index present but unusable, and the next run may then report a duplicate-object error instead of completing.
+The runner records applied files and their checksums. Most schema changes are additive, but
+some migrations also perform narrowly scoped data repairs. Concurrent index creation runs
+outside a transaction and can leave an invalid index after interruption. Do not edit applied
+files or assume every migration is a no-op on stored values.
 
 Check for one before re-running:
 
@@ -207,7 +260,10 @@ Check for one before re-running:
 SELECT indexrelid::regclass AS invalid_index FROM pg_index WHERE NOT indisvalid;
 ```
 
-If that returns rows, drop them and apply the migration file again:
+Investigate the reported index against the failed migration before changing anything.
+For migration 0165, retry normal startup: that migration owns its dedicated index and safely
+rebuilds it. Do not drop unrelated indexes. For an older migration without a retry path, the
+following is a maintenance example to use only after confirming the exact affected index:
 
 ```sql
 DROP INDEX CONCURRENTLY <invalid_index>;

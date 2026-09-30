@@ -1,117 +1,66 @@
 # Inboxora Wiki
 
-**Inboxora** is a self-hosted unified inbox for email, contacts and calendars. It speaks IMAP,
-SMTP, CardDAV and CalDAV, so your data stays on your server and your existing devices keep
-working. This Wiki is the canonical documentation for installing, configuring and using it.
+**Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
+IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest released version: **4.1.2** — see [Release notes 4.1.2](Release-notes-4.1.2.md).
+Latest release: **[Inboxora 4.2.0](Release-notes-4.2.0.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.2.0) ·
+[Upgrading](Upgrading.md#upgrading-to-420) · [Archive](Archive.md)
 
-4.1.2 focuses on mailbox responsiveness, thread/read consistency and bounded storage. Recently visited mail views reappear immediately while revalidating, Microsoft Graph compatibility aliases no longer create phantom unread state, automatic maintenance repairs legacy storage growth, and administrators gain a new **Performance** page for prefetch and retention controls.
+4.2.0 adds scheduled sending, Undo Send, private-copy mail merge, default sender/CC/BCC
+settings and unified mail/DAV account management. It improves read/unread consistency,
+provider collection recovery, native notifications, large-mailbox storage repair and
+Google/Graph migration status. Prefetch and retention controls introduced in 4.1.2 remain.
 
-The previous feature release is **4.1.0** — see
-[Release notes 4.1.0](Release-notes-4.1.0.md) for the native Google/Microsoft provider layer,
-provider synchronisation and write-back changes.
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
 ## Start here
 
-| If you want to… | Read |
+| Task | Guide |
 | --- | --- |
-| Install Inboxora on a server | [Installation](Installation.md) |
-| Add your first mail account and find your way around | [Getting started](Getting-started.md) |
-| Understand threading, the reader and mail actions | [Email and threading](Email-and-threading.md) |
-| Configure themes, languages, notifications and plugins | [Configuration](Configuration.md) |
-| Use calendars, events and invitations | [Calendar](Calendar.md) |
-| Manage contacts, imports and exports | [Contacts and DAV](Contacts-and-DAV.md) |
-| Subscribe to external calendars | [External calendars](External-calendars.md) |
-| Sync contacts and calendars to your phone (DAVx5) | [Contacts and DAV](Contacts-and-DAV.md) |
-| Understand phone and tablet behaviour | [Mobile navigation](Mobile-navigation.md) |
-| Harden a deployment | [Security](Security.md) |
-| Fix something that is not working | [Troubleshooting](Troubleshooting.md) |
-| Upgrade from 3.x or from MailFlow | [Upgrading](Upgrading.md) |
-| Connect Google or Microsoft accounts | [Connecting Google and Microsoft accounts](Provider-setup.md). **Google offers the API and the app password, and neither is forced** — mail keeps working over IMAP/SMTP with an app password, and an administrator can enable the Gmail, Calendar and People APIs. **Microsoft accounts need an authorized connection**, because Outlook.com and Microsoft 365 no longer accept a mailbox password, and can then run over **Microsoft Graph**. The switches, and what each does, are in [Configuration](Configuration.md). |
-| Move a MailFlow 3.3.0 deployment to Inboxora | [Migrating from MailFlow](Migrating-from-MailFlow.md) |
-| Build, test or contribute | [Development](Development.md) |
+| Install the server, Docker images or native apps | [Installation](Installation.md) |
+| Create an account and learn the workspace | [Getting started](Getting-started.md) |
+| Read, compose, schedule and organize mail | [Email and threading](Email-and-threading.md) |
+| Manage accounts, defaults, appearance and retention | [Configuration](Configuration.md) |
+| Configure Google/Microsoft applications and consent | [Provider setup](Provider-setup.md) |
+| Use events, invitations, recurrence and calendars | [Calendar](Calendar.md) |
+| Manage books or connect other DAV clients | [Contacts and DAV](Contacts-and-DAV.md) |
+| Connect CalDAV or ICS subscriptions | [External calendars](External-calendars.md) |
+| Configure Web Push and native notifications | [Notifications](Notifications.md) |
+| Navigate on a phone or tablet | [Mobile navigation](Mobile-navigation.md) |
+| Upgrade while preserving data and credentials | [Upgrading](Upgrading.md) |
+| Move a MailFlow 3.3.0 deployment | [Migrating from MailFlow](Migrating-from-MailFlow.md) |
+| Diagnose an error or inspect maintenance progress | [Troubleshooting](Troubleshooting.md) |
+| Secure or contribute to the application | [Security](Security.md) / [Development](Development.md) |
 
-## Core features
+## Release documentation
 
-### Email
+[Release notes 4.2.0](Release-notes-4.2.0.md) contains the current feature changes,
+limitations and migration order. **[Archive](Archive.md)** contains every older release-note
+page, including 4.1.2. The Archive sidebar group is collapsed; existing page URLs and release
+bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for
+work after the latest release.
 
-- Multiple IMAP/SMTP accounts with aliases, signatures and per-account colours, plus a
-  unified inbox and unified search.
-- **Optional native transports**: Microsoft Graph for a Microsoft mailbox (reading, filing,
-  searching, drafting and sending) and the Gmail API for a Google one, each switchable per account and
-  neither required — IMAP/SMTP keeps working, including Google with an app password.
-- **Real conversation threading** from a server-side conversation engine: a message and its
-  replies become one conversation, while per-folder and per-account physical copies stay
-  tracked separately. Expand a thread in the list or read it whole in the conversation reader.
-- Native provider thread mapping for Gmail, Outlook/Microsoft 365 and generic IMAP, with manual
-  merge, split and lock overrides when automatic grouping gets it wrong.
-- Rules, block list, manual spam handling, snooze, archive and bulk actions with undo.
-- Sandboxed HTML rendering with remote images blocked by default, attachments, inline images,
-  a raw-headers viewer and in-message find.
-- Live updates over IMAP IDLE and a WebSocket stream, plus optional Web Push notifications.
+## Platforms and integrations
 
-### Calendar
+Use the web app or install it as a PWA, connect a Windows/Linux desktop app, or use the Android
+app. Native apps connect to your existing server. Android notifications while the app is closed
+require a UnifiedPush distributor; synchronization and device notifications are separate.
 
-- Local writable calendars with month, week, work-week and agenda views, and a day agenda that
-  follows your calendar visibility. All-day and multi-day events stretch across every day they
-  cover in the week grids.
-- Recurring events (`RRULE`, `RDATE`, `RECURRENCE-ID`, `EXDATE`) expanded with per-event time
-  zones; editing one occurrence preserves the series.
-- Invitations sent by email with delivery status and retry, and invitations received by mail
-  added to a calendar in one click.
-- **CalDAV** and **ICS/webcal** sources added from **Settings → Calendar**, including one-click
-  public-holiday feeds and anonymous `.ics` feed links. An ICS feed is read-only by nature; a CalDAV
-  source can be written back to its server once write-back is enabled for that calendar.
-- **Google Calendar and Microsoft Graph calendars** pulled through the connected provider, with
-  per-collection write-back once enabled.
-- A generated **Contact dates** calendar for birthdays and anniversaries.
-
-### Contacts and DAV
-
-- Multiple address books with rich vCard fields, Google CSV import, and Google CSV / Outlook
-  CSV / vCard 3.0 export.
-- **CardDAV and CalDAV servers** with `.well-known` discovery and conflict detection, so DAVx5,
-  Thunderbird and native clients sync both ways — including write-back to an external CalDAV/CardDAV
-  source once it is enabled for that collection.
-- **Google People and Microsoft Graph contacts**, pulled through the connected provider and written
-  back once enabled for the address book.
-- **Revocable application passwords** for DAV clients, so TOTP- and SSO-protected accounts
-  still work on your phone without sharing the login password.
-
-### Interface and platform
-
-- Desktop layout with resizable panels and a compact mode, plus a phone shell with a navigation
-  drawer (including the menu-follows-your-finger gesture), floating actions and system Back support.
-- One composer for every account, with attachment and message limits resolved per transport, and a
-  refusal that names the file and the dimension rather than one global size.
-- Nine interface languages, ~25 themes with separate light and dark defaults, a theme mode that
-  follows the system or forces an appearance, five reader layouts and configurable swipe actions.
-- Installable PWA with an unread badge and push notifications; Electron desktop and
-  Android/Capacitor shells are present and being stabilised.
-
-## Screenshots
-
-Captured from the running application: desktop at 1440×900 and phone at 390×844. The full set is
-committed in [`media/screenshots/`](https://github.com/Dragonk/Inboxora/tree/main/media/screenshots)
-and is regenerated by CI, so it always reflects the current interface.
-
-| Email | Calendar | Contacts |
-| --- | --- | --- |
-| [Unified inbox](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png) | [Month](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/calendar-month-desktop.png) | [Details](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/contacts-desktop.png) |
-| [Conversation reader](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-conversation-desktop.png) | [Week](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/calendar-week-desktop.png) | [Editor](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/contact-editor-desktop.png) |
-| [Composer](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-composer-desktop.png) | [Agenda](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/calendar-agenda-desktop.png) | [DAV access](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/settings-dav-access-desktop.png) |
-| [Phone mail](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-mobile.png) | [Phone calendar](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/calendar-month-mobile.png) | [Phone contacts](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/contacts-mobile.png) |
+Mail accounts keep their configured IMAP/SMTP or native Gmail/Graph transport. Switching a
+mailbox is explicit and in place. Calendar/contact authorization and per-collection write-back
+are separate choices. Local metadata and selected caches are stored by Inboxora; cache expiry
+never deletes the provider's mail. Read the relevant guide before enabling remote collection
+deletion, which is distinct from local disconnection.
 
 ## About this Wiki
 
-The reviewed source of every page lives in
+The reviewed source is in
 [`docs/wiki/`](https://github.com/Dragonk/Inboxora/tree/main/docs/wiki) and is published with
-`scripts/publish-wiki.sh`. If you spot an error, open an issue or a pull request against
-`docs/wiki/` rather than editing the Wiki directly, so the change is reviewed together with the
-code.
+`scripts/publish-wiki.sh`. Propose documentation changes in that source so they are reviewed
+with the application. Screenshots live in the main repository and are checked by CI.
 
-Inboxora is an independently developed fork of [MailFlow](https://github.com/maathimself/mailflow)
-by [maathimself](https://github.com/maathimself), licensed
+Inboxora is an independent [MailFlow](https://github.com/maathimself/mailflow) fork by
+[Dragonk](https://github.com/Dragonk), with thanks to upstream author
+[maathimself](https://github.com/maathimself), under
 [AGPL-3.0-only](https://github.com/Dragonk/Inboxora/blob/main/LICENSE).

@@ -6,7 +6,7 @@ noted.
 
 ## Accounts
 
-**Settings → Accounts** manages the mail accounts Inboxora synchronises.
+**Settings → General → Accounts** manages the mail accounts Inboxora synchronises.
 
 | Setting | What it does |
 | --- | --- |
@@ -35,6 +35,34 @@ than a requirement.
 password, so those accounts need an authorized connection (browser flow or device code). Mail can then run
 over OAuth2 IMAP/SMTP or, after an in-place migration, over **Microsoft Graph** — with calendars and
 contacts on the same connection — and the card says so.
+
+### Sender defaults and scheduled sending
+
+In the account editor, **Sender addresses** includes the primary mailbox and aliases and lets
+you select one default From identity. Provider send-as authorization is still required. New
+messages/forwards use the default; explicit choices and saved drafts keep their identity.
+Replies choose a configured recipient alias before falling back to the primary address.
+
+**Default CC recipients** and **Default BCC recipients** are directly below the signature in
+the account’s General editor. Enter at most 50 bare addresses per field; commas and semicolons
+are accepted. The composer displays removable chips and preserves manual edits/draft recipients.
+A default appearing in both lists is added as BCC only. These preferences never add recipients
+silently inside a send worker.
+
+Personal **Undo Send** offers 0, 15, 30 or 60 seconds; zero is the default. The Send arrow opens
+Schedule send and Send mail merge. Scheduled messages live in **Scheduled** in the sidebar.
+Opening their preview does not pause delivery; Edit does, until Send or Schedule send is
+chosen explicitly. See [Email and threading](Email-and-threading.md#scheduled-mail-and-mail-merge)
+for cancellation, uncertainty and private-copy mail merge.
+
+### DAV accounts and diagnostics
+
+**General → Accounts** groups a DAV server’s credentials and CalDAV/CardDAV discovery, with
+independent calendar/contact switches and a shared polling interval. Existing sources keep
+their identities and content. Calendars and Contacts pages manage resources rather than a
+second credential form. Native account diagnostics show mail’s own last successful run and
+error separately from calendar/contact activity. A failed or incomplete reindex remains
+visible instead of receiving a false completion timestamp.
 
 ### Send and attachment limits
 
@@ -202,40 +230,41 @@ Mail that a rule marks as read never raises a sound, toast or push notification.
 
 ## Calendar preferences
 
-**Settings → Calendar** holds the calendar defaults:
+**Settings → Appearance → Calendar** holds calendar display preferences:
 
 - First day of the week (Monday or Sunday).
 - Working days and working hours, used by the week and work-week views.
-- The account used by default when sending calendar invitations.
+- Desktop agenda visibility, plus the saved default invitation account and optional owned alias.
 
 The calendar panel itself remembers the last view you used, per device.
 
 ## Signatures, profile and lock screen
 
-- **Signatures** are edited per account (and per alias) in **Settings → Accounts**.
+- **Signatures** are edited per account (and per alias) in **Settings → General → Accounts**.
 - **Profile** — display name and avatar.
 - **Screen lock** — an optional PIN (4–6 digits) with an automatic lock after 1, 5, 15 or 30
   minutes.
 
 ## Administration
 
-Administrators see additional tabs, grouped as **Account & Mail**, **Calendar**, **Display**,
-**Security & Integrations** and **Administration**:
+General, Mail, Appearance, Notifications and Security contain personal settings. Administrators
+also have instance-wide controls under Administration and Integrations. Account lists remain
+scoped to their owner; administrator status does not turn them into another user’s mailbox.
 
 | Tab | Purpose |
 | --- | --- |
-| Accounts | Mail accounts for every user on the instance. |
+| General → Accounts | Your mail and DAV connections, service switches, aliases, mappings and diagnostics. |
 | Notifications | Instance-level notification defaults. |
 | Rules / Block list | User rules and blocked senders. |
 | Categories | Enable categories, tune Social sources, re-categorise existing mail. |
 | Cleanup (beta) | Per-account bulk-mail summary and bulk archive/trash. |
-| Calendar | The calendar defaults described above. |
+| General → Calendars / Contacts | Collection management and import/export; calendar display preferences are in Appearance. |
 | Appearance | Theme, layout, language and fonts, plus instance-wide custom CSS. |
 | Shortcuts | Default keyboard shortcuts. |
 | Security | TOTP, screen lock, login protection, mail-server connection policy, MFA enforcement, login log. |
 | Performance | Message-body prefetch plus body-cache, DAV and operational-history retention. |
 | DAV access | Application passwords for CardDAV and CalDAV clients. |
-| Integrations | Microsoft 365 OAuth app, remote CardDAV account, Todoist. |
+| Integrations | Provider application credentials and integration configuration; personal mail/DAV credentials belong in General → Accounts. |
 | AI Assistant / AI Actions | Optional OpenAI-compatible provider and prompt shortcuts. |
 | Plugins (beta) | Plugin activation; the GTD/Triage plugin ships with Inboxora. |
 | Users | Users, invitations and the system email account. |
@@ -298,7 +327,7 @@ conversation-audit, resolved-error and completed-outbox retention remain operati
 container stdout/stderr logs are separate; the standard Compose files rotate **3 × 10 MiB**
 per service, while custom deployments must configure their own Docker logging policy.
 
-For the migration and storage-repair details, see [Release notes 4.1.2](Release-notes-4.1.2.md).
+For current migration and storage-repair guidance, see [Release notes 4.2.0](Release-notes-4.2.0.md).
 
 ### Mail server connection policy
 

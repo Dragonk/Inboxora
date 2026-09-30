@@ -7,7 +7,7 @@
 #   docker compose up -d
 #
 # To pin a specific version instead of latest, set INBOXORA_VERSION in your .env:
-#   INBOXORA_VERSION=4.0.1
+#   INBOXORA_VERSION=4.2.0
 
 # Bound stdout/stderr growth (not database/WAL or application log files).
 # Existing containers must be recreated to adopt a logging configuration change.

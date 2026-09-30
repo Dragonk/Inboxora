@@ -151,8 +151,11 @@ separate root-level audit reports.
 - Pages use relative links such as `[Calendar](Calendar.md)`. The publication script rewrites
   them to Wiki page names, so keep internal links relative and free of paths.
 - Cross-check a claim against the behaviour first; the Wiki is documentation, not a wish list.
-  If something is not implemented, say so explicitly (for example: no scheduled send, no
-  automatic spam classifier, no backup/restore).
+  If something is not implemented, say so explicitly (for example: mail merge does not
+  provide template personalization, and Undo Send is not recall).
+- Keep only the latest released notes in the main release navigation. Add older versions to
+  `Archive.md` and the collapsed Archive sidebar group without renaming their pages or breaking
+  existing links. Reset `Release-notes-Unreleased.md` after preparing a release.
 - Publish the Wiki with `scripts/publish-wiki.sh` after a release, once the reviewed pages are
   on the released branch.
 

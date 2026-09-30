@@ -22,7 +22,7 @@ and agenda views share the same selected date and the same visibility filters.
 - The **day agenda** panel sits beside the grid on wide screens and opens as a sheet on smaller
   ones. It lists every event for the selected day, respecting calendar visibility.
 - The **mini-month** in the sidebar changes the active date; the grid follows in every view.
-- First day of the week, working days and working hours come from **Settings → Calendar**.
+- First day of the week, working days and working hours come from **Settings → Appearance → Calendar**.
 - The view you used last is remembered per device.
 - Selecting an event opens a **preview** first; editing is one action away. Imported events open
   a read-only preview.
@@ -104,7 +104,7 @@ a plain-text fallback with an HTML alternative, so other calendar clients displa
 - Sending is idempotent: retrying a failed delivery does not create a second event, and a
   genuinely undelivered invitation is resent.
 - The event dialog shows the delivery status and offers **Retry save** while delivery is
-  pending. A default sending account can be preselected under **Settings → Calendar**.
+  pending. A default sending account can be preselected under **Settings → Appearance → Calendar**.
 
 ## Invitations you receive
 
@@ -151,7 +151,7 @@ on, an edit is sent to the source first and the local copy changes only after th
 ICS/webcal feed stays read-only whatever you select, because it has no write channel.
 
 Add a subscription by URL, or add a country's public holidays as a ready-made Thunderbird ICS
-feed, from **Settings → Calendar → Calendar subscriptions**. The same sources can be synced,
+feed, from **Settings → General → Calendars**. The same sources can be synced,
 rescheduled and removed from the calendar panel under **Manage sources**.
 
 ## Sharing a calendar as a link
@@ -166,3 +166,12 @@ treat it like a password.
 The same calendars are available over CalDAV, which is how DAVx5, Thunderbird and iOS/Android
 calendars sync them. Clients sign in with a **DAV application password**, never your login
 password — see [Contacts and DAV](Contacts-and-DAV.md).
+
+## Collection removal and rediscovery
+
+General → Calendars distinguishes local disconnection from supported provider-side deletion.
+Remote deletion requires capability/ownership checks, existing write permissions, exact-name
+confirmation and acknowledgement that remote content is removed. Primary/shared or unverified
+collections stay protected; uncertain outcomes expose Check operation rather than repeat DELETE.
+A collection missing from a complete provider discovery may be restored by newer complete
+discovery, without undoing a confirmed deletion or changing its prior disabled preference.
