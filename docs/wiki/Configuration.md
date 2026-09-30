@@ -234,9 +234,10 @@ Mail that a rule marks as read never raises a sound, toast or push notification.
 
 - First day of the week (Monday or Sunday).
 - Working days and working hours, used by the week and work-week views.
-- Desktop agenda visibility, plus the saved default invitation account and optional owned alias.
+- Desktop agenda visibility.
 
-The calendar panel itself remembers the last view you used, per device.
+Select the default invitation account and optional owned alias under **Settings → General →
+Calendars**, not in Appearance. The calendar panel remembers the last view used, per device.
 
 ## Signatures, profile and lock screen
 

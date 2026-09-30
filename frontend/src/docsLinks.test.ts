@@ -133,6 +133,7 @@ test("every API route named in the release documentation exists in the backend",
     "docs/wiki/Configuration.md", "docs/wiki/Contacts-and-DAV.md", "docs/wiki/Calendar.md",
     "docs/wiki/Upgrading.md", "docs/wiki/Troubleshooting.md",
     "docs/IMPLEMENTATION-STATUS.md", "docs/wiki/Release-notes-4.1.0.md",
+    "docs/wiki/Release-notes-4.2.0.md",
   ];
   const backendSource = execFileSync(
     "bash",

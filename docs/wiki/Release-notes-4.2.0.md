@@ -74,22 +74,31 @@ These are composer preferences: a worker never silently inserts recipients at se
 **General → Accounts** is the home for mail and DAV connections. CalDAV/CardDAV discovery,
 credentials, service switches and source intervals are managed as one DAV account, with
 independent calendar and contact enablement. Existing sources are grouped without recreating
-their data; a failure for one user does not stop every user's startup migration.
+their data; a failure for one user does not stop every user's startup migration. Only
+sources with matching usernames, decrypted credentials and verified server scope are grouped;
+different or unverifiable identities stay separate. Pausing a DAV service retains its data,
+and renaming its account does not reactivate a paused source.
 
 Mail editors have General, folder mappings, sender addresses and diagnostics subpages.
 Folder mapping drafts survive tab changes. Diagnostics distinguish requested/completed
 reindexing, real folder synchronization and failures, including native mail's own last
-successful run rather than a recent calendar/contact success.
+successful run rather than a recent calendar/contact success. Native reindex requests run
+under the provider worker's lease, not through IMAP. Interrupted IMAP reindexing is reported
+as failed after restart rather than left queued forever.
 
 Calendars and Contacts manage collections and import/export, not another credential form.
 Calendar appearance belongs in **Appearance → Calendar**, including the desktop agenda
-visibility switch. The chosen invitation account and alias are saved and work with SMTP,
+visibility switch. The default invitation sender is selected in **General → Calendars**;
+its account and alias are saved and work with SMTP,
 Gmail API and Graph. An unavailable invitation alias is an explicit error, not a silent
 substitution. Editors stay within the settings viewport with Back navigation; Rules and
 Antispam use the shared theme-aware controls.
 
 Windows, Linux and Android setup, menus, notification actions and Compose/Calendar/Contacts
-shortcuts follow the selected language across all nine supported locales. Delayed language,
+in-app shortcuts follow the selected language across all nine supported locales. Installed
+Linux launcher actions include all nine translations; the desktop environment selects their
+labels using its own locale. Updating only Docker does not replace an installed native binary.
+Delayed language,
 theme or preference loads cannot overwrite newer choices. Android shortcuts update off the
 UI thread. Notifications open their exact incoming or scheduled message, including a queued
 item outside the loaded page. Mobile settings close the calendar drawer properly; reading

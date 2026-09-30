@@ -104,7 +104,7 @@ a plain-text fallback with an HTML alternative, so other calendar clients displa
 - Sending is idempotent: retrying a failed delivery does not create a second event, and a
   genuinely undelivered invitation is resent.
 - The event dialog shows the delivery status and offers **Retry save** while delivery is
-  pending. A default sending account can be preselected under **Settings → Appearance → Calendar**.
+  pending. A default sending account and owned alias can be selected under **Settings → General → Calendars**.
 
 ## Invitations you receive
 
