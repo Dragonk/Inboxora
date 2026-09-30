@@ -476,6 +476,7 @@ export async function cutOverMicrosoftMailAccount(
               provider_mailbox_id = COALESCE(provider_mailbox_id, $3),
               mail_method_preference = 'microsoft_graph',
               transport_generation = transport_generation + 1,
+              sync_error = NULL,
               migration_state = 'active_native',
               migration_required = false,
               migration_error_code = NULL

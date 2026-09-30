@@ -29,7 +29,7 @@ describe.skipIf(!enabled)('populated 4.1.1 automatic background upgrade', () => 
     await query("UPDATE calendars SET sync_version=50000,sync_token='sync-50000' WHERE id=$1",[calendar]);
     await query('UPDATE address_books SET sync_version=5000 WHERE id=$1',[book]);
     await query(`INSERT INTO messages(account_id,uid,folder,message_id,conversation_raw_headers,body_text)
-      SELECT $1,n,'INBOX','<upgrade-'||n||'@test>',$2,'Preserved body' FROM generate_series(1,121) n`,[account,expanded]);
+      SELECT $1,n,'INBOX','<upgrade-'||n||'@test>',$2,'Preserved body' FROM generate_series(1,321) n`,[account,expanded]);
     const canonical=async()=>({
       events:(await query('SELECT id,raw_ical,etag FROM calendar_events WHERE user_id=$1 ORDER BY id',[user])).rows,
       contacts:(await query('SELECT id,vcard,etag FROM contacts WHERE user_id=$1 ORDER BY id',[user])).rows,
@@ -41,7 +41,7 @@ describe.skipIf(!enabled)('populated 4.1.1 automatic background upgrade', () => 
     const grace = await query<{n:number;recent:number;never_opened:number}>(`SELECT COUNT(*)::int AS n,
       COUNT(*) FILTER (WHERE body_cache_refreshed_at > NOW()-INTERVAL '5 minutes')::int AS recent,
       COUNT(*) FILTER (WHERE body_last_opened_at IS NULL)::int AS never_opened FROM messages WHERE account_id=$1`,[account]);
-    expect(grace.rows[0]).toEqual({n:121,recent:121,never_opened:121});
+    expect(grace.rows[0]).toEqual({n:321,recent:321,never_opened:321});
 
     expect(await canonical()).toEqual(before);
     expect((await readDavSyncSnapshot('calendar',calendar,user,50000)).status).toBe('expired');
@@ -59,7 +59,7 @@ describe.skipIf(!enabled)('populated 4.1.1 automatic background upgrade', () => 
       if(firstRepaired>0)break;
       await new Promise(r=>setTimeout(r,50));
     }
-    await stopStorageMaintenance();expect(firstRepaired).toBeGreaterThan(0);expect(firstRepaired).toBeLessThan(121);
+    await stopStorageMaintenance();expect(firstRepaired).toBeGreaterThan(0);expect(firstRepaired).toBeLessThan(321);
     const afterPause=await canonical();expect(afterPause).toEqual(before);
     startStorageMaintenance({NODE_ENV:'production'});
     const deadline=Date.now()+25000;let complete=false;
@@ -71,9 +71,9 @@ describe.skipIf(!enabled)('populated 4.1.1 automatic background upgrade', () => 
     await stopStorageMaintenance();expect(complete).toBe(true);
     expect(await canonical()).toEqual(before);
     const payloads=await query<{count:number;exact:number}>("SELECT COUNT(*)::int AS count,COUNT(*) FILTER(WHERE conversation_raw_headers=$2)::int AS exact FROM messages WHERE account_id=$1",[account,headers]);
-    expect(payloads.rows[0]).toEqual({count:121,exact:121});
+    expect(payloads.rows[0]).toEqual({count:321,exact:321});
     const progress=(await query<{progress:{repaired:number;logical_bytes_saved:number}}>('SELECT progress FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows[0].progress;
-    expect(progress.repaired).toBe(121);expect(progress.logical_bytes_saved).toBe(121*(Buffer.byteLength(expanded)-Buffer.byteLength(headers)));
+    expect(progress.repaired).toBe(321);expect(progress.logical_bytes_saved).toBe(321*(Buffer.byteLength(expanded)-Buffer.byteLength(headers)));
     const retiredSize=Number((await query("SELECT pg_total_relation_size('calendar_sync_changes_legacy_0146')+pg_total_relation_size('contact_sync_changes_legacy_0146') AS size")).rows[0].size);
     expect(retiredSize).toBeLessThan(oldSize/10);
     console.info('storage upgrade measured bytes',JSON.stringify({retired_before:oldSize,retired_after:retiredSize,status:await readStorageMaintenanceStatus()}));

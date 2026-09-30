@@ -189,4 +189,43 @@ describe.skipIf(!enabled)('automatic storage maintenance with real PostgreSQL', 
     expect((await query('SELECT conversation_raw_headers FROM messages WHERE id=$1',[id])).rows[0].conversation_raw_headers).toBe(header);
   });
 
+  it('does not rescan a completed header repair account on later maintenance passes',async()=>{
+    const header='Subject: One-time repair\r\n';
+    const encoded=[...Buffer.from(header).entries()].map(([i,b])=>`${i}: ${b}`).join('\r\n');
+    const id=randomUUID();
+    await query("INSERT INTO messages(id,account_id,uid,folder,conversation_raw_headers) VALUES($1,$2,991,'INBOX',$3)",[id,account,encoded]);
+    await query(`INSERT INTO storage_maintenance(task,next_run_at,completed_at)
+      SELECT 'headers:'||id::text,NOW()+INTERVAL '1 day',NOW() FROM email_accounts WHERE id<>$1
+      ON CONFLICT(task) DO UPDATE SET next_run_at=EXCLUDED.next_run_at,completed_at=EXCLUDED.completed_at`,[account]);
+    await runStorageMaintenancePass();
+    const first=(await query<{progress:{repaired:number};updated_at:string;completed_at:string|null}>(
+      'SELECT progress,updated_at,completed_at FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows[0];
+    expect(first.progress.repaired).toBe(1);expect(first.completed_at).not.toBeNull();
+    await query("UPDATE storage_maintenance SET next_run_at=NOW()-INTERVAL '1 day' WHERE task=$1",[`headers:${account}`]);
+    await runStorageMaintenancePass();
+    const second=(await query<{progress:{repaired:number};updated_at:string;completed_at:string|null}>(
+      'SELECT progress,updated_at,completed_at FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows[0];
+    expect(second).toEqual(first);
+  });
+
+  it('recovers a reported 57014 task, records scan progress and completes without repairing already-clean headers',async()=>{
+    await query(`INSERT INTO messages(account_id,uid,folder,conversation_raw_headers)
+      SELECT $1,n,'INBOX','Subject: already repaired' FROM generate_series(1,601) n`,[account]);
+    await query(`INSERT INTO storage_maintenance(task,progress,completed_at,next_run_at)
+      VALUES($1,'{"last_error_code":"57014"}',NULL,NOW())`,[`headers:${account}`]);
+    await query(`INSERT INTO storage_maintenance(task,completed_at,next_run_at)
+      SELECT 'headers:'||id::text,NOW(),NOW() FROM email_accounts WHERE id<>$1
+      ON CONFLICT(task) DO UPDATE SET completed_at=EXCLUDED.completed_at,next_run_at=EXCLUDED.next_run_at`,[account]);
+    const states=[];
+    for(let n=0;n<3;n++){
+      await runStorageMaintenancePass();
+      states.push((await query<{progress:{scan_rows:number;repaired:number;cursor:string|null};completed_at:string|null}>(
+        'SELECT progress,completed_at FROM storage_maintenance WHERE task=$1',[`headers:${account}`])).rows[0]);
+    }
+    expect(states.map(s=>s.progress.scan_rows)).toEqual([250,500,601]);
+    expect(states[0].completed_at).toBeNull();expect(states[2].completed_at).not.toBeNull();
+    expect(states[2].progress).toMatchObject({repaired:0,cursor:null});
+    expect(states[2].progress).not.toHaveProperty('last_error_code');
+  });
+
 });

@@ -170,19 +170,21 @@ describePg('conversation storage and ingest transactions (issue #16)', () => {
     for (const id of ids) await persistConversationCopyForRow(id, account(), { headers: legacyHeaders(rawHeaders) });
     const before = await Promise.all(ids.map(stored));
     const preview = await repairConversationHeadersBatch({ userId, accountId, limit: 2 });
-    expect(preview).toMatchObject({ scanned: 2, repairable: 2, repaired: 0, skipped: 0, next: ids[1] });
+    expect(preview).toMatchObject({ scanned: 2, repairable: 2, repaired: 0, skipped: 0 });
+    expect(preview.next).toBe(ids[1]);
     expect(preview.beforeBytes).toBe(2 * Buffer.byteLength(legacyHeaders(rawHeaders)));
     expect(preview.afterBytes).toBe(2 * Buffer.byteLength(rawHeaders));
     expect(await Promise.all(ids.map(stored))).toEqual(before);
 
     const first = await repairConversationHeadersBatch({ userId, accountId, limit: 2, apply: true });
-    expect(first).toMatchObject({ scanned: 2, repaired: 2, next: ids[1] });
+    expect(first).toMatchObject({ scanned: 2, repaired: 2 });
+    expect(first.next).toBe(ids[1]);
     const second = await repairConversationHeadersBatch({ userId, accountId, afterId: first.next, limit: 2, apply: true });
     expect(second).toMatchObject({ scanned: 1, repaired: 1, next: null });
     const after = await Promise.all(ids.map(stored));
     expect(after).toEqual(before.map(row => ({ ...row, conversation_raw_headers: rawHeaders })));
     const replay = await repairConversationHeadersBatch({ userId, accountId, apply: true });
-    expect(replay).toMatchObject({ scanned: 0, repaired: 0, next: null });
+    expect(replay).toMatchObject({ scanned: 3, repaired: 0, next: null });
 
     await rebuildConversationCopies({ userId, accountId, force: true, dryRun: false });
     expect(await Promise.all(ids.map(stored))).toEqual(after);
@@ -227,6 +229,99 @@ describePg('conversation storage and ingest transactions (issue #16)', () => {
     }
     // The failed batch released its advisory lock and can safely be retried.
     expect(await repairConversationHeadersBatch({ userId, accountId, apply: true })).toMatchObject({ repaired: 2 });
+  });
+
+  it('pages through large stretches of normal headers without an account-wide legacy LIKE scan', async () => {
+    const total = 1200;
+    const values: string[] = [];
+    const params: unknown[] = [accountId];
+    for (let index = 0; index < total; index++) {
+      const base = params.length;
+      values.push(`($1, $${base + 1}, 'INBOX', $${base + 2}, $${base + 3})`);
+      params.push(10_000 + index, `normal-${index}@example.test`, `Subject: normal ${index}\r\nX-Pad: ${'x'.repeat(2048)}\r\n`);
+    }
+    await query(`INSERT INTO messages(account_id,uid,folder,message_id,conversation_raw_headers) VALUES ${values.join(',')}`, params);
+    const damaged = await query<{ id: string }>(`INSERT INTO messages(account_id,uid,folder,message_id,conversation_raw_headers)
+      VALUES($1,12050,'INBOX','legacy-tail@example.test',$2) RETURNING id`, [accountId, legacyHeaders(rawHeaders)]);
+
+    let cursor: string | null = null;
+    let repaired = 0;
+    let scanned = 0;
+    let batches = 0;
+    do {
+      const batch = await repairConversationHeadersBatch({ userId, accountId, afterId: cursor, limit: 250, apply: true });
+      repaired += batch.repaired; scanned += batch.scanned; batches++;
+      cursor = batch.next;
+    } while (cursor !== null);
+
+    expect(repaired).toBe(1);
+    expect(scanned).toBe(total + 1);
+    expect(batches).toBeGreaterThan(4);
+    expect((await stored(damaged.rows[0].id)).conversation_raw_headers).toBe(rawHeaders);
+  }, 30000);
+
+  it('preserves a legacy UUID checkpoint even when the remaining UID is smaller', async () => {
+    const previous = '10000000-0000-4000-8000-000000000010';
+    const remaining = '20000000-0000-4000-8000-000000000020';
+    await query(`INSERT INTO messages(id,account_id,uid,folder,conversation_raw_headers)
+      VALUES($1,$3,900,'INBOX',$4),($2,$3,1,'INBOX',$5)`,
+    [previous,remaining,accountId,rawHeaders,legacyHeaders(rawHeaders)]);
+    const result = await repairConversationHeadersBatch({ userId, accountId, afterId: previous, limit: 10, apply: true });
+    expect(result).toMatchObject({scanned:1,repaired:1,next:null});
+    expect((await stored(previous)).conversation_raw_headers).toBe(rawHeaders);
+    expect((await stored(remaining)).conversation_raw_headers).toBe(rawHeaders);
+    await query('DELETE FROM messages WHERE id=$1',[previous]);
+    await query('UPDATE messages SET conversation_raw_headers=$1 WHERE id=$2',[legacyHeaders(rawHeaders),remaining]);
+    expect(await repairConversationHeadersBatch({userId,accountId,afterId:previous,apply:true})).toMatchObject({repaired:1});
+  });
+
+  it('restarts a prototype UID cursor instead of skipping lower-UID pending rows',async()=>{
+    const id=await insert();await query('UPDATE messages SET conversation_raw_headers=$1 WHERE id=$2',[legacyHeaders(rawHeaders),id]);
+    const old='v2:'+Buffer.from(JSON.stringify({uid:'9000000000000000',folder:'INBOX'})).toString('base64url');
+    expect(await repairConversationHeadersBatch({userId,accountId,afterId:old,apply:true})).toMatchObject({scanned:1,repaired:1,next:null});
+    expect(await repairConversationHeadersBatch({userId,accountId,apply:true})).toMatchObject({repaired:0});
+  });
+
+  it('caps dense pages at 50 payloads and resumes without losing the other rows',async()=>{
+    await query(`INSERT INTO messages(account_id,uid,folder,conversation_raw_headers)
+      SELECT $1,n,'INBOX',$2 FROM generate_series(1,121) n`,[accountId,legacyHeaders(rawHeaders)]);
+    let cursor: string|null=null;
+    const passes=[];
+    do {
+      const result=await repairConversationHeadersBatch({userId,accountId,afterId:cursor,limit:250,apply:true});
+      passes.push(result);cursor=result.next;
+    } while(cursor!==null);
+    expect(passes.map(p=>p.repaired)).toEqual([50,50,21]);
+    expect(passes.reduce((n,p)=>n+p.scanned,0)).toBe(121);
+    expect((await query('SELECT COUNT(*)::int AS n FROM messages WHERE account_id=$1 AND conversation_raw_headers=$2',[accountId,rawHeaders])).rows[0].n).toBe(121);
+  });
+
+  it('does not skip a pending row that moves to a lower UID between pages',async()=>{
+    const ids=[await insert(),await insert()].sort();
+    await query('UPDATE messages SET conversation_raw_headers=$1 WHERE id=ANY($2::uuid[])',[legacyHeaders(rawHeaders),ids]);
+    const first=await repairConversationHeadersBatch({userId,accountId,limit:1,apply:true});
+    await query("UPDATE messages SET uid=0,folder='Archive' WHERE id=$1",[ids[1]]);
+    const second=await repairConversationHeadersBatch({userId,accountId,afterId:first.next,limit:2,apply:true});
+    expect(first.next).toBe(ids[0]);expect(second).toMatchObject({repaired:1,next:null});
+  });
+
+
+  it('repairs all same-UID copies and does not change thread IDs on dense pagination',async()=>{
+    const ids=[await insert(),await insert()];
+    await query("UPDATE messages SET folder=CASE WHEN id=$1 THEN 'A' ELSE 'B' END,uid=42,conversation_raw_headers=$3 WHERE id=ANY($2::uuid[])",[ids[0],ids,legacyHeaders(rawHeaders)]);
+    const first=await repairConversationHeadersBatch({userId,accountId,limit:1,apply:true});
+    const second=await repairConversationHeadersBatch({userId,accountId,afterId:first.next,limit:2,apply:true});
+    expect(first.repaired+second.repaired).toBe(2);
+    expect((await Promise.all(ids.map(stored))).every(row=>row.conversation_raw_headers===rawHeaders)).toBe(true);
+  });
+
+  it('also limits read bytes for malformed headers and reports every skipped value once',async()=>{
+    await query(`INSERT INTO messages(account_id,uid,folder,conversation_raw_headers)
+      SELECT $1,n,'INBOX','0: invalid'||repeat('x',12*1024*1024) FROM generate_series(1,3) n`,[accountId]);
+    const first=await repairConversationHeadersBatch({userId,accountId,limit:250,apply:true});
+    expect(first).toMatchObject({repaired:0,skipped:2,scanned:2});expect(first.next).not.toBeNull();
+    const second=await repairConversationHeadersBatch({userId,accountId,afterId:first.next,limit:250,apply:true});
+    expect(second).toMatchObject({repaired:0,skipped:1,scanned:1,next:null});
   });
 
 });

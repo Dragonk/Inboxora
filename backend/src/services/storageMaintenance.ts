@@ -2,7 +2,7 @@ import { readStorageRetentionPolicy } from './storageRetentionSettings.js';
 import { expireMailBodyCache, BODY_CACHE_RETENTION_BATCH } from './mailBodyCacheRetention.js';
 import type { PoolClient } from 'pg';
 import { pool, query } from './db.js';
-import { repairConversationHeadersWithClient } from './conversationHeaderRepair.js';
+import { HEADER_REPAIR_SCAN_LIMIT, repairConversationHeadersWithClient, type HeaderRepairStage } from './conversationHeaderRepair.js';
 import { conversationSerializeKey } from './conversationPersistence.js';
 import { toAppError } from '../utils/errors.js';
 
@@ -17,6 +17,7 @@ interface Progress extends Record<string, unknown> {
   repaired?: number;
   logical_bytes_saved?: number;
   skipped_in_sweep?: number;
+  scan_rows?: number;
 }
 
 async function transaction<T>(client: PoolClient, action: () => Promise<T>): Promise<T> {
@@ -108,7 +109,7 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
   const due = await client.query<{ id: string; user_id: string; progress: Progress | null }>(`
     SELECT a.id, a.user_id, s.progress FROM email_accounts a
     LEFT JOIN storage_maintenance s ON s.task = 'headers:' || a.id::text
-    WHERE s.task IS NULL OR s.next_run_at <= NOW()
+    WHERE s.task IS NULL OR (s.completed_at IS NULL AND s.next_run_at <= NOW())
     ORDER BY s.updated_at ASC NULLS FIRST, a.id LIMIT 1`);
   const account = due.rows[0];
   if (!account) return false;
@@ -118,20 +119,23 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
     await save(client, `headers:${account.id}`, account.progress ?? {}, false, 5);
     return true;
   }
+  let stage: HeaderRepairStage = 'scan';
   try {
     await transaction(client, async () => {
       const prior = account.progress ?? {};
       const stats = await repairConversationHeadersWithClient(client, {
-        userId: account.user_id, accountId: account.id, apply: true, limit: 50,
+        userId: account.user_id, accountId: account.id, apply: true, limit: HEADER_REPAIR_SCAN_LIMIT,
         afterId: typeof prior.cursor === 'string' ? prior.cursor : null,
+        onStage: value => { stage = value; },
       });
       const repaired = (prior.repaired ?? 0) + stats.repaired;
       const saved = (prior.logical_bytes_saved ?? 0) + stats.beforeBytes - stats.afterBytes;
       await save(client, `headers:${account.id}`, {
         repaired, logical_bytes_saved: saved, cursor: stats.next,
+        scan_rows: (prior.scan_rows ?? 0) + stats.scanned,
         skipped_last_batch: stats.skipped, scanned_last_batch: stats.scanned,
         skipped_in_sweep: (prior.cursor ? prior.skipped_in_sweep ?? 0 : 0) + stats.skipped,
-      }, stats.next === null, stats.next === null ? 86400 : 0);
+      }, stats.next === null, 0);
       if (stats.repaired) {
         await client.query(`INSERT INTO storage_maintenance(task, progress, completed_at, next_run_at, updated_at)
           VALUES ('vacuum:messages', '{"needed":true}', NULL, NOW(), NOW())
@@ -148,7 +152,7 @@ async function repairOneAccount(client: PoolClient): Promise<boolean> {
   } catch (error) {
     // The failed transaction rolled back data and checkpoint together. Keep the
     // old cursor and counters, but let other accounts and retention make progress.
-    await deferTask(client, `headers:${account.id}`, account.progress ?? {}, error);
+    await deferTask(client, `headers:${account.id}`, { ...account.progress, last_error_stage: stage }, error);
   } finally {
     await client.query('SELECT pg_advisory_unlock(hashtext($1), hashtext($2))', [key, key + ':2']);
   }

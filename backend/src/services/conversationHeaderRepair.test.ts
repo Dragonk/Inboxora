@@ -1,6 +1,7 @@
+import { mockPoolClient } from '../test/poolClient.js';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('./db.js', () => ({ query: vi.fn(), withTransaction: vi.fn() }));
-import { decodeLegacyConversationHeaders, MAX_REPAIR_HEADER_BYTES, repairConversationHeadersBatch } from './conversationHeaderRepair.js';
+import { decodeLegacyConversationHeaders, MAX_REPAIR_HEADER_BYTES, repairConversationHeadersBatch, repairConversationHeadersWithClient } from './conversationHeaderRepair.js';
 
 const legacy = (value: Buffer) => [...value.entries()].map(([index, byte]) => `${index}: ${byte}`).join('\r\n');
 
@@ -30,4 +31,10 @@ describe('legacy IMAP header recovery', () => {
       await expect(repairConversationHeadersBatch({ userId: 'u', accountId: 'a', limit })).rejects.toThrow('Repair limit');
     }
   });
+  it.each(['not-a-cursor','v2:garbage','v2:'+Buffer.from('{}').toString('base64url')])('rejects invalid cursor %s before issuing SQL',async cursor=>{
+    const query=vi.fn(),client=mockPoolClient({query});
+    await expect(repairConversationHeadersWithClient(client,{userId:'u',accountId:'a',afterId:cursor,apply:true})).rejects.toThrow('Invalid header repair cursor');
+    expect(query).not.toHaveBeenCalled();
+  });
+
 });

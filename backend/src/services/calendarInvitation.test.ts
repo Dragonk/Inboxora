@@ -25,7 +25,7 @@ function createMailTransportMock() {
     accepted: [],
     rejected: [],
     pending: [],
-    response: '250 OK',
+    response: '250 OK', envelopeTime: 1, messageTime: 1, messageSize: 128,
   });
   const verify = vi.fn<VerifyTransport>().mockResolvedValue({});
   return { sendMail, transport: { sendMail, verify } };
@@ -80,7 +80,7 @@ describe('sendCalendarInvitation', () => {
       accepted: ['accepted@example.test'],
       rejected: ['rejected@example.test'],
       pending: [],
-      response: '250 partial',
+      response: '250 partial', envelopeTime: 1, messageTime: 1, messageSize: 128,
     });
     createAccountSmtpTransport.mockResolvedValue({ account: { email_address: 'organizer@example.test' }, transport });
 

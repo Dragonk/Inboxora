@@ -338,4 +338,12 @@ describeOrSkip('cutOverGoogleMailAccount (PostgreSQL)', () => {
     expect(normaliseGoogleScope('https://www.googleapis.com/auth/gmail.modify')).toBe('gmail.modify');
     expect(normaliseGoogleScope('gmail.modify')).toBe('gmail.modify');
   });
+  it('clears the retired IMAP status as part of the successful Gmail switch',async()=>{
+    await seedGoogleAccount();
+    await autocommit(client=>client.query("UPDATE email_accounts SET sync_error='Host must be a string' WHERE id=$1",[ACCOUNT_ID]));
+    const result=await cutOverGoogleMailAccount({userId:USER_ID,accountId:ACCOUNT_ID,config:CONFIG,discoverLabels:false});
+    expect(result.status).toBe('migrated');
+    expect((await autocommit(client=>client.query('SELECT sync_error FROM email_accounts WHERE id=$1',[ACCOUNT_ID]))).rows[0].sync_error).toBeNull();
+  });
+
 });

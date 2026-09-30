@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import type { SMTPTransportOptions, SMTPSentMessageInfo } from 'nodemailer';
 import { refreshMicrosoftToken } from '../routes/oauth.js';
 import { decrypt } from './encryption.js';
 import { getConnectionPolicy } from './connectionPolicy.js';
@@ -19,10 +20,10 @@ export function isPreDeliveryConnectionError(err: SmtpFailureLike) {
   return err?.command === 'CONN';
 }
 
-/** The transporter nodemailer hands back, and the option/message shapes it uses. */
-type NodemailerTransporter = ReturnType<typeof nodemailer.createTransport>;
-type NodemailerSentMessageInfo = Awaited<ReturnType<NodemailerTransporter['sendMail']>>;
-type NodemailerTransportOptions = NodemailerTransporter['_defaults'];
+// Explicit SMTP types: overloaded sendMail() also has callback signatures that
+// return void, and a transport's _defaults holds message (not socket) options.
+type NodemailerSentMessageInfo = SMTPSentMessageInfo;
+type NodemailerTransportOptions = SMTPTransportOptions;
 
 export interface SmtpTransportLike {
   sendMail?(mailOptions: unknown): Promise<NodemailerSentMessageInfo>;

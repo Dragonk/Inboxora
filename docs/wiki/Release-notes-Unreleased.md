@@ -2,6 +2,95 @@
 
 These changes are on the development branch for pre-merge testing. They are **not part of the published 4.1.2 release**; a release version has not been assigned.
 
+## Native account migration: stale IMAP host errors
+
+An IMAP reconnect already queued before a switch to Gmail API or Microsoft Graph could
+read the newly native account, then attempt to resolve its correctly removed IMAP host.
+The resulting `Host must be a string` error was saved in the legacy account status while
+native mail/calendar/contact sync continued independently. A native transport does not
+need an IMAP or SMTP endpoint; adding a dummy host would reintroduce the wrong transport.
+
+Connection entry points now reject native accounts; queued startup/poll/reconnect work
+re-reads the owned account. Shared pooled/new socket paths check the active transport,
+host and generation before and after the handshake. Obsolete work cannot install an
+IMAP session or overwrite status, and a retired timer cannot disconnect a newer IMAP
+generation. Real IMAP failures are still persisted and reported normally. A provider's
+own connection/grant/collection diagnostics are not hidden or cleared by this change.
+
+Successful Google and Microsoft cutovers clear the retired IMAP status atomically with
+the transport switch. Normal startup applies **0166_native_account_stale_imap_error.sql
+after 0165** to clear only the exact `Host must be a string` value on already-native
+accounts. No account recreation, token reset, mailbox rebuild, new permission or config
+change is required. Existing messages, calendars, contacts and unrelated errors remain.
+Refresh the account list after deploying the updated backend. If a different Google/Graph
+error remains, treat it as a separate provider diagnostic rather than erasing it.
+
+Regression coverage reproduces the null-host callback on both transports, stale startup
+and surviving poll work, a cutover during an IMAP handshake, and a new IMAP generation
+surviving an old callback. Real PostgreSQL tests check authorization, status writes blocked
+on a cutover transaction, both successful migrations, and idempotent narrow data cleanup.
+The public host validation and TLS checks are unchanged.
+
+The backend audit also required Nodemailer 10.0.13 and brace-expansion 5.0.12. Nodemailer
+10 requires Node 20+ (the existing image/CI use Node 22) and provides built-in types;
+the SMTP wrapper now names those types explicitly instead of inferring a callback's
+`void` result or treating message defaults as connection options. The sending, MIME,
+recipient, TLS and integration suites remain active. This is separate from the false
+IMAP-host status: dependency advisories are not being presented as its cause. Existing
+moderate advisories in other packages remain reported; no audit exclusions were added.
+
+
+## Large-account header repair (#16)
+
+This follow-up is based on current dev including the merged settings and folder-sync
+changes. The reporter's remaining `headers:` task had error `57014` (query cancelled),
+while its VACUUM task was already complete. The old query applied `LIKE '0: %'` before
+LIMIT and could read most of an account's TOASTed headers just to find the next legacy
+value or establish that none remained. The worker's transaction uses a 10-second
+statement timeout. The logs alone do not distinguish a timeout from external cancellation,
+and do not prove how much of the allocated database is reusable bloat.
+
+The repair now limits a cheap account/UUID index scan to 250 rows, then inspects only
+that page's headers. At most 50 repairable payloads or 32 MiB of encoded input are decoded
+per batch (16 MiB maximum per payload). Dense pages checkpoint their actual inspected
+position, never the unprocessed tail. Existing UUID checkpoints preserve their original
+ordering even when UID/folder changes; experimental `v2:` UID cursors restart safely.
+Already repaired values are not rewritten or counted again. Completed account sweeps
+are not scanned again every 24 hours; new accounts still receive their own initial task.
+
+Normal startup applies **0165_header_repair_scan_index.sql after 0164**. It builds a
+small full `(account_id, id)` index concurrently, without indexing header contents or
+rewriting messages. A retry removes/rebuilds only this dedicated index, so an interrupted
+concurrent index build cannot leave an invalid index silently accepted. Existing migrations
+and data are unchanged; account locks, tenant checks and atomic data/checkpoint commits
+remain in place. Allow the normal migration to finish before starting the new worker.
+
+The status summary adds `header_scan_rows`, `header_tasks_pending` and
+`header_tasks_with_errors`. Scan rows count successful inspections in this implementation,
+not remaining bad messages or a fixed percentage. A sparse final sweep can make progress
+without increasing `headers_repaired`. Full status records failure stage and retry deadline;
+it contains no subjects, credentials or message contents. No manual cursor reset is needed.
+
+This is not an automatic VACUUM FULL or a guarantee of a smaller database file: ordinary
+VACUUM makes old row/TOAST versions reusable but need not return interior pages to the
+filesystem. The reporter's remaining disk allocation must be assessed after completion,
+separately from the now-bounded repair and new ongoing mail activity. No remote mail,
+cache policy, provider state or conversation failure records are discarded by this fix.
+
+Regression coverage includes reversed UUID/UID order, removed cursor rows, moved copies,
+same-UID folder copies, dense/sparse pages, malformed and oversized data, owner isolation,
+rollback, completed-task idempotency and an existing `57014` checkpoint progressing to
+completion. Existing migration/restart tests remain active.
+
+
+The same dev build updates the direct `undici` dependency to 6.29.0 after the
+required CI audit found a high-severity upstream vulnerability in 6.28.0. This
+stays on the existing major version. Safe-fetch regressions and the unchanged
+high-severity audit gate verify the update; no forced major upgrades or audit
+exclusions are introduced. Existing moderate advisories in other dependencies
+remain outside this storage follow-up and are not reported as resolved.
+
+
 ## Mail status and provider collection consistency
 
 Read/unread and star actions share a PostgreSQL-backed intent queue across Microsoft Graph, Gmail API and IMAP, including Gmail over IMAP. The latest explicit click owns its generation. Bulk requests persist every member before the first provider call; a bounded immediate slice runs while the worker owns the remainder. Responses distinguish confirmed, pending and failed IDs. The client requests fresh evidence after uncertainty instead of retaining an optimistic flag indefinitely, and old responses cannot overwrite another session or a newer click.

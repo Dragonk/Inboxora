@@ -58,6 +58,9 @@ finalized below and dated with its publication date.
 - Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
 
 ### Fixed
+- **Native account status after migration.** Stop delayed IMAP connects/reconnects from resolving a removed host or recording errors after a Gmail API/Graph cutover. Recheck tenant and transport generation around connection setup and status writes, close obsolete handshakes, and clear the retired IMAP status on a successful switch. Migration `0166_native_account_stale_imap_error.sql` follows 0165 and removes only the known native-account “Host must be a string” artifact; provider authentication/sync diagnostics and data remain unchanged.
+- **Large-account header repair (#16).** Scan bounded immutable account/UUID pages instead of searching all remaining header payloads; preserve existing UUID checkpoints and avoid daily rescans of completed accounts. Keep a 50-header/32 MiB repair budget per batch, report scan progress and failure stage, and add concurrent index migration `0165_header_repair_scan_index.sql` after 0164. No automatic full table rewrite or mail deletion.
+
 - Preserve recent calendar agenda/sender choices during preference hydration, and keep manual navigation ahead of delayed notification lookups.
 - Report failed or incomplete IMAP reindexing without a false completion timestamp; keep diagnostics usable after account/session changes and retain client errors for unavailable invitation aliases. Failed folder-count or synchronization-timestamp writes also prevent a success result.
 - Isolate DAV startup migration failures per user; apply late native language/theme responses once, update Android shortcuts off the UI thread, and retain visible keyboard focus in inline settings editors.
@@ -87,6 +90,13 @@ finalized below and dated with its publication date.
 - Opening a queued reply no longer steals focus from an already selected subject or recipient field when the rich-text editor finishes initializing.
 - Mail merge now accepts the same transport-aware JSON request window as normal and scheduled sending instead of the global 1 MB cap. Per-account attachment and message limits still apply; a live API regression checks attachment parsing without dispatching mail.
 - The PostgreSQL CardDAV contact-preservation fixture now mocks privilege discovery and rejects unexpected DNS/HTTP access, removing network-dependent CI timeouts without relaxing its data-safety assertions. Application behavior is unchanged.
+
+### Security
+
+- Update Nodemailer to 10.0.13 and the existing brace-expansion override to 5.0.12 after the dependency audit reported high-severity advisories. Use Nodemailer's explicit SMTP result/options types; Node 20+ is supported by the existing Node 22 build. Keep the high-severity audit gate and all TLS, endpoint-validation and send-idempotency policies unchanged.
+
+
+- Update the backend HTTP client to `undici` 6.29.0, covering GHSA-rfgv-xxqx-mfg5 and related upstream fixes. Keep the existing high-severity dependency-audit gate enabled; no HTTP/provider policy changes.
 
 ## [4.1.2] - 2026-09-28
 

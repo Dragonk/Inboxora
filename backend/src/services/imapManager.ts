@@ -1,3 +1,4 @@
+import { assertImapAccount, assertCurrentImapAccount, isImapAccount, isImapAccountChanged, readCurrentImapAccount, IMAP_TRANSPORT_GUARD } from './imapTransportGuard.js';
 import { prefetchVisibleBodies, readNativePrefetchBody } from './mailBodyPrefetch.js';
 import { ImapFlow } from 'imapflow';
 import type { FolderMappings } from '../utils/mailUtils.js';
@@ -93,6 +94,7 @@ interface IngestUnreadMessage {
 // Resolves the IMAP host for an account, applying server-level connection policy.
 // Returns { resolved, policy } so callers can pass policy to makeClientCfg.
 const resolveAccountHost = async (account: EmailAccountRow) => {
+  assertImapAccount(account);
   const policy = await getConnectionPolicy();
   const resolved = await resolveForConnection(account.imap_host, { allowPrivate: policy.allowPrivateHosts });
   return { resolved, policy };
@@ -132,30 +134,28 @@ async function connectImapClient(account: EmailAccountRow, resolved: ResolvedCon
   const host = (account.imap_host || '').toLowerCase();
   let sawRefusal = false; // a provider refusal ('Connection not available' etc.) fired mid-attempt
   const attempt = async (res: ResolvedConnection, tag: string): Promise<ImapClient> => {
-    const client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
-    // #360: an 'error' emitted during the handshake with no listener is unhandled and crashes the
-    // process. Attach one that outlives connect; a caller adding its own later just logs alongside.
-    client.on('error', (err) => {
-      if (isConnectionRefusal(err?.message)) sawRefusal = true;
-      recordWarning('imap_error', account?.id);
-      console.error(`IMAP error for ${logAccount(account)}:`, err.message);
-    });
-    // Admission control (#384): cap concurrent connection establishment per host so a startup /
-    // backfill burst can't stampede the provider into refusals. Held only for the handshake and
-    // released the instant connect resolves, so it bounds the open RATE, not open connections.
     await hostConnectSem.acquire(host);
+    let client: ImapFlow | undefined;
     try {
+      await assertCurrentImapAccount(account);
+      client = new ImapFlow(makeClientCfg(account, res, cfgOpts));
+      // Attach before connect: handshake errors must not be unhandled events.
+      client.on('error', (err) => {
+        if (isConnectionRefusal(err?.message)) sawRefusal = true;
+        recordWarning('imap_error', account.id);
+        console.error(`IMAP error for ${logAccount(account)}:`, err.message);
+      });
       await raceTimeout(client.connect(), timeoutMs, tag);
+      await assertCurrentImapAccount(account);
+      return client;
     } catch (err) {
-      // close() (not logout()): forcefully destroys the socket and aborts the still-pending
-      // connect left running by the race timeout — a graceful logout could itself hang on a
-      // wedged/half-open connection (the exact failure we're recovering from).
-      try { client.close(); } catch { /* already closed */ }
+      // Includes a transport cutover while connect() was pending. Never install
+      // the retired socket into the persistent map or connection pool.
+      try { client?.close(); } catch { /* already closed */ }
       throw err;
     } finally {
       hostConnectSem.release(host);
     }
-    return client;
   };
   try {
     return await attempt(resolved, label);
@@ -1055,6 +1055,7 @@ async function computeThreadId(accountId: string, messageId: string, inReplyTo: 
 
 // Ensure OAuth token is fresh before connecting
 async function ensureFreshToken(account: EmailAccountRow) {
+  assertImapAccount(account);
   if (account.oauth_provider !== 'microsoft') return account;
   if (!account.oauth_token_expiry) return account;
   const expiry = new Date(account.oauth_token_expiry);
@@ -1121,7 +1122,9 @@ export type EmailAccountRow = {
   provider_mailbox_id?: string | null;
   id: string;
   email_address?: string;
-  imap_host?: string;
+  imap_host?: string | null;
+  protocol?: string | null;
+  transport_generation?: string | number;
   imap_port?: number;
   imap_tls?: boolean;
   imap_skip_tls_verify?: boolean;
@@ -1131,19 +1134,6 @@ export type EmailAccountRow = {
   oauth_access_token?: string | null;
   oauth_token_expiry?: string | Date | null;
 };
-
-/**
- * The IMAP loops, health checks and startup connects must never see an account whose
- * transport is native.
- *
- * The queries below were written against the legacy `protocol` column, and the
- * in-place Microsoft cutover also writes `protocol = 'microsoft_graph'` so they skip
- * a native account. This guard states the same rule against the **authoritative**
- * `mail_transport` column as well, so a native account stays invisible to IMAP even if
- * something later resets `protocol` (the reconnect route, a data repair, an operator).
- * A pre-v4 row has `mail_transport IS NULL` and is IMAP, which is why NULL is allowed.
- */
-const IMAP_TRANSPORT_GUARD = "(mail_transport IS NULL OR mail_transport = 'imap_smtp')";
 
 export interface ImapClientCfg {
   host: string;
@@ -1230,6 +1220,7 @@ function drainWaiters(pool: ConnectionPool): void {
 }
 
 async function acquirePooledClient(account: EmailAccountRow): Promise<ImapClient> {
+  await assertCurrentImapAccount(account);
   const id = account.id;
   let pool = connectionPools.get(id);
   if (!pool) {
@@ -1730,7 +1721,7 @@ export class ImapManager {
             // Only fetch full credentials when a reconnect is actually needed
             const full = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [row.id]);
             const account = full.rows[0];
-            if (!account) continue;
+            if (!account || !account.enabled || !isImapAccount(account)) continue;
             console.log(`Health check: reconnecting ${logAccount(account)} (not connected)`);
             this.connectAccount(account).catch(err =>
               console.error(`Health check reconnect failed for ${logAccount(account)}:`, err.message)
@@ -1837,7 +1828,7 @@ export class ImapManager {
           try {
             const acct = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [accountId]);
             const account = acct.rows[0];
-            if (!account) continue;
+            if (!account || !account.enabled || !isImapAccount(account)) { await this.disconnectAccount(accountId); continue; }
             // Our highest synced INBOX UID — the watermark for "have we seen the newest mail".
             const { rows: [w] } = await query(
               "SELECT MAX(uid)::bigint AS maxuid FROM messages WHERE account_id = $1 AND folder = 'INBOX'",
@@ -1857,11 +1848,9 @@ export class ImapManager {
               // always has a real client to close (no post-timeout connection can escape).
               const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Staleness token refresh');
               const { resolved, policy } = await raceTimeout(resolveAccountHost(fresh), 15000, 'Staleness host resolve');
-              probe = new ImapFlow(makeClientCfg(fresh, resolved, { policy }));
-              probe.on('error', () => {}); // avoid unhandled 'error' on abrupt close
+              probe = await connectImapClient(fresh, resolved, { policy }, 20000, 'Staleness connect');
               missed = await Promise.race([
                 (async () => {
-                  await probe.connect();
                   const lock = await probe.getMailboxLock('INBOX');
                   try {
                     // Filter guards the IMAP `n:*` quirk: when n exceeds the highest UID
@@ -2098,6 +2087,7 @@ export class ImapManager {
   }
 
   async connectAccount(account: EmailAccountRow) {
+    if (!isImapAccount(account) || account.enabled === false) return false;
     // Back off if this account is in a connection-refusal cooldown. Retrying a provider that
     // is rejecting connections (per-IP/per-account limit, temporary lock) every health-check
     // tick is exactly what escalates to IP bans / account locks. The cooldown is cleared the
@@ -2124,6 +2114,9 @@ export class ImapManager {
       // Always clean up any existing connection and interval first.
       // Previously this only ran when a connection existed, which left orphaned
       // intervals running whenever the connection died between reconnect attempts.
+      const current = await readCurrentImapAccount(account);
+      if (!current) return false;
+      account = current;
       await this.disconnectAccount(account.id);
 
       // Per-host persistent-connection budget (#379 Phase 2). When an operator has set a finite cap
@@ -2224,6 +2217,7 @@ export class ImapManager {
         logger.debug(`Backfill deferred on connect for ${logAccount(account)} — account already has cached mail`);
       }
 
+      await assertCurrentImapAccount(account);
       const intervalMs = this.userSyncIntervalMs.get(account.user_id) || 60000;
       this._startSyncInterval(account, intervalMs);
       // Arm any plugin-declared background sync ticks whose isActive gate accepts this account
@@ -2237,6 +2231,11 @@ export class ImapManager {
       this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
       return true;
     } catch (err) {
+      if (isImapAccountChanged(err)) {
+        if (client) { try { client.close(); } catch { /* closed during cutover */ } }
+        if (this.connections.get(account.id) === client) this.connections.delete(account.id);
+        return false;
+      }
       const detail = extractImapError(err);
       console.error(`Failed to connect ${logAccount(account)}:`, detail);
       // On a connection-refusal/throttle, back this account off with growing delay so we
@@ -2341,6 +2340,9 @@ export class ImapManager {
     let client = null;
     let slotHeld = false;
     try {
+      const current = await readCurrentImapAccount(account);
+      if (!current) { await this.disconnectAccount(account.id); return; }
+      account = current;
       await this._bgConnSem.acquire(host);
       slotHeld = true;
       const fresh = await raceTimeout(ensureFreshToken(account), 15000, 'Poll-only token refresh');
@@ -2369,6 +2371,7 @@ export class ImapManager {
         this.broadcast({ type: 'sync_complete', accountId: account.id }, account.user_id);
       }
     } catch (err) {
+      if (isImapAccountChanged(err)) return;
       const detail = extractImapError(err);
       const refused = isConnectionRefusal(detail);
       if (refused) this._noteConnectionRefusal(account);
@@ -2420,7 +2423,11 @@ export class ImapManager {
   async _recordAccountError(account: EmailAccountRow, detail: unknown) {
     if (this._syncErrorState.get(account.id) === detail) return;
     try {
-      await query('UPDATE email_accounts SET sync_error = $1 WHERE id = $2', [detail, account.id]);
+      const result = await query(`UPDATE email_accounts SET sync_error = $1
+        WHERE id = $2 AND user_id = $3 AND enabled = true AND protocol = 'imap'
+          AND ${IMAP_TRANSPORT_GUARD} AND transport_generation = $4::bigint
+        RETURNING id`, [detail, account.id, account.user_id, String(account.transport_generation ?? 1)]);
+      if (!result.rows.length) return;
       this._syncErrorState.set(account.id, detail);
       this.broadcast({ type: 'account_error', accountId: account.id, error: detail }, account.user_id);
     } catch (caught) {
@@ -2438,7 +2445,11 @@ export class ImapManager {
     const prev = this._syncErrorState.get(account.id);
     if (prev === null) return;
     try {
-      await query('UPDATE email_accounts SET sync_error = NULL WHERE id = $1', [account.id]);
+      const result = await query(`UPDATE email_accounts SET sync_error = NULL
+        WHERE id = $1 AND user_id = $2 AND enabled = true AND protocol = 'imap'
+          AND ${IMAP_TRANSPORT_GUARD} AND transport_generation = $3::bigint
+        RETURNING id`, [account.id, account.user_id, String(account.transport_generation ?? 1)]);
+      if (!result.rows.length) return;
       this._syncErrorState.set(account.id, null);
       if (typeof prev === 'string') {
         this.broadcast({ type: 'account_connected', accountId: account.id }, account.user_id);
@@ -2492,6 +2503,9 @@ export class ImapManager {
     let usedFreshSyncClient = false;
     let syncResult: Awaited<ReturnType<ImapManager['_syncInboxWithFreshLogin']>> | undefined;
     try {
+      const current = await readCurrentImapAccount(account);
+      if (!current) { await this.disconnectAccount(account.id); return; }
+      account = current;
       activeClient = this.connections.get(account.id);
       // syncAccount tracks the freshest account data available — updated to freshAccount
       // on reconnect so that IDLE listeners, provider detection, and flag syncs all use
@@ -2524,7 +2538,7 @@ export class ImapManager {
             // Bail if the account was deleted OR disabled since this reconnect was queued.
             // The staleness check schedules a reconnect via setTimeout that disconnectAccount
             // cannot cancel, so a user disabling a stuck account must not be silently revived.
-            if (!accountResult.rows.length || !accountResult.rows[0].enabled) return null;
+            if (!accountResult.rows.length || !accountResult.rows[0].enabled || !isImapAccount(accountResult.rows[0])) return null;
             const freshAccount = await ensureFreshToken(accountResult.rows[0]);
             const { resolved, policy } = await resolveAccountHost(freshAccount);
             return { freshAccount, resolved, policy };
@@ -2555,6 +2569,7 @@ export class ImapManager {
           await this._clearAccountError(account);
           console.log(`Reconnected ${logAccount(syncAccount)}`);
         } catch (reconnErr) {
+          if (isImapAccountChanged(reconnErr)) return;
           const detail = extractImapError(reconnErr);
           // Back off on a connection-refusal so the interval stops hammering — mirrors connectAccount.
           if (isConnectionRefusal(detail)) this._noteConnectionRefusal(account);
@@ -2692,6 +2707,7 @@ export class ImapManager {
         });
       }
     } catch (caught) {
+      if (isImapAccountChanged(caught)) return;
       const err = toAppError(caught);
       const detail = extractImapError(err);
       console.error(`Sync error for ${logAccount(account)}:`, detail);

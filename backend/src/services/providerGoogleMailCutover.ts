@@ -411,6 +411,7 @@ export async function cutOverGoogleMailAccount(input: CutOverGoogleMailInput): P
               provider_mailbox_id = COALESCE(provider_mailbox_id, $3),
               mail_method_preference = 'gmail_api',
               transport_generation = transport_generation + 1,
+              sync_error = NULL,
               migration_state = 'active_native',
               migration_required = false,
               migration_error_code = NULL
