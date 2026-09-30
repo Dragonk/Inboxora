@@ -1,3 +1,4 @@
+import { isImapAccount } from '../services/imapTransportGuard.js';
 import { resolveMailTransportForSync } from '../services/mailTransportTarget.js';
 import { syncGmailMailLabelsForAccount, syncGmailMailMessagesForAccount } from '../services/providers/google/gmailMailSync.js';
 import { syncGraphMailFoldersForAccount, syncGraphMailMessagesForAccount } from '../services/providers/microsoft/graphMailSync.js';
@@ -366,11 +367,11 @@ router.put('/:id', async (req, res) => {
   if (isDisabling) {
     reconnectQueue(id, () => imapManager.disconnectAccount(id))
       .catch(err => console.error(`Failed to disconnect account ${id} after disable:`, err.message));
-  } else if (needsReconnect && updated.protocol === 'imap' && updated.enabled) {
+  } else if (needsReconnect && updated.protocol === 'imap' && isImapAccount(updated) && updated.enabled) {
     reconnectQueue(id, () =>
       imapManager.disconnectAccount(id)
         .then(() => query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1', [id]))
-        .then(r => { if (r.rows.length) return imapManager.connectAccount(r.rows[0]); })
+        .then(r => { if (r.rows[0]?.enabled && isImapAccount(r.rows[0])) return imapManager.connectAccount(r.rows[0]); })
     ).catch(err => console.error(`Failed to reconnect account ${id} after update:`, err.message));
   }
 });

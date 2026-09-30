@@ -544,6 +544,13 @@ describeOrSkip('cutOverMicrosoftMailAccount (PostgreSQL)', () => {
       mail_transport: 'microsoft_graph', migration_state: 'active_native',
     });
   });
+  it('clears the retired IMAP status atomically with a successful Graph switch',async()=>{
+    await seedMicrosoftAccount();
+    await autocommit(client=>client.query("UPDATE email_accounts SET sync_error='Host must be a string' WHERE id=$1",[ACCOUNT_ID]));
+    const result=await cutOverMicrosoftMailAccount({userId:USER_ID,accountId:ACCOUNT_ID,config:CONFIG,discoverFolders:false});
+    expect(result.status).toBe('migrated');
+    expect((await autocommit(client=>client.query('SELECT sync_error FROM email_accounts WHERE id=$1',[ACCOUNT_ID]))).rows[0].sync_error).toBeNull();
+  });
 });
 
 describe('Graph scope coverage', () => {
@@ -560,4 +567,6 @@ describe('Graph scope coverage', () => {
     expect(missingGraphMailScopes(['Calendars.ReadWrite'])).toEqual(['Mail.ReadWrite', 'Mail.Send']);
     expect(missingGraphMailScopes([])).toEqual(['Mail.ReadWrite', 'Mail.Send']);
   });
+
+
 });

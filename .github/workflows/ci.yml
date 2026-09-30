@@ -133,6 +133,7 @@ jobs:
           REQUIRE_GRAPH_POSTGRES: "1"
           REQUIRE_DAV_POSTGRES: "1"
           REQUIRE_STORAGE_POSTGRES: "1"
+          REQUIRE_NATIVE_CUTOVER_POSTGRES: "1"
           REQUIRE_CE_POSTGRES: "1"
           # The send-ledger suite is skipped without this flag, so a job that omits it
           # would report the durable send intent as covered while never running it.
@@ -184,6 +185,8 @@ jobs:
             src/services/calendarOccurrences.integration.test.ts \
             src/services/genericImapThreading.integration.test.ts \
             src/services/providerMailCutover.integration.test.ts \
+            src/services/providerGoogleMailCutover.integration.test.ts \
+            src/services/imapTransportGuard.integration.test.ts \
             src/services/providerSyncTargets.integration.test.ts \
             src/services/providerConnectionService.integration.test.ts \
             src/services/providerSchemaUpgrade.integration.test.ts \

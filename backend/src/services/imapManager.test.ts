@@ -3,6 +3,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }));
 vi.mock('./mailBodyPrefetch.js', () => ({ prefetchVisibleBodies: vi.fn(), readNativePrefetchBody: vi.fn() }));
 import { prefetchVisibleBodies, readNativePrefetchBody } from './mailBodyPrefetch.js';
+// These existing socket/flag unit cases isolate database lifecycle IO. The real
+// tenant/generation fences are exercised by imapTransportGuard.integration and
+// imapManager.nativeCutover rather than assuming an empty mocked DB is current.
+vi.mock('./imapTransportGuard.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./imapTransportGuard.js')>();
+  return {
+    ...actual,
+    assertCurrentImapAccount: vi.fn(async (account: import('./imapManager.js').EmailAccountRow) => actual.assertImapAccount(account)),
+    readCurrentImapAccount: vi.fn(async (account: import('./imapManager.js').EmailAccountRow) => actual.isImapAccount(account) ? account : null),
+  };
+});
 vi.mock('./db.js', () => {
   const query = vi.fn();
   return { query, withTransaction: vi.fn(async (callback: (client: { query: typeof query }) => Promise<unknown>) => callback({ query })) };
@@ -2224,7 +2235,7 @@ describe('_recordAccountError / _clearAccountError', () => {
 
   beforeEach(() => {
     query.mockReset();
-    query.mockResolvedValue({ rows: [] });
+    query.mockResolvedValue({ rows: [{ id: 'a1' }] });
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
@@ -2234,8 +2245,8 @@ describe('_recordAccountError / _clearAccountError', () => {
     const m = mgr();
     await m._recordAccountError(acct, 'IMAP connect timeout (30000ms)');
     expect(query).toHaveBeenCalledWith(
-      'UPDATE email_accounts SET sync_error = $1 WHERE id = $2',
-      ['IMAP connect timeout (30000ms)', 'a1'],
+      expect.stringContaining("AND (mail_transport IS NULL OR mail_transport = 'imap_smtp') AND transport_generation = $4::bigint"),
+      ['IMAP connect timeout (30000ms)', 'a1', 'u1', '1'],
     );
     expect(m.broadcast).toHaveBeenCalledWith(
       { type: 'account_error', accountId: 'a1', error: 'IMAP connect timeout (30000ms)' }, 'u1',
@@ -2262,7 +2273,7 @@ describe('_recordAccountError / _clearAccountError', () => {
     vi.mocked(m.broadcast).mockClear();
     await m._clearAccountError(acct);
     expect(query).toHaveBeenLastCalledWith(
-      'UPDATE email_accounts SET sync_error = NULL WHERE id = $1', ['a1'],
+      expect.stringContaining("AND (mail_transport IS NULL OR mail_transport = 'imap_smtp') AND transport_generation = $3::bigint"), ['a1', 'u1', '1'],
     );
     expect(m.broadcast).toHaveBeenCalledWith({ type: 'account_connected', accountId: 'a1' }, 'u1');
   });
@@ -2288,7 +2299,7 @@ describe('_recordAccountError / _clearAccountError', () => {
     query.mockRejectedValueOnce(new Error('deadlock detected'));
     await expect(m._recordAccountError(acct, 'read ETIMEDOUT')).resolves.toBeUndefined();
     expect(m.broadcast).not.toHaveBeenCalled();
-    query.mockResolvedValue({ rows: [] });
+    query.mockResolvedValue({ rows: [{ id: 'a1' }] });
     await m._recordAccountError(acct, 'read ETIMEDOUT');
     expect(query).toHaveBeenCalledTimes(2);
   });

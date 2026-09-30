@@ -2,6 +2,35 @@
 
 These changes are on the development branch for pre-merge testing. They are **not part of the published 4.1.2 release**; a release version has not been assigned.
 
+## Native account migration: stale IMAP host errors
+
+An IMAP reconnect already queued before a switch to Gmail API or Microsoft Graph could
+read the newly native account, then attempt to resolve its correctly removed IMAP host.
+The resulting `Host must be a string` error was saved in the legacy account status while
+native mail/calendar/contact sync continued independently. A native transport does not
+need an IMAP or SMTP endpoint; adding a dummy host would reintroduce the wrong transport.
+
+Connection entry points now reject native accounts; queued startup/poll/reconnect work
+re-reads the owned account. Shared pooled/new socket paths check the active transport,
+host and generation before and after the handshake. Obsolete work cannot install an
+IMAP session or overwrite status, and a retired timer cannot disconnect a newer IMAP
+generation. Real IMAP failures are still persisted and reported normally. A provider's
+own connection/grant/collection diagnostics are not hidden or cleared by this change.
+
+Successful Google and Microsoft cutovers clear the retired IMAP status atomically with
+the transport switch. Normal startup applies **0166_native_account_stale_imap_error.sql
+after 0165** to clear only the exact `Host must be a string` value on already-native
+accounts. No account recreation, token reset, mailbox rebuild, new permission or config
+change is required. Existing messages, calendars, contacts and unrelated errors remain.
+Refresh the account list after deploying the updated backend. If a different Google/Graph
+error remains, treat it as a separate provider diagnostic rather than erasing it.
+
+Regression coverage reproduces the null-host callback on both transports, stale startup
+and surviving poll work, a cutover during an IMAP handshake, and a new IMAP generation
+surviving an old callback. Real PostgreSQL tests check authorization, status writes blocked
+on a cutover transaction, both successful migrations, and idempotent narrow data cleanup.
+The public host validation and TLS checks are unchanged.
+
 ## Large-account header repair (#16)
 
 This follow-up is based on current dev including the merged settings and folder-sync
