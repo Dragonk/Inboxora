@@ -181,7 +181,33 @@ walkthrough and the scripted alternative.
   sending twice. If the message was delivered but the copy could not be saved to the Sent
   folder, Inboxora says *Sent, but not saved to your Sent folder* rather than reporting a
   failure that would invite a duplicate.
-- There is no scheduled send, no undo-send delay and no per-user send quota.
+- Schedule send, Undo Send and mail merge use a durable server queue; see below for timing and recovery limits.
+
+## Scheduled mail and mail merge
+
+The arrow next to Send opens **Schedule send** and **Send mail merge**. Undo Send is a
+server-saved delay (0/15/30/60 seconds), not recall after provider submission. Scheduling uses
+the browser’s time zone and rejects past instants and ambiguous/nonexistent daylight-saving
+times. The server must be running for delivery; the client may be closed.
+
+**Scheduled** shares the inbox’s list, reading pane, sanitized preview and attachments.
+Selecting a row does not pause it. Edit pauses it atomically, including through autosaves,
+closing the editor or passing the old deadline. Only Send or Schedule send resumes it.
+Cancel works before worker submission and removes the queued content immediately. Once a
+provider may have accepted mail, an unclear result is **Uncertain** and is not retried
+silently. Check Sent before a deliberate retry; Dismiss purges the queue payload but does
+not recall the mail. Confirmed partial deliveries retain only rejected recipients.
+
+Mail merge sends one separate copy to each unique address across To/Cc/Bcc; every copy has
+only that recipient in To and empty Cc/Bcc. Sender, content, signature and attachment bytes
+are frozen consistently. It does not perform template personalization. At most 100 active
+queue entries per user and 100 attachments per queued message are allowed, within the usual
+provider byte limits. Small idempotency receipts remain after sent/cancelled payload cleanup.
+
+Sent status remains visible for the current visit after acknowledgement and disappears on
+a later visit. Background polling or offscreen rows do not acknowledge it. This queue behavior
+does not delete the provider’s Sent messages. Sender and default CC/BCC preferences are
+explained in [Configuration](Configuration.md#sender-defaults-and-scheduled-sending).
 
 ## Organising mail
 

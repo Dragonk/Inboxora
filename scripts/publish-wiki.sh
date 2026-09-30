@@ -68,7 +68,7 @@ find "$WORK_DIR/wiki" -maxdepth 1 -name '*.md' -print0 |
 # GitHub Wiki resolves pages by name, while the repository renders relative .md
 # links. Strip the extension from same-page-name links so both render correctly.
 find "$WORK_DIR/wiki" -maxdepth 1 -name '*.md' -print0 |
-  xargs -0 sed -i -E 's|\]\(([A-Za-z0-9_.-]+)\.md\)|](\1)|g'
+  xargs -0 sed -i -E 's|\]\(([A-Za-z0-9_.-]+)\.md(#[^)]*)?\)|](\1\2)|g'
 
 git -C "$WORK_DIR/wiki" add -A
 if git -C "$WORK_DIR/wiki" diff --cached --quiet; then

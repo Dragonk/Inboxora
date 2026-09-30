@@ -4,13 +4,9 @@ All notable changes to Inboxora are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-For the narrative version — what the release means, what to expect when upgrading, and the known
-limitations — read the matching page in the Wiki: [Release notes 4.1.2](wiki/Release-notes-4.1.2.md), [Release notes 4.1.1](wiki/Release-notes-4.1.1.md),
-[Release notes 4.1.0](wiki/Release-notes-4.1.0.md),
-[Release notes 4.0.4](wiki/Release-notes-4.0.4.md),
-[Release notes 4.0.3](wiki/Release-notes-4.0.3.md),
-[Release notes 4.0.2](wiki/Release-notes-4.0.2.md),
-[Release notes 4.0.1](wiki/Release-notes-4.0.1.md) and [Release notes 4.0.0](wiki/Release-notes-4.0.0.md).
+For user-facing changes, upgrade requirements and limitations, see
+[Release notes 4.2.0](wiki/Release-notes-4.2.0.md). Older release notes are collected in
+[Archive](wiki/Archive.md).
 
 ## How entries are kept
 
@@ -20,10 +16,13 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 "why" and keeps only the "what". `[Unreleased]` is for work whose version has not been chosen.
 
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
-configuration requirements, the **known safe limitations**, and what was verified. Release 4.1.1 is
-finalized below and dated with its publication date.
+configuration requirements, the **known safe limitations**, and what was verified.
 
 ## [Unreleased]
+
+No unreleased changes.
+
+## [4.2.0] - 2026-09-30
 
 ### Added
 - Unified DAV accounts in General → Accounts, with read-only CalDAV/CardDAV discovery, independent service switches and lossless migration of existing sources.
@@ -42,9 +41,12 @@ finalized below and dated with its publication date.
 
 - **Account sender defaults (#9).** Sender addresses lists the protected primary mailbox identity alongside configured aliases and stores one default sender per account. New messages and forwards use that default; explicit choices and saved drafts retain their identity. Replies/Reply All prefer specific configured delivery aliases, then To/Cc identities, including the primary address. A final primary-mailbox delivery header cannot hide the originally contacted alias. Deleting the default alias restores the primary default; a removed explicit draft/sender alias still requires manual reselection instead of silently changing From. Provider send-as permissions remain required.
 - **Mixed recipient metadata:** sender selection and Reply All self-exclusion now share normalized `email` → `address` fallback, so an empty or invalid `email` field cannot hide a valid alias or copy a catch-all recipient back to itself.
-- **Upgrade order:** apply `0150_account_default_sender.sql` after `0149_body_cache_retention.sql` and before starting the updated backend. Existing accounts keep their primary default; the migration scopes the optional alias reference to its account and clears it on alias deletion. No new environment setting or release version is introduced. See [development release notes](wiki/Release-notes-Unreleased.md).
+- **Upgrade order:** apply `0150_account_default_sender.sql` after `0149_body_cache_retention.sql` and before starting the updated backend. Existing accounts keep their primary default; the migration scopes the optional alias reference to its account and clears it on alias deletion. No new environment setting is required. See [4.2.0 release notes](wiki/Release-notes-4.2.0.md).
 
 ### Changed
+- Avoid duplicate push/PR CI for the same dev revision and omit runtime/browser/database work for documentation-only changes while still validating documentation. Split the unchanged browser matrix into four isolated shards and PostgreSQL migration/regression/scale checks into three jobs; keep explicit final gates and reviewed visual thresholds.
+- Build both release-image architectures on native runners, verify immutable versioned manifests before promoting `latest`, and keep app releases as drafts until their signed artifacts are checked. Release tags are created only from merged main with matching application versions.
+- Publish 4.2.0 documentation with a shorter README and a Wiki Archive for all older release notes, preserving existing page addresses.
 - Group Accounts, Calendars and Contacts under General. Move calendar appearance into Appearance, and edit calendars/address books inline with separate row-level delete actions.
 - Align Rules and Antispam with shared, theme-aware settings controls; keep folder-mapping drafts when switching account tabs.
 - Localize native server setup, menus, notification actions and Compose/Calendar/Contacts shortcuts in all nine languages, following the language selected in Inboxora.
@@ -54,8 +56,8 @@ finalized below and dated with its publication date.
 - Scheduled is a regular sidebar destination, with a list and safe read-only preview on desktop and list/detail steps on mobile. Previewing never pauses delivery; explicit Edit retains reply identity, sender, signature and attachments. Available reply context and Sent copies are resolved by owned message identifiers, not subjects.
 - Sent results remain until their status is visible in the active queue. The server stores that acknowledgement separately from delivery state; the result stays for the current visit and disappears on the next. Background polling, hidden/offscreen rows and failed acknowledgements cannot silently discard results. Older unseen results remain paginated beyond seven days; Sent-folder mail and duplicate-prevention receipts are untouched.
 - Undo Send settings use the same styled selection control as mail sync frequency, with 0, 15, 30 and 60 second choices. Previously saved whole-second values remain valid until changed.
-- Apply migrations in order through `0155_scheduled_mail_seen.sql` before the updated backend handles requests. After queue/dismissal migrations `0152`–`0153`, `0154` adds duplicate-safe merge receipts and `0155` adds viewed-status storage and small sent headers, not another message archive. Normal startup applies pending migrations; earlier migrations are unchanged. Update backend and frontend together. No new configuration or provider permissions are required.
-- Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the unreleased Wiki notes for recovery and acceptance tests.
+- The queue requires migrations `0150`–`0155`; 4.2.0 requires the complete chain through `0166_native_account_stale_imap_error.sql` before the updated backend handles requests. After queue/dismissal migrations `0152`–`0153`, `0154` adds duplicate-safe merge receipts and `0155` adds viewed-status storage and small sent headers, not another message archive. Normal startup applies pending migrations; earlier migrations are unchanged. Update backend and frontend together. No new configuration or provider permissions are required.
+- Scheduled delivery requires the backend, PostgreSQL, Redis and sending provider to be available at the due time. After downtime, pending messages resume when the backend returns. Confirmed sent/cancelled queue payloads are purged. Uncertain entries can be explicitly dismissed to purge their queued payload/provider result and free an active slot, without recalling or retrying mail. Pending, paused, failed and partial payloads remain available to their owner. See the 4.2.0 release notes for recovery and acceptance guidance.
 
 ### Fixed
 - **Native account status after migration.** Stop delayed IMAP connects/reconnects from resolving a removed host or recording errors after a Gmail API/Graph cutover. Recheck tenant and transport generation around connection setup and status writes, close obsolete handshakes, and clear the retired IMAP status on a successful switch. Migration `0166_native_account_stale_imap_error.sql` follows 0165 and removes only the known native-account “Host must be a string” artifact; provider authentication/sync diagnostics and data remain unchanged.
@@ -86,7 +88,7 @@ finalized below and dated with its publication date.
 - Never widen an unavailable account request to other inboxes. Fence list/search responses, rollbacks and reader resolution to the current account/navigation so delayed replies cannot appear in another tab or trigger accidental reads.
 - Show native mail diagnostics from one current provider snapshot, including its real last successful mail sync and current error, rather than legacy IMAP metadata or calendar/contact success.
 - Prevent a failed Graph visibility candidate from blocking mailbox sync. Preserve confirmed calendar deletion fences after prior discovery retirement and validate DAV deletion response identity.
-- Apply `0156_mail_flag_state.sql`, `0158_native_collection_retirement.sql`, `0159_dav_collection_lifecycle.sql`, `0160_mail_flag_upgrade_readback.sql` and `0161_collection_rediscovery.sql` in normal migration order after `0155`, before serving requests. Update backend and frontend together; no new environment variables or release version.
+- Apply `0156_mail_flag_state.sql`, `0158_native_collection_retirement.sql`, `0159_dav_collection_lifecycle.sql`, `0160_mail_flag_upgrade_readback.sql` and `0161_collection_rediscovery.sql` in normal migration order after `0155`, before serving requests. Update backend and frontend together; no new environment variables.
 - Opening a queued reply no longer steals focus from an already selected subject or recipient field when the rich-text editor finishes initializing.
 - Mail merge now accepts the same transport-aware JSON request window as normal and scheduled sending instead of the global 1 MB cap. Per-account attachment and message limits still apply; a live API regression checks attachment parsing without dispatching mail.
 - The PostgreSQL CardDAV contact-preservation fixture now mocks privilege discovery and rejects unexpected DNS/HTTP access, removing network-dependent CI timeouts without relaxing its data-safety assertions. Application behavior is unchanged.

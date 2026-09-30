@@ -1,8 +1,7 @@
 name: Publish Apps
 
-# Manual-only until the native apps are release-ready: signing secrets must be
-# configured and the deferred native security items resolved before this ships.
-# Re-add the `push.tags` trigger to publish native builds automatically on a tag.
+# Release artifacts are built from a validated existing tag. Keep publication
+# manual so incomplete native/signing jobs cannot announce a stable release.
 on:
   workflow_dispatch:
     inputs:
@@ -19,8 +18,31 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: inboxora-native-release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  source:
+    name: Validate native release source
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      tag: ${{ steps.source.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify tag and app versions before using signing keys
+        id: source
+        env:
+          REQUESTED_TAG: ${{ inputs.version || github.ref_name }}
+        run: node scripts/validate-release-source.mjs
   desktop:
+    needs: source
     name: Electron (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
@@ -36,6 +58,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.sha }}
 
       - name: Assert exact tested SHA
         shell: bash
@@ -145,11 +169,14 @@ jobs:
             frontend/packages/release/*.rpm
 
   android:
+    needs: source
     name: Android
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.sha }}
 
       - name: Assert exact tested SHA
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
@@ -245,6 +272,7 @@ jobs:
   release:
     name: Attach to GitHub Release
     needs:
+      - source
       - desktop
       - android
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
@@ -257,6 +285,7 @@ jobs:
       - name: Checkout the documented release key
         uses: actions/checkout@v6
         with:
+          ref: ${{ needs.source.outputs.sha }}
           sparse-checkout: docs/keys
 
       - name: Resolve app version
@@ -330,7 +359,9 @@ jobs:
       - name: Publish release files
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.app-version.outputs.version }}
+          tag_name: ${{ needs.source.outputs.tag }}
+          # Promote the release only after container + native artifacts are verified.
+          draft: true
           files: |
             artifacts/**/*.aab
             artifacts/**/*.apk

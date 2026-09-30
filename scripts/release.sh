@@ -1,37 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 VERSION="${1:-}"
-if [[ -z "$VERSION" ]]; then
-  echo "Usage: ./scripts/release.sh <version>  (e.g. 1.7.0)"
-  exit 1
-fi
-
-# Strip leading 'v' if provided
 VERSION="${VERSION#v}"
-TAG="v${VERSION}"
-
-# Must be on main with a clean tree
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [[ "$BRANCH" != "main" ]]; then
-  echo "Error: must be on main (currently on $BRANCH)"
-  exit 1
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Usage: scripts/release.sh <version>" >&2; exit 1; }
+TAG="v$VERSION"
+# Version changes reach main through the release PR, never a direct push.
+test -z "$(git status --porcelain)" || { echo "Commit the release preparation first." >&2; exit 1; }
+git fetch origin main
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo "Check out the merged main revision first." >&2; exit 1; }
+VERSION="$VERSION" node --input-type=module - <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+for(const part of ['backend','frontend']) {
+  const pkg=JSON.parse(readFileSync(`${part}/package.json`));
+  const lock=JSON.parse(readFileSync(`${part}/package-lock.json`));
+  assert.equal(pkg.version,process.env.VERSION);assert.equal(lock.version,pkg.version);assert.equal(lock.packages[''].version,pkg.version);
+}
+JS
+if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+  echo "Tag already exists; it will not be moved." >&2; exit 1
 fi
-
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Error: working tree has uncommitted changes"
-  exit 1
-fi
-
-# Bump version in both package.json files
-sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" backend/package.json
-sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" frontend/package.json
-
-git add backend/package.json frontend/package.json
-git commit -m "chore: bump version to ${VERSION}"
-
-git tag "${TAG}"
-
-echo ""
-echo "Created commit and tag ${TAG}. To push:"
-echo "  git push origin main && git push origin ${TAG}"
+git tag -a "$TAG" -m "Inboxora $VERSION"
+printf 'Created %s at merged main. Publish with: git push origin refs/tags/%s\n' "$TAG" "$TAG"

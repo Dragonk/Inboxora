@@ -133,6 +133,7 @@ test("every API route named in the release documentation exists in the backend",
     "docs/wiki/Configuration.md", "docs/wiki/Contacts-and-DAV.md", "docs/wiki/Calendar.md",
     "docs/wiki/Upgrading.md", "docs/wiki/Troubleshooting.md",
     "docs/IMPLEMENTATION-STATUS.md", "docs/wiki/Release-notes-4.1.0.md",
+    "docs/wiki/Release-notes-4.2.0.md",
   ];
   const backendSource = execFileSync(
     "bash",
@@ -152,4 +153,36 @@ test("every API route named in the release documentation exists in the backend",
     }
   }
   assert.deepEqual([...new Set(missing)].sort(), [], `documented routes with no backend surface:\n${missing.join("\n")}`);
+});
+
+test('release navigation keeps historical notes in Archive without changing their filenames', async () => {
+  const pkg = JSON.parse(await readFile(join(rootPath, 'frontend/package.json'), 'utf8')) as {version: string};
+  const current = `Release-notes-${pkg.version}`;
+  const sidebar = await readFile(join(rootPath, 'docs/wiki/_Sidebar.md'), 'utf8');
+  const archive = await readFile(join(rootPath, 'docs/wiki/Archive.md'), 'utf8');
+  const split = sidebar.indexOf('<details>');
+  assert.ok(split >= 0, 'Archive must be a collapsed sidebar group');
+  const mainNavigation = sidebar.slice(0, split), history = sidebar.slice(split);
+  assert.ok(mainNavigation.includes(`(${current}.md)`));
+  assert.ok(history.includes('<summary>Archive</summary>'));
+  for (const filename of await readdir(join(rootPath, 'docs/wiki'))) {
+    if (!/^Release-notes-\d+\.\d+\.\d+\.md$/.test(filename) || filename === `${current}.md`) continue;
+    assert.ok(archive.includes(`(${filename})`), `missing from archive: ${filename}`);
+    assert.ok(history.includes(`(${filename})`), `missing from collapsed navigation: ${filename}`);
+    assert.ok(!mainNavigation.includes(`(${filename})`), `old release outside Archive: ${filename}`);
+  }
+  assert.ok(!history.includes(`(${current}.md)`), 'current release is not archived');
+});
+
+test('Wiki publication rewrites local page anchors but preserves external and repository links', async () => {
+  const publisher = await readFile(join(rootPath, 'scripts/publish-wiki.sh'), 'utf8');
+  const expression = /sed -i -E '([^']+)'/.exec(publisher)?.[1];
+  assert.ok(expression, 'publisher must expose its local page-link conversion');
+  const before = [
+    '[Upgrade](Upgrading.md#upgrading-to-420)', '[Archive](Archive.md)',
+    '[External](https://example.test/guide.md#section)', '[Repo](../README.md#quick-start)',
+    '[Local anchor](#here)',
+  ].join('\n');
+  const after = execFileSync('sed', ['-E', expression], { input: before }).toString();
+  assert.equal(after, before.replace('(Upgrading.md#', '(Upgrading#').replace('(Archive.md)', '(Archive)'));
 });

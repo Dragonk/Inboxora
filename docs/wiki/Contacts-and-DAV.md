@@ -190,7 +190,7 @@ https://your-domain/.well-known/caldav
 ## Pulling contacts from another CardDAV server
 
 Inboxora can also act as a **client**: connect a remote CardDAV server (for example Nextcloud)
-under **Settings → Integrations**. The remote credentials are verified before saving and
+under **Settings → General → Accounts**. The remote credentials are verified before saving and
 encrypted at rest, address books are discovered automatically, and they appear locally as
 read-only books.
 
@@ -264,3 +264,16 @@ it changed for that account. Once pulled, these books are refreshed on the same 
 Google ones (every 15 minutes by default, `PROVIDER_SYNC_INTERVAL_MINUTES`; `0` disables it), and the
 two providers are refreshed independently — an account configured for one is never affected by the
 other.
+
+## Collection lifecycle in 4.2.0
+
+Manage source credentials and service switches in General → Accounts, and books/import/export
+in General → Contacts. Complete validated discovery can retire a missing remote book’s local
+projection while preserving contacts still belonging to another book. Partial pages, failures
+or revoked access never count as proof of deletion. A newer complete listing can restore a
+book retired by discovery, but not a confirmed user deletion.
+
+Eligible secondary Microsoft and writable DAV books expose a separately confirmed remote
+Delete action. Primary/shared/unverified resources stay protected. Google People does not
+have a deletable book container: Inboxora does not replace that operation with deleting all
+contacts. Existing per-contact editing remains available with write-back permission.

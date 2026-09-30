@@ -28,27 +28,13 @@ on:
         required: false
         type: string
   pull_request:
-    paths:
-      - "frontend/e2e/docs-screenshots.spec.js"
-      - "frontend/e2e/docs-demo.js"
-      - "frontend/e2e/fixtures.js"
-      - "frontend/e2e/v3-fixtures.js"
-      - "frontend/src/**"
-      - "media/screenshots/**"
-      - "README.md"
-      - "docs/wiki/**"
-      - ".github/workflows/docs-screenshots.yml"
-      - "scripts/verify-docs-screenshots.mjs"
+    branches: [dev, main]
   push:
-    branches: ["dev", "main"]
-    paths:
-      - "frontend/e2e/docs-screenshots.spec.js"
-      - "frontend/e2e/docs-demo.js"
-      - "frontend/src/**"
-      - "media/screenshots/**"
+    branches: [dev]
 
 permissions:
   contents: write
+  pull-requests: read
 
 concurrency:
   group: docs-screenshots-${{ github.ref }}
@@ -59,7 +45,11 @@ defaults:
     shell: bash -euo pipefail {0}
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-plan.yml
   screenshots:
+    needs: changes
+    if: needs.changes.outputs.run_tests == 'true'
     name: Regenerate and verify
     runs-on: ubuntu-latest
 
@@ -169,3 +159,27 @@ jobs:
             echo "populated content) before it is written, and the regenerated set is compared"
             echo "with the committed one at a 0.2 % pixel tolerance."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  result:
+    name: docs-screenshots result
+    if: always()
+    needs: [changes, screenshots]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Propagate failures, cancellations and the reason for omitted work
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYGATE'
+          import json, os
+          needs = json.loads(os.environ['RESULTS'])
+          assert needs['changes']['result'] == 'success', needs
+          full = needs['changes']['outputs']['run_tests'] == 'true'
+          for name, job in needs.items():
+              if name == 'changes': continue
+              expected = 'success' if (needs['changes']['outputs'].get('docs_only') == 'true' if name == 'documentation' else full) else 'skipped'
+              assert job['result'] == expected, (name, job['result'], expected)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write(needs['changes']['outputs']['reason'] + '\n')
+          PYGATE

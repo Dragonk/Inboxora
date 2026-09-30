@@ -38,12 +38,14 @@ test('computeVersionCode follows the semantic version', () => {
   assert.equal(computeVersionCode('4.0.1'), 4000100);
   assert.equal(computeVersionCode('4.0.2'), 4000200);
   assert.equal(computeVersionCode('4.0.3'), 4000300);
+  assert.equal(computeVersionCode('4.1.2'), 4010200);
+  assert.equal(computeVersionCode('4.2.0'), 4020000);
   assert.equal(computeVersionCode('10.2.30'), 10023000);
   assert.equal(computeVersionCode('not-a-version'), null);
 });
 
 test('computeVersionCode increases strictly along the release line', () => {
-  const codes = ['4.0.0', '4.0.1', '4.0.2', '4.0.3', '4.1.0', '5.0.0'].map(computeVersionCode);
+  const codes = ['4.0.0', '4.0.1', '4.0.2', '4.0.3', '4.1.0', '4.1.2', '4.2.0', '5.0.0'].map(computeVersionCode);
   for (let index = 1; index < codes.length; index += 1) {
     assert.ok(codes[index] > codes[index - 1], `${codes[index]} must exceed ${codes[index - 1]}`);
   }

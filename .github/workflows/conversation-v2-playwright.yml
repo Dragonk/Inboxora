@@ -1,11 +1,5 @@
 name: Conversation Engine v2 Playwright E2E
-
 on:
-  # The browser matrix is part of the `dev` integration gate, not only of a pull
-  # request: work is pushed straight to `dev`, so a trigger that only fires on PRs
-  # would leave the layer that caught the drawer regression unrun. It is the most
-  # expensive gate, and if the cost ever needs splitting, split the *projects* here
-  # (desktop on push, the rest on PR) rather than dropping the push trigger.
   push:
     branches: [dev]
   pull_request:
@@ -13,115 +7,135 @@ on:
   workflow_dispatch:
     inputs:
       expected_sha:
-        description: "Exact commit SHA to test"
+        description: "Exact commit SHA to test (manual runs always run the full suite)"
         required: false
         type: string
         default: ""
-
 permissions:
   contents: read
-
+  pull-requests: read
 concurrency:
-  group: conversation-v2-playwright-${{ github.ref }}
+  group: conversation-v2-playwright-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
-
 defaults:
   run:
     shell: bash -euo pipefail {0}
-
 jobs:
-  playwright:
-    name: Playwright browser E2E (desktop + mobile)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: mailflow_test
-          POSTGRES_PASSWORD: mailflow_test
-          POSTGRES_DB: mailflow_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U mailflow_test -d mailflow_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
+  changes:
+    uses: ./.github/workflows/ci-plan.yml
+    with:
+      expected_sha: ${{ inputs.expected_sha || '' }}
+  shards:
+    name: Browser shard ${{ matrix.shard }}/4
+    needs: changes
+    if: needs.changes.outputs.run_tests == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
-      - name: Checkout exact tested SHA
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.expected_sha || github.sha }}
-
-      - name: Assert exact SHA
+          ref: ${{ needs.changes.outputs.source_sha }}
+      - name: Assert exact tested source
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-        run: test "$(git rev-parse HEAD)" = "${EXPECTED_SHA:-$GITHUB_SHA}"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
+          SOURCE_SHA: ${{ needs.changes.outputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-
       - name: Install Chromium and Linux dependencies
         working-directory: frontend
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
         run: npx playwright install --with-deps chromium
-
-      - name: Run frontend unit suite
-        working-directory: frontend
-        run: npm test
-
+      # The preview server consumes dist; unit tests already run in CI / Frontend.
       - name: Build frontend
         working-directory: frontend
         run: npm run build
-
-      - name: Run complete mocked browser suite and V3 visual comparisons
+      - name: Run every configured project in this shard
         working-directory: frontend
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:4173
           VITE_E2E_MOCKED: 'true'
-        # playwright.config.js excludes real-app.spec.js unless PLAYWRIGHT_REAL_APP=1.
-        # Visual references are reviewed assets; CI must never update them.
         run: |
-          npx playwright test \
+          npx playwright test --shard=${{ matrix.shard }}/4 --workers=1 --reporter=blob,list \
             --project=chromium-desktop \
             --project=chromium-tablet \
             --project=chromium-mobile-390 \
             --project=chromium-mobile \
             --project=chromium-mobile-landscape
-
-      - name: Write Playwright environment report
+      - uses: actions/upload-artifact@v4
         if: always()
-        working-directory: frontend
+        with:
+          name: playwright-shard-${{ matrix.shard }}-${{ github.run_id }}
+          path: |
+            frontend/blob-report/
+            frontend/artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+  playwright:
+    # Keep the established required check, including explicit docs-only success.
+    name: Playwright browser E2E (desktop + mobile)
+    needs: [changes, shards]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require the planner and all applicable shards
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+          PLAN_RESULT: ${{ needs.changes.result }}
+          RUN_TESTS: ${{ needs.changes.outputs.run_tests }}
+          SHARDS_RESULT: ${{ needs.shards.result }}
+          REASON: ${{ needs.changes.outputs.reason }}
         run: |
-          mkdir -p artifacts
-          {
-            echo "tested_sha=$GITHUB_SHA"
-            echo "playwright_version=$(node -p 'require("@playwright/test/package.json").version')"
-            npx playwright --version
-            npx playwright install --dry-run chromium
-          } > artifacts/playwright-environment.txt
-          test -s artifacts/playwright-environment.txt
-
-      - name: Upload Playwright artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+          test "$PLAN_RESULT" = success
+          if [ "$RUN_TESTS" = true ]; then
+            test "$SHARDS_RESULT" = success
+          else
+            test "$RUN_TESTS" = false
+            test "$SHARDS_RESULT" = skipped
+          fi
+          printf '%s\n' "$REASON" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v6
+        if: needs.changes.outputs.run_tests == 'true'
+        with:
+          ref: ${{ needs.changes.outputs.source_sha }}
+      - uses: actions/setup-node@v6
+        if: needs.changes.outputs.run_tests == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Merge all shard reports
+        if: needs.changes.outputs.run_tests == 'true'
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        if: needs.changes.outputs.run_tests == 'true'
+        with:
+          pattern: playwright-shard-*-${{ github.run_id }}
+          path: shards
+      - name: Assemble one report without changing test results
+        if: needs.changes.outputs.run_tests == 'true'
+        run: |
+          mkdir all-blob-reports
+          find shards -name 'report-*.zip' -exec cp '{}' all-blob-reports/ \;
+          test "$(find all-blob-reports -name '*.zip' | wc -l)" -eq 4
+          cd frontend
+          npx playwright merge-reports --reporter=html ../all-blob-reports
+      - uses: actions/upload-artifact@v4
+        if: needs.changes.outputs.run_tests == 'true'
         with:
           name: conversation-v2-playwright-${{ github.run_id }}
-          if-no-files-found: warn
-          path: |
-            frontend/artifacts/playwright-report/
-            frontend/artifacts/playwright-test-results/
-            frontend/artifacts/playwright-environment.txt
+          path: frontend/playwright-report/
+          if-no-files-found: error
+          retention-days: 7
