@@ -32,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.version || github.ref }}
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
@@ -57,13 +58,18 @@ jobs:
           - ubuntu-latest
 
     steps:
+      - name: Preserve repository LF bytes on native runners
+        shell: bash
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.source.outputs.sha }}
 
-      - name: Assert exact tested SHA
+      - name: Assert exact release source SHA
         shell: bash
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - uses: actions/setup-node@v6
         with:
@@ -174,12 +180,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Preserve repository LF bytes on native runners
+        shell: bash
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.source.outputs.sha }}
 
-      - name: Assert exact tested SHA
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Assert exact release source SHA
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 
       - uses: actions/setup-node@v6
         with:

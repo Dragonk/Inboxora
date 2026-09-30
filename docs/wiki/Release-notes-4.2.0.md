@@ -290,3 +290,9 @@ manifests are verified before promotion to the release tags; `latest` is promote
 stable version matching main. App signing builds use a validated existing tag and attach to
 a draft release, which is published after artifact verification. The release helper no longer
 suggests a direct push to main or creates an unreviewed version-bump commit.
+
+The native packaging workflow explicitly preserves repository LF bytes before checkout,
+including on Windows. Generated locale assets are still checked byte-for-byte; their
+freshness test is not skipped or regenerated over. A build-workflow-only correction may
+run from a newer main revision while checking out and validating the original immutable
+release tag for every app artifact. This does not move the release tag or mix app sources.

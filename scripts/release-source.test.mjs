@@ -46,3 +46,31 @@ test('release workflows require both native image builds and keep native artifac
   const helper=readFileSync(new URL('../scripts/release.sh',import.meta.url),'utf8');
   assert.doesNotMatch(helper,/git push origin main|git commit/);
 });
+
+
+test('native runners preserve generated LF assets and validate pinned source rather than workflow commit',()=>{
+  const apps=readFileSync(new URL('../.github/workflows/publish-apps.yml',import.meta.url),'utf8');
+  assert.match(apps,/ref: \$\{\{ inputs.version \|\| github.ref \}\}/);
+  for(const name of ['desktop','android']) {
+    const job=apps.split(`  ${name}:\n`)[1].split('\n  release:')[0];
+    const policy=job.indexOf('git config --global core.autocrlf false');
+    const checkout=job.indexOf('uses: actions/checkout@v6');
+    assert.ok(policy>=0 && checkout>policy,name);
+    assert.match(job,/SOURCE_SHA: \$\{\{ needs.source.outputs.sha \}\}/);
+    assert.match(job,/test "\$\(git rev-parse HEAD\)" = "\$SOURCE_SHA"/);
+  }
+});
+
+test('Git checkout conversion reproduces the generated-byte failure and LF policy prevents it',()=>{
+  const root=mkdtempSync(join(tmpdir(),'inboxora-lf-policy-'));
+  const git=(...args)=>execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  const content='{\n  "label": "Native label"\n}\n';
+  try {
+    git('init','-b','main');git('config','user.name','CI Test');git('config','user.email','ci@example.test');
+    git('config','core.autocrlf','false');writeFileSync(join(root,'locale-data.json'),content);git('add','.');git('commit','-m','LF generated asset');
+    git('config','core.autocrlf','true');rmSync(join(root,'locale-data.json'));git('checkout-index','--force','--all');
+    assert.notEqual(readFileSync(join(root,'locale-data.json'),'utf8'),content);
+    git('config','core.autocrlf','false');rmSync(join(root,'locale-data.json'));git('checkout-index','--force','--all');
+    assert.equal(readFileSync(join(root,'locale-data.json'),'utf8'),content);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
