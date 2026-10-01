@@ -21,3 +21,18 @@ for (const verified of [true, false]) test(`certificate chain and revocation rem
   await expect(details).toContainText('The loaded lists have valid signatures and are current');
   await expect(details).toContainText('not an automatic import of Adobe AATL');
 });
+
+test('an empty signature field does not claim a certificate or trust-list failure', async ({ page, fixtureApi }) => {
+  await fixtureApi; await attachmentMessage(page, ['empty-signature.pdf']);
+  await page.route('**/api/mail/attachments/process/signatures', route => route.fulfill({ json: {
+    status: 'unknown', trustSource: 'eu-trusted-lists', trustLists: { status: 'not-needed', lists: [] },
+    signatures: [{ field: 'EmptySignature', page: 1, status: 'unknown', timestamp: 'absent', diagnostic: 'EMPTY_FIELD' }],
+  } }));
+  const dialog = await preview(page, 'empty-signature.pdf');
+  await dialog.getByRole('button', { name: 'Signatures', exact: true }).click();
+  const details = page.getByTestId('attachment-signature-dialog');
+  await expect(details).toContainText('This is an empty signature field');
+  await expect(details).toContainText('No cryptographic timestamp is present');
+  await expect(details.getByTestId('signature-trust-lists')).toHaveCount(0);
+  await expect(details.locator('.attachment-status-dot[data-status=valid]')).toHaveCount(0);
+});

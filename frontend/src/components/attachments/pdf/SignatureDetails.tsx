@@ -87,7 +87,7 @@ export default function SignatureDetails({ file, count, metadata = [] }: { file:
             {row('diagnostic', t('attachment.signatures.diagnostic'), diagnostic(current.fields.diagnostic))}
           </dl>
         </>}
-        {report?.trustSource === 'system-tls' ? <p>{t('attachment.signatures.trustNote')}</p> : <details data-testid="signature-trust-lists"><summary>{t('attachment.trust.euSource')}</summary>
+        {report?.trustSource === 'system-tls' ? <p>{t('attachment.signatures.trustNote')}</p> : report?.listStatus !== 'not-needed' && <details data-testid="signature-trust-lists"><summary>{t('attachment.trust.euSource')}</summary>
           <p>{listStatus}</p>
           {report?.lists.map(list => <dl key={list.country}>
             {row('country', t('attachment.signatures.country'), list.country)}

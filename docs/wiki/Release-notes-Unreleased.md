@@ -212,7 +212,10 @@ national list with the keys nominated by that authenticated LOTL. Issuer names a
 establish trust. Withdrawn or historical service identities are not accepted as current anchors.
 
 `PDF_SIGNATURE_EUTL=true` is the default. An isolated updater refreshes public lists on startup
-and every six hours, independently of document processing. `PDF_SIGNATURE_EUTL_CACHE` defaults
+and every six hours after a successful refresh, independently of document processing.
+A failed refresh retries after 5 minutes with exponential backoff capped at one hour;
+a partially completed refresh retries after 30 minutes. Empty PDF signature fields are
+reported without loading certificate stores or contacting certificate endpoints. `PDF_SIGNATURE_EUTL_CACHE` defaults
 to `/tmp/inboxora-eutl` inside the backend container. Only public signed lists and update metadata
 are cached; no documents, passwords or signing keys are written there. Recreating a container
 with the default cache starts a fresh download. An operator may mount a dedicated writable cache

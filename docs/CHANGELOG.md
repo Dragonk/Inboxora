@@ -35,6 +35,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Return empty PDF signature fields without loading trust lists; retry failed trust-list refreshes with bounded backoff instead of waiting six hours after a cold-start outage.
 - Validate PDF certificate paths against authenticated EU Trusted Lists instead of the TLS root store. Refresh signed lists automatically, show the verified path and distinguish missing revocation evidence from missing trust or an absent timestamp.
 - Preserve signature metadata line breaks; keep PDF search text readable and allow typed zoom percentages.
 - Correct preview-window action order and the mobile Send arrow. Repair content-menu copy, search, selection and conversation actions.

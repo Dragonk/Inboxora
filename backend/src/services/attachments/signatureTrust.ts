@@ -10,13 +10,23 @@ export function signatureTrustEnvironment(source: NodeJS.ProcessEnv = process.en
   return env;
 }
 
-/** Refresh on startup, then six-hourly. Failed/missing lists remain unavailable;
- * workers reverify signatures and freshness, so the cache cannot confer trust. */
+/** Refresh on startup, then six-hourly. Retry outages with bounded backoff rather
+ * than leaving a cold server without trust for six hours. Never overlap jobs. */
 export function startSignatureTrustRefresh(): () => void {
   if (process.env.PDF_SIGNATURE_EUTL?.toLowerCase() === 'false' || process.env.PDF_SIGNATURE_ONLINE?.toLowerCase() === 'false') return () => undefined;
   let stopped = false;
   let child: ChildProcess | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let scheduled: ReturnType<typeof setTimeout> | undefined;
+  let failures = 0;
+  const schedule = (status: string) => {
+    if (stopped || status === 'disabled') return;
+    const delay = status === 'ready' ? 6 * 60 * 60 * 1000
+      : status === 'partial' ? 30 * 60 * 1000
+      : Math.min(60, 5 * 2 ** Math.min(failures++, 4)) * 60 * 1000;
+    if (status === 'ready' || status === 'partial') failures = 0;
+    scheduled = setTimeout(refresh, delay); scheduled.unref();
+  };
   const refresh = () => {
     if (stopped || child) return;
     const current = spawn(process.env.ATTACHMENT_PREVIEW_PYTHON || 'python3',
@@ -41,13 +51,14 @@ export function startSignatureTrustRefresh(): () => void {
         if (!failed && code === 0 && result && typeof result === 'object' && 'status' in result
           && typeof result.status === 'string' && ['ready', 'partial', 'disabled', 'busy'].includes(result.status)) {
           console.info(`PDF signature trust-list refresh: ${result.status}`);
+          schedule(result.status);
           return;
         }
       } catch { /* Only fixed diagnostics may reach the application log. */ }
       console.warn('PDF signature trust-list refresh unavailable; no unverified lists will be used.');
+      schedule('unavailable');
     });
   };
   refresh();
-  const interval = setInterval(refresh, 6 * 60 * 60 * 1000); interval.unref();
-  return () => { stopped = true; clearInterval(interval); clearTimeout(timeout); child?.kill('SIGKILL'); };
+  return () => { stopped = true; clearTimeout(scheduled); clearTimeout(timeout); child?.kill('SIGKILL'); };
 }

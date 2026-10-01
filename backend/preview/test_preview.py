@@ -95,6 +95,16 @@ class PreviewIntegration(unittest.TestCase):
         self.assertEqual(encrypted['status'], 'unknown')
         self.assertEqual(encrypted['diagnostic'], 'ENCRYPTED_PDF')
 
+    def test_empty_fields_do_not_load_trust_stores_or_open_network_sessions(self):
+        from signatures import inspect_signatures
+        with patch('signatures.load_registry') as registry, patch('signatures.certificates') as roots, patch('signatures.certificate_session') as network:
+            report = asyncio.run(inspect_signatures((FIXTURES/'empty-signature.pdf').read_bytes()))['json']
+        registry.assert_not_called(); roots.assert_not_called(); network.assert_not_called()
+        self.assertEqual(report['trustLists']['status'], 'not-needed')
+        self.assertEqual(report['status'], 'unknown')
+        self.assertEqual(report['signatures'][0]['diagnostic'], 'EMPTY_FIELD')
+        self.assertEqual(report['signatures'][0]['timestamp'], 'absent')
+
     def test_every_native_archive_and_selected_bytes(self):
         for name in ['archive.7z', 'archive.rar', 'archive.tar', 'archive.tar.gz', 'single.txt.gz', 'single.txt.bz2', 'single.txt.xz', 'single.txt.zst']:
             with self.subTest(name=name):

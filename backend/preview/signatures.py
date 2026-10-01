@@ -149,6 +149,17 @@ async def inspect_signatures(data):
     if not fields:
         return {'json': report | {'diagnostic': 'UNSIGNED'}}
     pages = page_numbers(reader)
+    # An unsigned field has no certificate or revocation evidence to validate.
+    # In particular, do not parse every national list just to report EMPTY_FIELD.
+    if all(value is None for _, value, _ in fields):
+        report['signatures'] = [
+            {'field': text(name), 'page': pages.get(getattr(ref, 'reference', None)),
+             'status': 'unknown', 'integrity': 'unknown', 'trust': 'unknown',
+             'revocation': 'unknown', 'timestamp': 'absent', 'diagnostic': 'EMPTY_FIELD'}
+            for name, _, ref in fields
+        ]
+        report['trustLists'] = {'status': 'not-needed', 'lists': []}
+        return {'json': report}
     configured = os.getenv('PDF_SIGNATURE_TRUST_ROOTS')
     roots = certificates(configured) if configured else []
     # Country hints only select the first local XML files to parse. Actual trust
