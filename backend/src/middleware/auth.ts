@@ -1,14 +1,16 @@
+import { trustedRequestUser } from '../services/trustedRequestUser.js';
 import { query } from '../services/db.js';
 import type { NextFunction, Request, Response } from 'express';
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.session?.userId) {
+  const userId = req.session?.userId ?? trustedRequestUser(req);
+  if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
   try {
-    const result = await query('SELECT id FROM users WHERE id = $1', [req.session.userId]);
+    const result = await query('SELECT id FROM users WHERE id = $1', [userId]);
     if (!result.rows.length) {
-      req.session.destroy(() => {});
+      req.session?.destroy(() => {});
       return res.status(401).json({ error: 'Not authenticated' });
     }
     next();

@@ -1,3 +1,4 @@
+import { sessionUserId } from '../utils/query.js';
 import nodemailer from 'nodemailer';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { randomBytes } from 'crypto';
@@ -309,7 +310,7 @@ router.post('/draft', async (req, res) => {
 
   const ownerCheck = await query<{ id: string }>(
     'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
+    [accountId, sessionUserId(req)]
   );
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
@@ -324,10 +325,10 @@ router.post('/draft', async (req, res) => {
     // the layer switch, the configuration and the connection are the same three answers every
     // provider-backed mail path uses.
     if (account.mail_transport === 'microsoft_graph') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'graph') return res.status(409).json({ error: 'This account is not linked to a Microsoft connection' });
-      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+      const api = { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config };
 
       // Only a draft this account owns can be patched in place: its provider id is read from the local
       // row. A draft held on another account is a different provider object and is removed separately.
@@ -365,7 +366,7 @@ router.post('/draft', async (req, res) => {
           .catch(caught => console.error(`Draft: failed to remove superseded provider draft: ${toAppError(caught).message}`));
       }
       if (existingDraft && existingDraft.accountId !== account.id) {
-        await deleteProviderDraftByIdentity(req.session.userId!, existingDraft)
+        await deleteProviderDraftByIdentity(sessionUserId(req), existingDraft)
           .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
       }
 
@@ -379,10 +380,10 @@ router.post('/draft', async (req, res) => {
     // a patch or delete addresses is resolved from the provider at that moment, because the local model
     // has no column for a second identity.
     if (account.mail_transport === 'gmail_api') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'gmail') return res.status(409).json({ error: 'This account is not linked to a Google connection' });
-      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+      const api = { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config };
 
       const sameAccountDraft = existingDraft && existingDraft.accountId === account.id ? existingDraft : null;
       const existingMessageId = sameAccountDraft
@@ -455,7 +456,7 @@ router.post('/draft', async (req, res) => {
           .catch(caught => console.error(`Draft: failed to remove superseded Gmail draft: ${toAppError(caught).message}`));
       }
       if (existingDraft && existingDraft.accountId !== account.id) {
-        await deleteProviderDraftByIdentity(req.session.userId!, existingDraft)
+        await deleteProviderDraftByIdentity(sessionUserId(req), existingDraft)
           .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
       }
 
@@ -502,7 +503,7 @@ router.post('/draft', async (req, res) => {
       try {
         const previousAccount = await query<EmailAccountRow>(
           'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-          [existingDraft.accountId, req.session.userId],
+          [existingDraft.accountId, sessionUserId(req)],
         );
         const previous = previousAccount.rows[0];
         if (!previous) {
@@ -553,7 +554,7 @@ router.delete('/draft/:uid', async (req, res) => {
 
   const ownerCheck = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
+    [accountId, sessionUserId(req)]
   );
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
@@ -564,13 +565,13 @@ router.delete('/draft/:uid', async (req, res) => {
     // A native account's draft is removed at the provider, addressed by the immutable id on the local
     // row — there is no UIDVALIDITY to confirm, and the row is only dropped after the provider confirms.
     if (account.mail_transport === 'microsoft_graph') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'graph') return res.status(409).json({ error: 'This account is not linked to a Microsoft connection' });
       const providerId = await graphDraftIdForLocalRow(account.id, uid, folder);
       if (!providerId) return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
       await deleteGraphUserDraft(
-        { userId: req.session.userId!, connectionId: target.connectionId, config: target.config },
+        { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config },
         providerId,
       );
       await query(
@@ -581,10 +582,10 @@ router.delete('/draft/:uid', async (req, res) => {
     }
 
     if (account.mail_transport === 'gmail_api') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'gmail') return res.status(409).json({ error: 'This account is not linked to a Google connection' });
-      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+      const api = { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config };
       const messageId = await gmailDraftMessageIdForLocalRow(account.id, uid, folder);
       if (!messageId) return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
       const draftId = await findGmailDraftIdForMessage(api, messageId);

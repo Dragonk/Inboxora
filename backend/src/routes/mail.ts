@@ -218,7 +218,7 @@ router.get('/messages', async (req, res) => {
   const safeCategory = category !== undefined && VALID_CATEGORIES.has(category) ? category : undefined;
 
   const { messages, total, threaded: isThreaded, resolvedAccountId } = await listMessages({
-    userId: req.session.userId,
+    userId: sessionUserId(req),
     accountId,
     folder,
     limit,
@@ -268,7 +268,7 @@ router.get('/messages/:id', async (req, res) => {
       WHERE m.id = $1
         AND a.user_id = $2
         AND m.is_deleted = false
-    `, [id, req.session.userId]);
+    `, [id, sessionUserId(req)]);
     if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
     res.json(result.rows[0]);
   } catch (caught) {
@@ -315,7 +315,7 @@ router.get('/resolve-message', async (req, res) => {
         AND ($3::uuid IS NULL OR m.account_id = $3)
       ORDER BY (m.folder = 'INBOX') DESC, m.date DESC NULLS LAST
       LIMIT 1
-    `, [ref, req.session.userId, accountId]);
+    `, [ref, sessionUserId(req), accountId]);
     // Legacy links / push notifications carry the UUID primary key.
     if (result.rows.length === 0 && UUID_RE.test(ref)) {
       result = await query(`
@@ -326,7 +326,7 @@ router.get('/resolve-message', async (req, res) => {
           AND a.user_id = $2
           AND m.is_deleted = false
           AND ($3::uuid IS NULL OR m.account_id = $3)
-      `, [ref, req.session.userId, accountId]);
+      `, [ref, sessionUserId(req), accountId]);
     }
     if (result.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
     res.json(result.rows[0]);
@@ -344,7 +344,7 @@ router.get('/thread/:threadId', async (req, res) => {
   if (!threadId) return res.status(400).json({ error: 'threadId required' });
   try {
     const messages = await listThreadMessages({
-      userId: req.session.userId,
+      userId: sessionUserId(req),
       threadId,
       accountId: queryString(req.query.accountId) || null,
       unified: req.query.unified === 'true',
@@ -364,7 +364,7 @@ router.get('/thread/:threadId', async (req, res) => {
 // (~60 s) after new mail arrives. Querying messages directly means the count
 // returned immediately after the new_messages WS event is always authoritative.
 router.get('/unread-counts', async (req, res) => {
-  const userId = req.session.userId;
+  const userId = sessionUserId(req);
   if (!userId) return res.status(401).json({ error: 'Not authenticated' });
   const counts = await readUnreadInboxCounts(userId);
   res.set('Cache-Control', 'no-store');
@@ -396,7 +396,7 @@ router.post('/messages/:id/body-access', async (req, res) => {
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
   const touched = await query(`UPDATE messages m SET body_last_opened_at=clock_timestamp()
     FROM email_accounts a WHERE m.id=$1 AND m.account_id=a.id AND a.user_id=$2
-    RETURNING m.id`, [id,req.session.userId]);
+    RETURNING m.id`, [id,sessionUserId(req)]);
   if (!touched.rows.length) return res.status(404).json({ error: 'Message not found' });
   res.json({ ok: true });
 });
@@ -417,7 +417,7 @@ router.get('/messages/:id/body', async (req, res) => {
     JOIN users u ON u.id = a.user_id
     LEFT JOIN inbound_calendar_invitations ci ON ci.message_id = m.id
     WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
@@ -570,7 +570,7 @@ router.get('/messages/:id/headers', async (req, res) => {
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   interface MessageHeadersRow {
@@ -682,7 +682,7 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
@@ -823,7 +823,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
@@ -1899,7 +1899,7 @@ router.post('/sync-folder', async (req, res) => {
 
   const check = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
+    [accountId, sessionUserId(req)]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
@@ -1936,7 +1936,7 @@ router.post('/folders', async (req, res) => {
   if (!accountId || !name?.trim()) return res.status(400).json({ error: 'accountId and name required' });
   if (!isValidFolderName(name.trim())) return res.status(400).json({ error: 'Invalid folder name' });
   if (parentPath && !isValidFolderName(parentPath)) return res.status(400).json({ error: 'Invalid parent path' });
-  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, sessionUserId(req)]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   // A native account creates on the provider, then discovers: the local `folders`
   // row and its `mail_folder` collection are what discovery produces, so creating
@@ -1985,7 +1985,7 @@ router.post('/folders/delete', async (req, res) => {
   const { accountId, path } = req.body;
   if (!accountId || !path) return res.status(400).json({ error: 'accountId and path required' });
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
-  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, sessionUserId(req)]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   // A native account deletes on the provider. The local cleanup below then mirrors
   // it, which is the behaviour the IMAP path already established — the provider
@@ -2028,7 +2028,7 @@ router.post('/folders/rename', async (req, res) => {
   if (!accountId || !oldPath || !newName?.trim()) return res.status(400).json({ error: 'Missing required fields' });
   if (!isValidFolderName(newName.trim())) return res.status(400).json({ error: 'Invalid folder name' });
   if (!isValidFolderName(oldPath)) return res.status(400).json({ error: 'Invalid folder path' });
-  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, sessionUserId(req)]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   // A native rename is a display-name change plus a discovery run; the folder sync
   // already recognises the resulting path change and moves the folder's messages.
@@ -2115,7 +2115,7 @@ router.post('/folders/empty', async (req, res) => {
   const { accountId, path } = req.body;
   if (!accountId || !path) return res.status(400).json({ error: 'accountId and path required' });
   if (!isValidFolderName(path)) return res.status(400).json({ error: 'Invalid folder path' });
-  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const check = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, sessionUserId(req)]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
   // Every folder route is implemented for a native account now, so there is no
   // refusal left to make here; the transport decides inside the work below.
@@ -2196,7 +2196,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
       `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
-      [req.session.userId, ids]
+      [sessionUserId(req), ids]
     );
 
     const owned = result.rows;
@@ -2421,7 +2421,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
       }
       // Notify clients viewing each Trash folder to refresh silently.
       for (const { accountId, path } of Object.values(dstDeltas)) {
-        imapManager.broadcast({ type: 'folder_updated', folder: path, accountId }, req.session.userId);
+        imapManager.broadcast({ type: 'folder_updated', folder: path, accountId }, sessionUserId(req));
       }
     }
 
@@ -2447,7 +2447,7 @@ router.post('/messages/bulk-delete', async (req, res) => {
 router.get('/mailbox-usage', async (req, res) => {
   const accountId = queryString(req.query.accountId);
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
-  const acct = await query<{ id: string; folder_mappings?: Record<string, string> | null }>('SELECT id, folder_mappings FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const acct = await query<{ id: string; folder_mappings?: Record<string, string> | null }>('SELECT id, folder_mappings FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, sessionUserId(req)]);
   if (!acct.rows.length) return res.status(404).json({ error: 'Account not found' });
   // Whether Archive is a usable cleanup action for this account (#403): the client
   // offers Archive vs Trash and needs to know if an archive folder can be resolved.
@@ -2503,7 +2503,7 @@ router.get('/cleanup-preview', async (req, res) => {
   const fromEmail = queryString(req.query.fromEmail);
   if (!accountId || !UUID_RE.test(accountId)) return res.status(400).json({ error: 'valid accountId required' });
   if (!fromEmail || typeof fromEmail !== 'string' || !fromEmail.trim()) return res.status(400).json({ error: 'fromEmail required' });
-  const acct = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, req.session.userId]);
+  const acct = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [accountId, sessionUserId(req)]);
   if (!acct.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const rows = await query<{ id: string }>(
@@ -2536,7 +2536,7 @@ router.post('/messages/bulk-move', async (req, res) => {
       `SELECT m.*, a.user_id FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
-      [req.session.userId, ids]
+      [sessionUserId(req), ids]
     );
 
     const owned = result.rows;
@@ -2673,7 +2673,7 @@ router.post('/messages/bulk-move', async (req, res) => {
       // Notify clients that the destination folder has new content so they
       // refresh without sounds or alerts (unlike new_messages).
       for (const accountId of Object.keys(srcTotals).map(k => k.split(':')[0])) {
-        imapManager.broadcast({ type: 'folder_updated', folder, accountId }, req.session.userId);
+        imapManager.broadcast({ type: 'folder_updated', folder, accountId }, sessionUserId(req));
       }
     }
 
@@ -2711,7 +2711,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
       `SELECT m.*, a.user_id, a.folder_mappings FROM messages m
        JOIN email_accounts a ON m.account_id = a.id
        WHERE m.id = ANY($2::uuid[]) AND a.user_id = $1`,
-      [req.session.userId, ids]
+      [sessionUserId(req), ids]
     );
 
     const owned = result.rows;
@@ -2885,7 +2885,7 @@ router.post('/messages/bulk-archive', async (req, res) => {
           return msg?.account_id;
         }).filter(Boolean))];
         for (const accountId of accountIds) {
-          imapManager.broadcast({ type: 'folder_updated', folder: dest, accountId }, req.session.userId);
+          imapManager.broadcast({ type: 'folder_updated', folder: dest, accountId }, sessionUserId(req));
         }
       }
     }
@@ -3020,7 +3020,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
     `SELECT m.*, a.user_id FROM messages m
      JOIN email_accounts a ON a.id = m.account_id
      WHERE m.id = $1 AND a.user_id = $2`,
-    [id, req.session.userId]
+    [id, sessionUserId(req)]
   );
   if (!msgResult.rows.length) return res.status(404).json({ error: 'Message not found' });
   const msg = msgResult.rows[0];
@@ -3114,7 +3114,7 @@ router.post('/messages/:id/snooze', async (req, res) => {
     await query(
       `INSERT INTO snoozed_messages (user_id, account_id, message_id_header, original_folder, snooze_until, snoozed_folder)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [req.session.userId, tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
+      [sessionUserId(req), tm.account_id, tm.message_id, tm.folder, untilDate.toISOString(), snoozedFolder]
     );
 
     adjustFolderCounts(tm.account_id, tm.folder, -1, tm.is_read ? 0 : -1);
@@ -3136,7 +3136,7 @@ router.delete('/messages/:id', async (req, res) => {
     SELECT m.*, a.user_id FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const message = result.rows[0];
@@ -3177,7 +3177,7 @@ router.delete('/messages/:id', async (req, res) => {
       await query('DELETE FROM messages WHERE id = $1', [id]);
       adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
     }
-    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
+    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, sessionUserId(req));
     notifyMailMutation([message], sessionUserId(req));
     return res.json({ ok: true });
   }
@@ -3208,7 +3208,7 @@ router.delete('/messages/:id', async (req, res) => {
       await query('DELETE FROM messages WHERE id = $1', [id]);
       adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
     }
-    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
+    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, sessionUserId(req));
     notifyMailMutation([message], sessionUserId(req));
     return res.json({ ok: true });
   }
@@ -3223,7 +3223,7 @@ router.delete('/messages/:id', async (req, res) => {
     }
     await query('DELETE FROM messages WHERE id = $1', [id]);
     adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
-    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
+    imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, sessionUserId(req));
     return res.json({ ok: true });
   }
 
@@ -3278,7 +3278,7 @@ router.delete('/messages/:id', async (req, res) => {
     await query('DELETE FROM messages WHERE id = $1', [id]);
     adjustFolderCounts(message.account_id, message.folder, -1, -wasUnread);
   }
-  imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, req.session.userId);
+  imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, sessionUserId(req));
   // Refresh GTD section data if this thread still carries a GTD label sibling (same staleness the
   // bulk-delete route addresses, reached via the single-message delete button).
   notifyMailMutation([message], sessionUserId(req));
@@ -3525,7 +3525,7 @@ router.post('/messages/:id/spam', async (req, res) => {
     SELECT m.account_id, a.folder_mappings FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!lookup.rows.length) return res.status(404).json({ error: 'Message not found' });
   const spamFolder = await resolveSpamFolder(lookup.rows[0].account_id, lookup.rows[0].folder_mappings);
@@ -3548,7 +3548,7 @@ router.get('/category-counts', async (req, res) => {
 
   const accountsResult = await query<UnifiedInboxAccount>(
     'SELECT id, include_in_unified_inbox FROM email_accounts WHERE user_id = $1 AND enabled = true',
-    [req.session.userId]
+    [sessionUserId(req)]
   );
   const { accountIds: scopedIds } = resolveAccountScope(accountsResult.rows, accountId);
   if (!scopedIds.length) return res.json({ counts: {} });
@@ -3591,7 +3591,7 @@ router.patch('/messages/:id/category', async (req, res) => {
        AND messages.account_id = a.id
        AND a.user_id = $3
      RETURNING messages.id`,
-    [category === 'primary' ? null : category, id, req.session.userId]
+    [category === 'primary' ? null : category, id, sessionUserId(req)]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   res.json({ ok: true, category });
@@ -3613,7 +3613,7 @@ router.post('/messages/:id/unsubscribe', async (req, res) => {
     FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!result.rows.length) return res.status(404).json({ error: 'Message not found' });
   const { list_unsubscribe: rawUnsub, list_unsubscribe_post: rawUnsubPost, unsubscribed_at: unsubscribedAt } = result.rows[0];
@@ -3701,7 +3701,7 @@ router.post('/messages/:id/ham', async (req, res) => {
     SELECT m.account_id, m.folder, a.folder_mappings FROM messages m
     JOIN email_accounts a ON m.account_id = a.id
     WHERE m.id = $1 AND a.user_id = $2
-  `, [id, req.session.userId]);
+  `, [id, sessionUserId(req)]);
 
   if (!lookup.rows.length) return res.status(404).json({ error: 'Message not found' });
   const allSpam = await resolveAllSpamPaths(lookup.rows[0].account_id, lookup.rows[0].folder_mappings);
