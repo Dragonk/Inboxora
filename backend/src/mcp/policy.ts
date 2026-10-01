@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { query } from '../services/db.js';
+import { searchFolderAccessCondition } from '../services/mailSearchAccess.js';
 
 export const SCOPES = [
   'mail.read', 'mail.draft', 'mail.send', 'mail.modify', 'mail.delete', 'mail.spam', 'mail.unsubscribe',
@@ -22,6 +23,7 @@ export const grantSchema = z.object({
   expiresInDays: z.number().int().min(1).max(365).default(90),
 }).strict();
 export type GrantInput = z.infer<typeof grantSchema>;
+/** Grants are immutable. Changing permissions means revoking and reconnecting the client. */
 export interface Grant {
   id: string; user_id: string; client_id: string | null; name: string;
   scopes: Scope[]; restrictions: Restrictions; require_confirmation: boolean;
@@ -71,12 +73,19 @@ export async function requireAccount(grant: Grant, accountId: string): Promise<v
   const result = await query('SELECT id FROM email_accounts WHERE id=$1 AND user_id=$2 AND enabled=true', [accountId, grant.user_id]);
   if (!result.rows.length) throw new McpError('RESOURCE_UNAVAILABLE', 'Account not found.', 404);
 }
+export async function requireFolder(grant: Grant, accountId: string, folder: string): Promise<void> {
+  await requireAccount(grant, accountId);
+  if (!allowedFolder(grant.restrictions, accountId, folder)) throw new McpError('RESOURCE_FORBIDDEN', 'This folder is outside the integration permissions.');
+  const result = await query('SELECT id FROM folders WHERE account_id=$1 AND path=$2', [accountId, folder]);
+  if (!result.rows.length) throw new McpError('RESOURCE_UNAVAILABLE', 'Folder not found.', 404);
+}
 export async function requireMessage(grant: Grant, messageId: string): Promise<{ id: string; account_id: string; folder: string }> {
   const result = await query<{ id: string; account_id: string; folder: string }>(`SELECT m.id,m.account_id,m.folder FROM messages m
-    JOIN email_accounts a ON a.id=m.account_id WHERE m.id=$1 AND a.user_id=$2 AND a.enabled=true AND m.is_deleted=false`, [messageId, grant.user_id]);
+    JOIN email_accounts a ON a.id=m.account_id WHERE m.id=$1 AND a.user_id=$2 AND a.enabled=true AND m.is_deleted=false
+      AND ($3::uuid[] IS NULL OR m.account_id=ANY($3::uuid[])) AND ${searchFolderAccessCondition(4)}`,
+  [messageId, grant.user_id, grant.restrictions.accounts, grant.restrictions.folders === null ? null : JSON.stringify(grant.restrictions.folders)]);
   const message = result.rows[0];
-  if (!message) throw new McpError('RESOURCE_UNAVAILABLE', 'Message not found.', 404);
-  if (!allowedFolder(grant.restrictions, message.account_id, message.folder)) throw new McpError('RESOURCE_FORBIDDEN', 'This message is outside the integration permissions.');
+  if (!message) throw new McpError('RESOURCE_UNAVAILABLE', 'Message not found within the integration permissions.', 404);
   return message;
 }
 export async function requireCalendar(grant: Grant, id: string): Promise<void> {
