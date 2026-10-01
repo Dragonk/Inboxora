@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
+import { useMobileInteractions } from './useMobileInteractions.ts';
 import { flushSync } from 'react-dom';
 import { createBackNavigation } from '../utils/backNavigation.ts';
 
@@ -22,10 +23,11 @@ export function useBackLayer(active: unknown, onBack: () => void, priority = 0) 
 }
 
 export function useBackNavigation(isMobile: boolean) {
+  const mobileInteractions = useMobileInteractions();
   useLayoutEffect(() => {
     const stop = navigation.start();
     window.__inboxoraHandleAndroidBack = () => navigation.back();
     return () => { stop(); delete window.__inboxoraHandleAndroidBack; };
   }, []);
-  useLayoutEffect(() => { navigation.setEnabled(isMobile); }, [isMobile]);
+  useLayoutEffect(() => { navigation.setEnabled(isMobile || mobileInteractions); }, [isMobile, mobileInteractions]);
 }

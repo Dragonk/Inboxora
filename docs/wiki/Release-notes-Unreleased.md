@@ -13,7 +13,8 @@ previewing them does not pause, edit or send the queued message.
 
 Image attachments have lazy 48-pixel thumbnails, zoom, rotation, fit and an image-only gallery.
 Desktop previews can move into the existing floating-window layer, including minimize,
-restore and independent navigation. Text previews have literal search, highlighted matches,
+restore and independent navigation. Phones keep the touch-first preview and Back navigation
+after rotation; desktop-only window actions are not shown in landscape phone layouts. Text previews have literal search, highlighted matches,
 source copying and a selectable decoding. UTF-8, BOM/declared charsets and Windows-1250
 legacy text are supported; ambiguous encodings can be changed explicitly.
 
@@ -52,9 +53,15 @@ verify signatures, certificate trust, timestamps or document modifications.
 
 The attachment cache is session- and complete-source-path-scoped, with reference-counted
 reads, a five-entry/100-MiB budget and cancellation on logout. A queue revision is part of the
-key. Blob URLs belong to individual surfaces and are revoked when no longer needed.
+key. Every active reader receives shared download progress, including readers opened mid-transfer.
+Released readers stop receiving progress immediately. Blob URLs belong to individual surfaces and are revoked when no longer needed.
 Passwords and decrypted documents are not stored in preferences, browser storage, databases
 or application temporary files. Operating-system swap and upstream proxy policies are separate.
+
+EML parts are streamed with a 100-attachment count limit and a 50-MiB cumulative decoded-byte
+limit. Only an explicitly requested inner attachment is retained in memory; the overview keeps
+metadata instead of all attachment bodies. Invalid part indexes are rejected before processing,
+and worker heap exhaustion is reported as a resource limit rather than corrupt input.
 
 Input and each ZIP entry are capped at 50 MiB. Expanded archive work has a shared 150-MiB
 budget, at most 500 directory entries and three nested archive levels. Office packages have

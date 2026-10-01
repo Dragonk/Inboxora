@@ -69,3 +69,19 @@ describe('attachment processing HTTP boundary',()=>{
     const overlong=await fetch(origin+'/api/mail/attachments/process/unlock',{method:'POST',headers,body:large});expect(overlong.status).toBe(400);expect(process).not.toHaveBeenCalled();
   }));
 });
+
+it('rejects ambiguous MIME part indexes before handing data to a worker', async () => appFor(async (origin, _admit, process) => {
+  for (const index of ['', ' ', '-1', '+1', '01', '1.0', '1e0', '0x1', 'Infinity', '1000', 'bad']) {
+    const body = form(); body.append('index', index);
+    const response = await fetch(origin + '/api/mail/attachments/process/eml-part', { method: 'POST', headers, body });
+    expect(response.status, JSON.stringify(index)).toBe(400);
+    expect(await response.json()).toEqual({ code: 'INVALID_INPUT' });
+  }
+  expect(process).not.toHaveBeenCalled();
+  for (const index of ['0', '1', '99']) {
+    const body = form(); body.append('index', index);
+    const response = await fetch(origin + '/api/mail/attachments/process/eml-part', { method: 'POST', headers, body });
+    expect(response.status).toBe(200);
+    expect(process.mock.lastCall?.[0].index).toBe(Number(index));
+  }
+}));

@@ -1,5 +1,7 @@
 import { OfficeFile, OOXMLFile, OleFileIO, FileFormatError, InvalidKeyError } from 'office-crypto';
-import { simpleParser } from 'mailparser';
+import { MailParser, type AttachmentStream, type MessageText, type Headers } from 'mailparser';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { parseVCard, splitVCards } from '../../utils/vcard.js';
 import { calendarResources } from '../../utils/calendarRecurrence.js';
 import { parseCalendarEvent } from '../../utils/ical.js';
@@ -60,15 +62,65 @@ export async function processAttachment(input: ProcessingInput): Promise<Process
     }) } };
   }
   if (input.action !== 'eml-parse' && input.action !== 'eml-part') throw new AttachmentProcessingError('INVALID_INPUT');
-  const mail = await simpleParser(Buffer.from(input.bytes), { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true, maxHtmlLengthToParse: 2 * 1024 * 1024 });
-  if (mail.attachments.length > 100 || mail.attachments.reduce((n, part) => n + part.size, 0) > FILE_LIMIT) throw new AttachmentProcessingError('LIMIT');
-  if (input.action === 'eml-part') {
-    if (!Number.isInteger(input.index) || input.index! < 0 || input.index! >= mail.attachments.length) throw new AttachmentProcessingError('INVALID_INPUT');
-    const part = mail.attachments[input.index!]; return { bytes: part.content, filename: part.filename || 'attachment', type: part.contentType };
+  return processEml(input);
+}
+
+/** Stream MIME attachments; keep metadata and only the explicitly requested part.
+ * Lower ceilings support boundary tests; callers cannot raise production limits. */
+export async function processEml(input: ProcessingInput, ceilings = { parts: 100, bytes: FILE_LIMIT }): Promise<ProcessingOutput> {
+  const partLimit = Math.min(100, ceilings.parts);
+  const byteLimit = Math.min(FILE_LIMIT, ceilings.bytes);
+  if (input.action === 'eml-part' && (!Number.isInteger(input.index) || input.index! < 0 || input.index! >= partLimit)) {
+    throw new AttachmentProcessingError('INVALID_INPUT');
   }
-  const html = typeof mail.html === 'string' ? mail.html : ''; const text = mail.text || '';
-  if (html.length + text.length > 2 * 1024 * 1024) throw new AttachmentProcessingError('LIMIT');
-  return { json: { html, text, subject: mail.subject || '', from: mail.from?.text || '', date: mail.date?.toISOString() || '',
-    attachments: mail.attachments.map((part, index) => ({ index, filename: part.filename || 'attachment', type: part.contentType, size: part.size })),
+  const parser = new MailParser({ skipHtmlToText: true, skipTextToHtml: true, skipTextLinks: true, skipImageLinks: true, maxHtmlLengthToParse: 2 * 1024 * 1024 });
+  const source = Readable.from((function* () {
+    for (let offset = 0; offset < input.bytes.length; offset += 65536) yield input.bytes.subarray(offset, offset + 65536);
+  })());
+  let headers: Headers = new Map();
+  parser.on('headers', (value: Headers) => { headers = value; });
+  const attachments: Array<{ index: number; filename: string; type: string; size: number }> = [];
+  let total = 0; let html = ''; let text = ''; let selected: ProcessingOutput | undefined;
+  let activeContent: Readable | undefined;
+  const collect = async () => {
+    // MailParser documents these two output types; Node's generic iterator is untyped.
+    for await (const part of parser as AsyncIterable<AttachmentStream | MessageText>) {
+      if (part.type === 'text') {
+        html = typeof part.html === 'string' ? part.html : ''; text = part.text || '';
+        if (Buffer.byteLength(html) + Buffer.byteLength(text) > 2 * 1024 * 1024) throw new AttachmentProcessingError('LIMIT');
+        continue;
+      }
+      if (attachments.length >= partLimit) throw new AttachmentProcessingError('LIMIT');
+      if (!(part.content instanceof Readable)) throw new AttachmentProcessingError('CORRUPT');
+      activeContent = part.content;
+      const index = attachments.length; let size = 0; const chunks: Buffer[] = [];
+      try {
+        for await (const chunk of part.content) {
+          if (!Buffer.isBuffer(chunk)) throw new AttachmentProcessingError('CORRUPT');
+          size += chunk.length; total += chunk.length;
+          if (size > byteLimit || total > byteLimit) throw new AttachmentProcessingError('LIMIT');
+          if (input.action === 'eml-part' && index === input.index) chunks.push(chunk);
+        }
+      } finally { part.release(); }
+      activeContent = undefined;
+      const item = { index, filename: part.filename || 'attachment', type: part.contentType, size };
+      attachments.push(item);
+      if (input.action === 'eml-part' && index === input.index) selected = { bytes: Buffer.concat(chunks, size), filename: item.filename, type: item.type };
+    }
+  };
+  try { await Promise.all([pipeline(source, parser), collect()]); }
+  catch (error) {
+    activeContent?.destroy(); source.destroy(); parser.destroy();
+    throw error instanceof AttachmentProcessingError ? error : new AttachmentProcessingError('CORRUPT');
+  }
+  if (input.action === 'eml-part') {
+    if (!selected) throw new AttachmentProcessingError('INVALID_INPUT');
+    return selected;
+  }
+  const subject = headers.get('subject'); const from = headers.get('from'); const date = headers.get('date');
+  return { json: { html, text, attachments,
+    subject: typeof subject === 'string' ? subject : '',
+    from: from && typeof from === 'object' && 'text' in from && typeof from.text === 'string' ? from.text : '',
+    date: date instanceof Date && Number.isFinite(date.getTime()) ? date.toISOString() : '',
   } };
 }

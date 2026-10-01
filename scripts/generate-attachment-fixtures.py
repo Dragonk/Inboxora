@@ -8,7 +8,7 @@ from pathlib import Path
 from io import BytesIO
 import email.policy
 from email.message import EmailMessage
-import json, math, struct, subprocess, wave, zipfile
+import json, math, re, struct, subprocess, wave, zipfile
 from PIL import Image, ImageDraw
 from reportlab.pdfgen import canvas
 from reportlab.lib.pdfencrypt import StandardEncryption
@@ -59,7 +59,10 @@ with zipfile.ZipFile(root/'document.docx') as source, zipfile.ZipFile(root/'exte
         data=source.read(entry.filename)
         if entry.filename=='word/_rels/document.xml.rels':
             data=data.replace(b'</Relationships>',b'<Relationship Id="rIdExternal" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" TargetMode="External" Target="https://attachment-tracker.example.test/docx.png"/><Relationship Id="rIdChunk" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" TargetMode="External" Target="https://attachment-tracker.example.test/chunk.html"/></Relationships>')
-        if entry.filename=='word/document.xml': data=data.replace(b'</w:body>',b'<w:altChunk r:id="rIdChunk"/></w:body>')
+        if entry.filename=='word/document.xml':
+            data, count = re.subn(rb'(<a:blip\b[^>]*\s)r:embed="[^"]+"', rb'\1r:link="rIdExternal"', data, count=1)
+            assert count == 1, 'External image fixture must reference its relationship'
+            data=data.replace(b'</w:body>',b'<w:altChunk r:id="rIdChunk"/></w:body>')
         target.writestr(entry,data)
 
 texts={
@@ -106,4 +109,7 @@ for extension,codec in [('mp3','libmp3lame'),('ogg','libvorbis')]:
     subprocess.run(['ffmpeg','-loglevel','error','-y','-i',str(root/'audio.wav'),'-c:a',codec,str(root/f'audio.{extension}')],check=True)
 for extension,codec in [('mp4','libx264'),('webm','libvpx-vp9')]:
     subprocess.run(['ffmpeg','-loglevel','error','-y','-loop','1','-i',str(root/'image.png'),'-t','0.5','-vf','format=yuv420p','-c:v',codec,str(root/f'video.{extension}')],check=True)
+unsupported = bytearray((root/'audio.wav').read_bytes())
+struct.pack_into('<H', unsupported, 20, 0xffff)  # Valid WAV container, unsupported format tag.
+(root/'unsupported-codec.wav').write_bytes(unsupported)
 print('Generated synthetic preview fixtures in',root)

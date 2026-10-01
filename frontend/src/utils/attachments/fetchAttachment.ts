@@ -1,7 +1,8 @@
 import { CSRF_HEADER, CSRF_VALUE } from '../api.ts';
 import { isCurrentAuthEpoch, onAuthEpochChange } from '../authEpoch.ts';
 import { PREVIEW_LIMIT } from './types.ts';
-interface Entry { controller: AbortController; promise: Promise<Blob>; blob?: Blob; users: number; touched: number }
+type Progress = (loaded: number, total: number) => void;
+interface Entry { listeners: Set<Progress>; progress?: [number, number]; controller: AbortController; promise: Promise<Blob>; blob?: Blob; users: number; touched: number }
 const entries = new Map<string, Entry>();
 const MAX_BYTES = 100 * 1024 * 1024;
 /** Only application attachment paths, including immutable queue revisions. */
@@ -19,7 +20,7 @@ async function readBlob(path: string, signal: AbortSignal, progress?: (loaded: n
   const chunks: Uint8Array<ArrayBuffer>[] = []; let loaded = 0;
   try {
     while (true) {
-      const result = await reader.read(); if (result.done) break;
+      const result = await reader.read(); signal.throwIfAborted(); if (result.done) break;
       loaded += result.value.byteLength;
       if (loaded > PREVIEW_LIMIT) throw new Error('LIMIT');
       chunks.push(new Uint8Array(result.value)); progress?.(loaded, total);
@@ -45,8 +46,12 @@ export function acquireAttachment(path: string, epoch: number, progress?: (loade
     evict(PREVIEW_LIMIT);
     if (reservedBytes() + PREVIEW_LIMIT > MAX_BYTES || entries.size >= 5) throw new Error('LIMIT');
     const controller = new AbortController();
-    const next: Entry = { controller, promise: Promise.resolve(new Blob()), users: 0, touched: Date.now() };
-    next.promise = readBlob(path, controller.signal, progress).then(blob => {
+    const next: Entry = { controller, promise: Promise.resolve(new Blob()), users: 0, touched: Date.now(), listeners: new Set() };
+    next.promise = readBlob(path, controller.signal, (loaded, total) => {
+      if (controller.signal.aborted || !isCurrentAuthEpoch(epoch)) return;
+      next.progress = [loaded, total];
+      for (const listener of next.listeners) listener(loaded, total);
+    }).then(blob => {
       controller.signal.throwIfAborted();
       if (!isCurrentAuthEpoch(epoch)) throw new DOMException('Preview cancelled', 'AbortError');
       next.blob = blob; evict(); return blob;
@@ -54,13 +59,17 @@ export function acquireAttachment(path: string, epoch: number, progress?: (loade
     entries.set(key, next); entry = next;
   }
   entry.users++; entry.touched = Date.now(); const held = entry; let released = false;
+  // Each lease owns a separate listener, even when callers share a callback.
+  const listener: Progress | undefined = progress ? (loaded, total) => progress(loaded, total) : undefined;
+  if (listener) { held.listeners.add(listener); if (held.progress) listener(...held.progress); }
   return { promise: held.promise, release: () => {
     if (released) return; released = true; held.users--;
+    if (listener) held.listeners.delete(listener);
     if (!held.users && !held.blob) { held.controller.abort(); if (entries.get(key) === held) entries.delete(key); }
     evict();
   } };
 }
-export function clearAttachmentCache(): void { for (const entry of entries.values()) entry.controller.abort(); entries.clear(); }
+export function clearAttachmentCache(): void { for (const entry of entries.values()) { entry.listeners.clear(); entry.controller.abort(); } entries.clear(); }
 export function clearIdleAttachments(): void { for (const [key, entry] of entries) if (!entry.users) { entry.controller.abort(); entries.delete(key); } }
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob); const anchor = document.createElement('a');

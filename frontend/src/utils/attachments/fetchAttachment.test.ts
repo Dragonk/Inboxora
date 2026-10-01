@@ -55,3 +55,33 @@ test('late completed reads cannot repopulate the cache after a session change', 
     assert.equal(count, 2);
   } finally { clearAttachmentCache(); globalThis.fetch = original; }
 });
+
+test('progress reaches current subscribers, replays to late joiners and stops after lease release', async () => {
+  const original = globalThis.fetch; setAuthEpoch(816); clearAttachmentCache();
+  let controller: ReadableStreamDefaultController<Uint8Array> | undefined; let reads = 0;
+  globalThis.fetch = async () => {
+    reads++;
+    return new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value; } }), { headers: { 'content-length': '6' } });
+  };
+  const first: number[][] = []; const shared: number[][] = [];
+  const callback = (loaded: number, total: number) => { shared.push([loaded, total]); };
+  try {
+    const one = acquireAttachment(path, 816, (loaded, total) => { first.push([loaded, total]); });
+    controller?.enqueue(new Uint8Array([1, 2]));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(first, [[2, 6]]);
+    const two = acquireAttachment(path, 816, callback);
+    const three = acquireAttachment(path, 816, callback);
+    assert.deepEqual(shared, [[2, 6], [2, 6]]);
+    one.release(); two.release();
+    controller?.enqueue(new Uint8Array([3, 4, 5, 6])); controller?.close();
+    await Promise.all([one.promise, two.promise, three.promise]);
+    assert.equal(reads, 1);
+    assert.deepEqual(first, [[2, 6]], 'released subscriber receives no further progress');
+    assert.deepEqual(shared, [[2, 6], [2, 6], [6, 6]], 'a shared callback survives the other lease being released');
+    three.release();
+    const cached: number[][] = [];
+    const later = acquireAttachment(path, 816, (loaded, total) => { cached.push([loaded, total]); });
+    await later.promise; assert.deepEqual(cached, [[6, 6]]); assert.equal(reads, 1); later.release();
+  } finally { clearAttachmentCache(); globalThis.fetch = original; }
+});

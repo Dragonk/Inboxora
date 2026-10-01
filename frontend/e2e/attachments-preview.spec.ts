@@ -264,11 +264,13 @@ test.describe('complete attachment preview', () => {
     await attachmentMessage(page, names);
     for (const name of names) {
       const dialog = await preview(page, name);
-      await expect.poll(async () => {
+      const decoding = expect.poll(async () => {
         const media = dialog.locator('audio,video');
         if (await media.count()) return media.evaluate(element => (element as HTMLMediaElement).readyState > 0 ? 'ready' : 'loading');
         return await dialog.getByRole('alert').count() ? 'fallback' : 'loading';
-      }).not.toBe('loading');
+      });
+      if (name === 'audio.wav') await decoding.toBe('ready');
+      else await decoding.not.toBe('loading');
       const media = dialog.locator('audio,video');
       if (await media.count()) {
         await expect(media).toHaveAttribute('controls', '');
@@ -276,6 +278,15 @@ test.describe('complete attachment preview', () => {
       } else await expect(dialog).toContainText('Download it to use another player');
       await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     }
+  });
+
+  test('unsupported media codecs show an explicit download fallback', async ({ page, fixtureApi }) => {
+    await fixtureApi;
+    await attachmentMessage(page, ['unsupported-codec.wav']);
+    const dialog = await preview(page, 'unsupported-codec.wav');
+    await expect(dialog.getByRole('alert')).toContainText('Download it to use another player');
+    await expect(dialog.locator('audio,video')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Download', exact: true })).toBeEnabled();
   });
 
   test('download-only formats stay available, and dangerous downloads require confirmation', async ({ page, fixtureApi }) => {
@@ -310,6 +321,9 @@ test.describe('complete attachment preview', () => {
     const bounds = await dialog.boundingBox(); const viewport = page.viewportSize()!;
     expect(bounds!.width).toBeLessThanOrEqual(viewport.width + 1); expect(bounds!.height).toBeLessThanOrEqual(viewport.height + 1);
     if (isMobile) {
+      await page.setViewportSize({ width: 915, height: 412 });
+      await expect(dialog.getByRole('button', { name: 'Open in window', exact: true })).toHaveCount(0);
+      await page.setViewportSize(viewport);
       await expect(dialog.getByRole('button', { name: 'Open in window', exact: true })).toHaveCount(0);
       await page.evaluate(() => Reflect.get(window, '__inboxoraHandleAndroidBack')());
       await expect(dialog).toHaveCount(0);

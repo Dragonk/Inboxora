@@ -1,3 +1,4 @@
+import { useMobileInteractions } from '../hooks/useMobileInteractions.ts';
 import AttachmentWindow from './attachments/AttachmentWindow.tsx';
 import { Button } from './ui.tsx';
 import { useTranslation } from 'react-i18next';
@@ -21,7 +22,9 @@ function hasWindowIdentifiers(window: StoreMessageWindow): window is IdentifiedM
 export default function WindowLayer() {
   const { t } = useTranslation();
   const windows = useStore((s: StoreState) => s.messageWindows);
-  const attachmentWindows = useStore(state => state.attachmentWindows);
+  const mobileInteractions = useMobileInteractions();
+  const storedAttachmentWindows = useStore(state => state.attachmentWindows);
+  const attachmentWindows = mobileInteractions ? [] : storedAttachmentWindows;
   const minimizeAttachment = useStore(state => state.minimizeAttachmentWindow);
   const closeAttachment = useStore(state => state.closeAttachmentWindow);
   const minimizedAttachments = attachmentWindows.filter(window => window.minimized);

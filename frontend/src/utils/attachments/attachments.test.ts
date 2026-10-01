@@ -95,3 +95,14 @@ test('spreadsheet repeated-cell expansion is rejected before SheetJS allocation'
   const blob = await writer.close();
   await assert.rejects(processWork({ kind: 'sheet', input: { blob } }), /LIMIT/);
 });
+
+test('the passive DOCX fixture actually references both external image and HTML relationships', async () => {
+  const entries = await officeEntries(blob('external-document.docx'));
+  const body = await entries.find(entry => entry.name === 'word/document.xml')!.blob.text();
+  const relationships = await entries.find(entry => entry.name === 'word/_rels/document.xml.rels')!.blob.text();
+  assert.match(body, /<a:blip\b[^>]*r:link="rIdExternal"/);
+  assert.match(body, /<w:altChunk\b[^>]*r:id="rIdChunk"/);
+  for (const id of ['rIdExternal', 'rIdChunk']) {
+    assert.match(relationships, new RegExp(`<Relationship\\b[^>]*Id="${id}"[^>]*TargetMode="External"`));
+  }
+});

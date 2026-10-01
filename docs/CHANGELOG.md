@@ -25,6 +25,10 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Interactive PDF reading with lazy pages, search, selection, page navigation, outline, thumbnails, zoom, rotation, complete-document printing, local password prompts and unverified signature metadata.
 - DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
 
+### Fixed
+- Keep attachment previews touch-first on landscape phones, preserve Back navigation through rotation and update download progress in every active preview.
+- Reject malformed EML part indexes, bound MIME attachment counts and decoded bytes during streaming, and report worker memory exhaustion as a resource limit.
+
 ### Security
 - Session- and queue-revision-scoped attachment caching; passive document frames, local workers, archive/image/workbook limits, bounded processing, rate-limited password attempts and unbuffered processing routes. Unsupported formats remain downloadable.
 

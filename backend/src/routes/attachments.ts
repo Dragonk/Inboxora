@@ -50,7 +50,9 @@ export async function readProcessingInput(req: Request, action: ProcessingAction
     parser.on('close', () => {
       cleanup(); if (failed) return;
       if (files !== 1 || !size || (fields.get('password')?.length || 0) > 256) { reject(new AttachmentProcessingError('INVALID_INPUT')); return; }
-      const index = fields.has('index') ? Number(fields.get('index')) : undefined;
+      const rawIndex = fields.get('index');
+      if (rawIndex !== undefined && !/^(?:0|[1-9]\d{0,2})$/.test(rawIndex)) { reject(new AttachmentProcessingError('INVALID_INPUT')); return; }
+      const index = rawIndex === undefined ? undefined : Number(rawIndex);
       resolve({ action, bytes: Buffer.concat(chunks, size), password: fields.get('password'), kind: fields.get('kind'), index });
     });
     req.pipe(parser);

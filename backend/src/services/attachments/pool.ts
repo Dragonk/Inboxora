@@ -21,7 +21,9 @@ export function runAttachmentWorker(input: ProcessingInput, signal: AbortSignal)
     const abort = () => finish(new AttachmentProcessingError('CANCELLED'));
     const timer = setTimeout(() => finish(new AttachmentProcessingError('LIMIT')), 15000);
     signal.addEventListener('abort', abort, { once: true });
-    worker.once('error', () => finish(new AttachmentProcessingError('CORRUPT')));
+    worker.once('error', (error: Error & { code?: string }) => finish(new AttachmentProcessingError(
+      error.code === 'ERR_WORKER_OUT_OF_MEMORY' ? 'LIMIT' : 'CORRUPT',
+    )));
     worker.once('exit', () => { if (!settled) finish(new AttachmentProcessingError('CORRUPT')); });
     worker.once('message', (message: { result?: ProcessingOutput; error?: AttachmentProcessingError['code'] }) => {
       finish(message.error ? new AttachmentProcessingError(message.error) : undefined, message.result);
