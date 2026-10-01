@@ -1,3 +1,4 @@
+import { ensurePreviewSafe } from '../../utils/attachments/safety.ts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { acquireAttachment } from '../../utils/attachments/fetchAttachment.ts';
 import { detectKind, isImageKind } from '../../utils/attachments/attachmentKind.ts';
@@ -21,6 +22,7 @@ export default function AttachmentThumbnail({ path, filename, type, epoch, child
       const lease = acquireAttachment(path, epoch); controller.signal.addEventListener('abort', lease.release, { once: true });
       try {
         const blob = await lease.promise; controller.signal.throwIfAborted();
+        await ensurePreviewSafe(blob, controller.signal);
         const kind = detectKind(filename || '', type, new Uint8Array(await blob.slice(0, 4096).arrayBuffer()));
         if (!isImageKind(kind)) return;
         const image = await imageBlob(blob, kind, controller.signal); const png = await imagePng(image, controller.signal, true);

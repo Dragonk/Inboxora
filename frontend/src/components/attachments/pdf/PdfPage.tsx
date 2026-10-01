@@ -22,8 +22,8 @@ export default function PdfPage({ document: pdf, number, scale, rotation, base, 
     setFailed(false);
     void pdf.getPage(number).then(async page => {
       if (cancelled) return;
-      const normal = page.getViewport({ scale: 1, rotation: 0 }); setSize({ width: normal.width, height: normal.height });
-      const viewport = page.getViewport({ scale, rotation });
+      const normal = page.getViewport({ scale: 1 }); setSize({ width: normal.width, height: normal.height });
+      const viewport = page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
       const ratio = Math.min(window.devicePixelRatio || 1, thumbnail ? 1 : 2, Math.sqrt(12 * 1024 * 1024 / (viewport.width * viewport.height)));
       if (!Number.isFinite(ratio) || ratio <= 0 || viewport.width > 32768 || viewport.height > 32768) throw new Error('LIMIT');
       target.width = Math.max(1, Math.floor(viewport.width * ratio)); target.height = Math.max(1, Math.floor(viewport.height * ratio));

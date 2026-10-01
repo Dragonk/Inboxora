@@ -13,9 +13,10 @@ test.describe('complete attachment preview', () => {
       const image = dialog.locator('.attachment-image img');
       await expect(image).toBeVisible();
       await expect.poll(() => image.evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+      const beforeWidth = await image.evaluate(element => parseFloat(getComputedStyle(element).width));
       await dialog.getByRole('button', { name: 'Zoom in', exact: true }).click();
-      await expect(image).toHaveAttribute('style', /1.25/);
-      await dialog.getByRole('button', { name: 'Rotate', exact: true }).click();
+      await expect.poll(() => image.evaluate(element => parseFloat(getComputedStyle(element).width))).toBeGreaterThan(beforeWidth);
+      await dialog.getByRole('button', { name: 'Rotate right', exact: true }).click();
       await expect(image).toHaveAttribute('style', /90deg/);
       await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     }
@@ -71,6 +72,8 @@ test.describe('complete attachment preview', () => {
     await pageNumber.fill('87'); await pageNumber.press('Enter');
     await expect(dialog.locator('[data-pdf-page="87"] canvas')).toBeVisible();
     await expect(pageNumber).toHaveValue('87');
+    const find = dialog.getByRole('button', { name: 'Find in document', exact: true });
+    if (await find.isVisible()) await find.click();
     await dialog.getByRole('searchbox').fill('invoice-042');
     await expect(pageNumber).toHaveValue('42');
     await expect(dialog.locator('.attachment-pdf-snippet')).toContainText('invoice-042');
@@ -108,9 +111,10 @@ test.describe('complete attachment preview', () => {
     expect(serverCalls).toEqual([]);
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     dialog = await preview(page, 'empty-signature.pdf');
-    await expect(dialog.locator('.attachment-signatures')).toContainText('Signature fields: 1');
-    await dialog.locator('.attachment-signatures summary').click();
-    await expect(dialog.locator('.attachment-signatures')).toContainText('have not been cryptographically verified');
+    await dialog.getByRole('button', { name: 'Signatures', exact: true }).click();
+    const details = page.getByTestId('attachment-signature-dialog');
+    await expect(details).toContainText('This is an empty signature field');
+    await expect(details.locator('.attachment-status-dot[data-status=valid]')).toHaveCount(0);
   });
 
   test('DOCX, XLSX, XLS and ODS show content, tabs and corrected Office passwords', async ({ page, fixtureApi }) => {

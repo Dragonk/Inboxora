@@ -123,7 +123,7 @@ describe('the send-limits endpoint', () => {
     const gmail = await fetch(`${base}/api/mail/send-limits?accountId=g1`);
     expect(await gmail.json()).toMatchObject({
       transport: 'gmail_api',
-      limits: { providerRawMessageBytes: 25 * MIB, uploadSessionThresholdBytes: null },
+      limits: { providerRawMessageBytes: 35 * MIB, uploadSessionThresholdBytes: null },
     });
   });
 
@@ -177,7 +177,7 @@ describe('the send limits at the route', () => {
     currentAccount = gmailAccount;
     // 20 MiB of attachments is inside Gmail's own attachment accounting; the rendered raw message is not.
     const content = Buffer.alloc(20 * MIB, 3).toString('base64');
-    const response = await post('g1', { attachments: [{ filename: 'big.bin', content }] }, 'p06-gmail-raw');
+    const response = await post('g1', { body: 'x'.repeat(10 * MIB), attachments: [{ filename: 'big.bin', content }] }, 'p06-gmail-raw');
 
     expect(response.status).toBe(413);
     const body = await response.json() as JsonBody & { dimension?: string; transport?: string; limitBytes?: number };
@@ -185,7 +185,7 @@ describe('the send limits at the route', () => {
       code: 'PROVIDER_MESSAGE_TOO_LARGE',
       dimension: 'provider_raw_message',
       transport: 'gmail_api',
-      limitBytes: 25 * MIB,
+      limitBytes: 35 * MIB,
     });
     expect(gmailSendMock).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO send_idempotency'), expect.anything());

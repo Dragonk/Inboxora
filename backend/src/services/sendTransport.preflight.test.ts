@@ -88,12 +88,12 @@ describe('the Gmail preflight', () => {
   const limits = effectiveSendLimits('gmail_api', {});
 
   it('refuses a raw message over Gmail’s ceiling before anything is dispatched', async () => {
-    const { refusal, raw } = await gmailPreflight(composedWith([1 * MIB]), limits, async () => sized(26 * MIB));
+    const { refusal, raw } = await gmailPreflight(composedWith([1 * MIB]), limits, async () => sized(36 * MIB));
     expect(refusal).toMatchObject({
       dimension: 'provider_raw_message',
       code: 'PROVIDER_MESSAGE_TOO_LARGE',
       transport: 'gmail_api',
-      limitBytes: 25 * MIB,
+      limitBytes: 35 * MIB,
     });
     expect(raw).toBeUndefined();
   });
@@ -101,7 +101,7 @@ describe('the Gmail preflight', () => {
   it('refuses when the attachments fit but the encoded message does not', async () => {
     // 20 MiB of attachments are inside every attachment ceiling; the rendered raw message is not, which is the
     // case that only a raw-message measurement can catch.
-    const { refusal } = await gmailPreflight(composedWith([20 * MIB]), limits, async () => sized(34 * MIB));
+    const { refusal } = await gmailPreflight(composedWith([20 * MIB]), limits, async () => sized(36 * MIB));
     expect(refusal?.code).toBe('PROVIDER_MESSAGE_TOO_LARGE');
   });
 

@@ -43,3 +43,58 @@
 @media(max-width:640px){.attachment-preview-dialog.ui-dialog{width:100vw;height:100dvh;border-radius:0}.attachment-toolbar,.attachment-find{padding:6px;gap:4px}.attachment-pdf-sidebar{position:absolute;inset:0 auto 0 0;z-index:5;box-shadow:var(--shadow-drawer)}.attachment-main-toolbar .attachment-filename{flex-basis:100%}.attachment-image-canvas{padding:12px}.attachment-chip{max-width:100%}}
 
 .attachment-size { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+
+/* The preview owns one title/action row, not a second dialog heading. */
+.ui-overlay.attachment-preview-overlay { padding: 0; place-items: stretch; }
+.attachment-preview-dialog.ui-dialog { width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border-radius: 0; box-sizing: border-box; }
+.attachment-surface { container-type: inline-size; }
+.attachment-main-toolbar { flex-wrap: nowrap; gap: 6px; padding: 8px 12px; }
+.attachment-main-toolbar .attachment-filename { min-width: 0; flex: 1 1 auto; }
+.attachment-main-toolbar [data-window-drag] { cursor: default; }
+.mailflow-window [data-window-drag] { cursor: grab; touch-action: none; user-select: none; }
+.attachment-icon-action { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; width: 32px; height: 32px; padding: 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.attachment-icon-action:hover:not(:disabled), .attachment-icon-action[aria-pressed=true] { color: var(--accent); background: var(--bg-tertiary); border-color: var(--border-subtle); }
+.attachment-icon-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.attachment-icon-action:disabled { opacity: .45; cursor: not-allowed; }
+.attachment-find { margin-left: auto; padding: 0; border: 0; flex-wrap: nowrap; position: relative; }
+.attachment-find-fields { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.attachment-find-fields input { width: 165px; min-width: 80px; }
+.attachment-find .attachment-find-toggle { display: none; }
+.attachment-text > .attachment-toolbar, .attachment-pdf > .attachment-toolbar { position: relative; z-index: 6; }
+@container (max-width: 920px) {
+  .attachment-find .attachment-find-toggle { display: inline-flex; }
+  .attachment-find-fields { display: none; }
+  .attachment-find[data-expanded=true] .attachment-find-fields { display: flex; position: absolute; right: 0; top: calc(100% + 8px); width: min(350px, calc(100cqw - 20px)); padding: 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-drawer); }
+  .attachment-find-fields input { flex: 1; }
+}
+@media (max-width: 640px), (pointer: coarse) and (max-height: 767px) {
+  .attachment-main-toolbar { padding: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) 4px max(4px, env(safe-area-inset-left)); gap: 2px; }
+  .attachment-main-toolbar .attachment-filename { flex: 1 1 auto; min-width: 0; }
+  .attachment-main-toolbar .attachment-size { display: none; }
+  .attachment-icon-action { width: 36px; height: 36px; }
+  .attachment-find .attachment-find-toggle { display: inline-flex; }
+  .attachment-find-fields { display: none; }
+  .attachment-find[data-expanded=true] .attachment-find-fields { display: flex; position: absolute; right: 0; top: calc(100% + 8px); width: min(350px, calc(100cqw - 20px)); padding: 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-drawer); }
+}
+.attachment-status-dot { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--yellow, #a87908); }
+.attachment-status-dot[data-status=valid] { background: var(--green, #118c4f); }
+.attachment-status-dot[data-status=invalid] { background: var(--red, #cd3939); }
+.attachment-icon-action > .attachment-status-dot { position: absolute; right: 2px; bottom: 2px; outline: 2px solid var(--bg-secondary); }
+.attachment-signature-dialog.ui-dialog { width: min(1000px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); }
+.attachment-signature-layout { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); gap: 16px; }
+.attachment-signature-layout nav { border-right: 1px solid var(--border); padding-right: 12px; }
+.attachment-signature-layout nav button { display: flex; gap: 8px; align-items: center; width: 100%; padding: 10px; background: transparent; color: var(--text-primary); border: 0; border-radius: 6px; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.attachment-signature-layout nav button[aria-current=true] { background: var(--accent-subtle, var(--bg-tertiary)); color: var(--accent); }
+.attachment-signature-content { min-width: 0; }
+.attachment-signature-content h3 { padding: 12px 0; margin: 0; font-size: 15px; }
+.attachment-signature-content dl { margin: 0 0 16px; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+.attachment-signature-row { display: grid; grid-template-columns: minmax(120px, 38%) minmax(0, 1fr); border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
+.attachment-signature-row:last-child { border-bottom: 0; }
+.attachment-signature-row dt, .attachment-signature-row dd { margin: 0; padding: 12px; overflow-wrap: anywhere; }
+.attachment-signature-row dt { font-weight: 600; background: var(--bg-secondary); }
+.attachment-signature-policy { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+@media(max-width:640px) { .attachment-signature-layout { grid-template-columns: minmax(0, 1fr); } .attachment-signature-layout nav { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 8px; } }
+
+.attachment-image-canvas { display:flex; padding:12px; overscroll-behavior:contain; }
+.attachment-image-stage { position:relative; flex-shrink:0; margin:auto; }
+.attachment-image-canvas .attachment-image-stage img { position:absolute; left:50%; top:50%; max-width:none; max-height:none; transform-origin:center; }

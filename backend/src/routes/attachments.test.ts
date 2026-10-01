@@ -85,3 +85,12 @@ it('rejects ambiguous MIME part indexes before handing data to a worker', async 
     expect(process.mock.lastCall?.[0].index).toBe(Number(index));
   }
 }));
+
+it('all expanded processing actions require current authentication and CSRF', async () => appFor(async (origin, admit, process) => {
+  for (const action of ['scan', 'signatures', 'archive-index', 'archive-extract', 'cards', 'eml-part', 'unlock']) {
+    const url = origin + '/api/mail/attachments/process/' + action;
+    expect((await fetch(url, { method: 'POST', headers: { ...headers, 'X-Test-Anonymous': 'true' }, body: form() })).status).toBe(401);
+    expect((await fetch(url, { method: 'POST', body: form() })).status).toBe(403);
+  }
+  expect(admit).not.toHaveBeenCalled(); expect(process).not.toHaveBeenCalled();
+}));

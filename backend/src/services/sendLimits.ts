@@ -80,7 +80,7 @@ export interface EffectiveSendLimits {
   composedMessageFromFallback: boolean;
 }
 
-/** 25 MiB — Gmail's documented raw-message limit, and the historical default fallback ceiling. */
+/** Historical installation fallback, distinct from provider MIME upload ceilings. */
 export const SEND_ATTACHMENT_TOTAL_BYTES = 26_214_400;
 
 /** The HTTP body window is the hard attachment ceiling carried as base64, plus JSON and header slack. */
@@ -133,7 +133,7 @@ export function effectiveSendLimits(transport: MailTransportKind, env: NodeJS.Pr
 
   // The provider's declared ceiling is the message ceiling; the fallback applies only where none is declared.
   const messageCeiling = capabilities.messageBytes ?? fallbackMessage;
-  const totalAttachmentBytes = Math.min(hard, messageCeiling);
+  const totalAttachmentBytes = Math.min(hard, capabilities.singleAttachmentBytes ?? messageCeiling, messageCeiling);
   const singleAttachmentBytes = Math.min(hard, capabilities.singleAttachmentBytes ?? messageCeiling);
 
   return {

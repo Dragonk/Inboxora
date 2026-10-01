@@ -79,12 +79,15 @@ interface DialogProps {
   busy?: boolean;
   backPriority?: number;
   onEscape?: () => void;
+  hideHeader?: boolean;
+  overlayClassName?: string;
+  unscaled?: boolean;
 }
 
 /** The pointer-drag state of a sheet being pushed back down. */
 interface SheetDragState { pointerId: number; startY: number; startedAt: number; dy: number }
 
-export function Dialog({ title, closeLabel, onClose, children, footer = null, testId = undefined, className = '', busy = false, backPriority = 4500, onEscape }: DialogProps) {
+export function Dialog({ title, closeLabel, onClose, children, footer = null, testId = undefined, className = '', busy = false, backPriority = 4500, onEscape, hideHeader = false, overlayClassName = '', unscaled = false }: DialogProps) {
   const titleId = useId();
   const scale = useUiScale();
   const panel = useRef<HTMLDivElement | null>(null);
@@ -210,16 +213,16 @@ export function Dialog({ title, closeLabel, onClose, children, footer = null, te
     };
   };
 
-  return createPortal(<div className="ui-overlay" style={{ zoom: scale }} onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+  return createPortal(<div className={`ui-overlay ${overlayClassName}`} style={{ zoom: unscaled ? 1 : scale }} onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} data-testid={testId} className={`ui-dialog ${className}`}>
-      <header
+      {hideHeader ? <h2 id={titleId} className="sr-only">{title}</h2> : <header
         className="ui-dialog-header"
         data-testid={isSheet ? 'sheet-drag-header' : undefined}
         onPointerDown={isSheet ? sheetPointerDown : undefined}
       >
         {isSheet && <span className="ui-sheet-grabber" data-testid="sheet-grabber" aria-hidden="true" />}
         <h2 id={titleId}>{title}</h2><Button variant="ghost" aria-label={closeLabel || (typeof title === 'string' ? title : undefined)} onClick={onClose} disabled={busy}>×</Button>
-      </header>
+      </header>}
       <div className="ui-dialog-body">{children}</div>
       {footer && <footer className="ui-dialog-footer">{footer}</footer>}
     </section>

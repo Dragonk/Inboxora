@@ -1,3 +1,4 @@
+import { sourceScanWarning } from '../utils/attachments/safety.ts';
 import { useStore } from '../store/index.ts';
 import AttachmentThumbnail from './attachments/AttachmentThumbnail.tsx';
 import CalendarInvitationCard from './CalendarInvitationCard.tsx';
@@ -197,14 +198,14 @@ export default function MessageDetailContent({
   };
   const requestDownload = (attachment: MessageDetailAttachment) => {
     if ((!physicalCopyId && !onDownloadAttachment) || !canAccessCopy || downloadingPart !== null) return;
-    if (isDangerousAttachment(attachment)) {
+    if (isDangerousAttachment(attachment) || sourceScanWarning(pathForAttachment(attachment))) {
       setPendingDownload({ kind: 'attachment', attachment });
       return;
     }
     void download(attachment);
   };
   const requestDownloadAll = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!downloadAllContainsDangerousAttachment) return;
+    if (!downloadAllContainsDangerousAttachment && !attachments.some(item => sourceScanWarning(pathForAttachment(item)))) return;
     event.preventDefault();
     if (!downloadAllUrl || downloadingPart !== null) return;
     setPendingDownload({ kind: 'all' });
@@ -288,7 +289,7 @@ export default function MessageDetailContent({
         <Button variant="primary" data-testid="dangerous-attachment-download-confirm" onClick={confirmPendingDownload}>{t('message.dangerousAttachment.download')}</Button>
       </>}
     >
-      <p>{t('message.dangerousAttachment.body')}</p>
+      <p>{(pendingDownload?.kind === 'attachment' ? sourceScanWarning(pathForAttachment(pendingDownload.attachment)) : attachments.some(item => sourceScanWarning(pathForAttachment(item)))) ? t('attachment.security.downloadWarning') : t('message.dangerousAttachment.body')}</p>
     </Dialog>}
   </div>;
 }

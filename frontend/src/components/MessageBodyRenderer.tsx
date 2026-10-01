@@ -30,6 +30,7 @@ interface MessageBodyRendererProps {
   text?: string;
   remoteImages?: boolean;
   blockAllNetwork?: boolean;
+  documentLayout?: boolean;
   quoteFolding?: boolean;
   onQuoteDetected?: ((detected: boolean) => void) | null;
   onHeightChange?: ((height: number) => void) | null;
@@ -46,7 +47,7 @@ interface MessageBodyRendererProps {
 }
 
 
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, blockAllNetwork = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null, onOpenLink = null, onFrameKeyDown = null }: MessageBodyRendererProps) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, blockAllNetwork = false, documentLayout = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null, onOpenLink = null, onFrameKeyDown = null }: MessageBodyRendererProps) {
   const internalIframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -58,12 +59,12 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
   const srcDoc = useMemo(() => {
     // The surface decides the canvas; its tone also tells the sanitiser whether the
     // message has to be adapted to a dark canvas before it is written into the frame.
-    const surface = getEmailSurface(theme);
+    const surface = documentLayout ? { tone: 'light' } : getEmailSurface(theme);
     const content = html
-      ? sanitizeMessageHtml(html, { remoteImages, tone: surface?.tone, blockAllNetwork })
+      ? sanitizeMessageHtml(html, { remoteImages, tone: surface?.tone, blockAllNetwork, documentLayout })
       : `<pre data-mailflow-plain-text="true">${escapeMessageText(text)}</pre>`;
-    return buildSrcDoc(content, { remoteImages, surface, blockAllNetwork });
-  }, [html, text, remoteImages, theme, blockAllNetwork]);
+    return buildSrcDoc(content, { remoteImages, surface, blockAllNetwork, documentLayout });
+  }, [html, text, remoteImages, theme, blockAllNetwork, documentLayout]);
 
   // Auto-height: measure the iframe content and set the iframe height
   // so no internal scrollbar appears (same approach as MessagePane).

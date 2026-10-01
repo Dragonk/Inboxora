@@ -1,9 +1,11 @@
+import { runNativeProcessor } from './nativeProcessor.js';
 import { Worker } from 'node:worker_threads';
 import { AttachmentProcessingError, type ProcessingInput, type ProcessingOutput } from './processing.js';
 const source = import.meta.url.endsWith('.ts');
 /** Never fall back to unbounded main-thread parsing on a worker failure. */
 export function runAttachmentWorker(input: ProcessingInput, signal: AbortSignal): Promise<ProcessingOutput> {
   signal.throwIfAborted();
+  if (['signatures', 'archive-index', 'archive-extract'].includes(input.action)) return runNativeProcessor(input, signal);
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL(source ? './worker.ts' : './worker.js', import.meta.url), {
       workerData: input, execArgv: source ? ['--import', 'tsx'] : [],

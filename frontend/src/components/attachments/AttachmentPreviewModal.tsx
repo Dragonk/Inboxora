@@ -12,7 +12,7 @@ export default function AttachmentPreviewModal() {
   const select = useStore(state => state.selectAttachmentPreview);
   const escape = useRef<() => void>(close);
   if (!selection) return null;
-  return <Dialog title={t('attachment.preview.title')} closeLabel={t('common.close')} onClose={close} onEscape={() => escape.current()} className="attachment-preview-dialog" testId="attachment-preview-dialog">
+  return <Dialog title={t('attachment.preview.title')} closeLabel={t('common.close')} onClose={close} onEscape={() => escape.current()} hideHeader unscaled overlayClassName="attachment-preview-overlay" className="attachment-preview-dialog" testId="attachment-preview-dialog">
     <AttachmentPreviewSurface key={`${selection.authEpoch}:${selection.attachments[selection.index]?.path}`} selection={selection} onSelect={select} escapeRef={escape} onClose={close} onDetach={!mobile && windows < 4 ? detach : undefined} />
   </Dialog>;
 }

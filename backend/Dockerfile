@@ -28,6 +28,13 @@ ENV NODE_ENV=production
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
+COPY backend/preview/requirements.txt /app/preview/requirements.txt
+RUN apk add --no-cache python3 py3-pip libarchive libseccomp tzdata && \
+    python3 -m venv /opt/inboxora-preview && \
+    /opt/inboxora-preview/bin/pip install --no-cache-dir --only-binary=:all: --require-hashes -r /app/preview/requirements.txt
+ENV ATTACHMENT_PREVIEW_PYTHON=/opt/inboxora-preview/bin/python
+COPY backend/preview /app/preview
+
 COPY --from=build /app/dist ./dist
 COPY backend/migrations ./migrations
 

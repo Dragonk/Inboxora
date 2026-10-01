@@ -42,13 +42,16 @@ test('the composer asks the server for the sending account’s limits and pre-ch
   const source = await readFile(composePath, 'utf8');
   assert.match(source, /api\.getSendLimits\(sendingAccountId\)/);
   // The pre-check refuses locally with the same wording, and the attachment is not added.
-  const start = source.indexOf('const handleFileSelect');
+  const start = source.indexOf('const addAttachmentFiles');
   const handler = source.slice(start, source.indexOf('const handleKeyDown', start));
   assert.match(handler, /sendLimits\?\.limits\?\.singleAttachmentBytes/);
   assert.match(handler, /sendLimits\?\.limits\?\.totalAttachmentBytes/);
-  assert.match(handler, /setError\(t\('compose\.limitAttachmentTooLarge'/);
-  assert.match(handler, /setError\(t\('compose\.limitTooLarge'/);
+  assert.match(source, /setError\(t\('compose\.limitAttachmentTooLarge'/);
+  assert.match(source, /setError\(t\('compose\.limitTooLarge'/);
 
+  assert.match(handler, /attachmentBatchIssue\(files, attachmentBytes\(\), pending, limits\)/);
+  assert.match(handler, /onDropCapture/);
+  assert.match(handler, /pendingReads\.current\.set\(reader, file\)/);
   const apiSource = await readFile(apiPath, 'utf8');
   assert.match(apiSource, /getSendLimits: \(accountId: string\) => request\('GET', `\/mail\/send-limits\?accountId=\$\{encodeURIComponent\(accountId\)\}`\)/);
 });

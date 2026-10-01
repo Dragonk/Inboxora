@@ -1,4 +1,5 @@
 import { randomBytes, createHash, randomUUID } from 'crypto';
+import { accountSendLimits } from './smtpSize.js';
 import { query, withTransaction } from '../services/db.js';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignature, sanitizeComposeBody } from '../services/emailSanitizer.js';
@@ -13,7 +14,6 @@ import {
   attachmentRefusal,
   attachmentsRefusal,
   decodedBase64Bytes,
-  effectiveSendLimits,
   inlineImagesRefusal,
   messageSizeRefusal,
   sendLimitRefusalBody,
@@ -540,7 +540,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
   // the server's own ceiling. Resolved from the account row by the same rule the seam binds the transport
   // with, and before any attachment is fetched, so an impossible message is refused before the work.
   const transportKind = transportKindForAccount(account);
-  const limits = effectiveSendLimits(transportKind);
+  const { limits } = await accountSendLimits(account);
   if (attachments?.length) {
     for (const a of attachments) {
       const bytes = decodedBase64Bytes(a.content);

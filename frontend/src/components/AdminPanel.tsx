@@ -1,3 +1,4 @@
+import AttachmentDisplaySettings from './AttachmentDisplaySettings.tsx';
 import { Switch as SettingSwitch, IconButton as AccountIconButton } from './accountUi/AccountUi.tsx';
 import { DavAccountsList, DavAccountEditor, type DavAccount } from './accountUi/DavAccounts.tsx';
 import MailIndexDiagnostics from './accountUi/MailIndexDiagnostics.tsx';
@@ -6439,6 +6440,7 @@ function AppearanceTab({ initialSubTab }: SubTabSectionProps) {
     <SubTabs initialTab={initialSubTab} tabs={[
       { id: 'theme',  label: t('admin.tabs.theme'),          content: <ThemesTab /> },
       { id: 'layout', label: t('admin.appearance.layout'),   content: <LayoutsTab /> },
+      { id: 'attachments', label: t('attachment.settings.title'), content: <AttachmentDisplaySettings /> },
       { id: 'calendar', label: t('calendar.title'), content: <CalendarAppearanceSettingsTab /> },
       { id: 'fonts',  label: t('admin.tabs.fontsAndLanguage'), content: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>

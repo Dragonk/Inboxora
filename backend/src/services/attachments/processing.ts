@@ -7,11 +7,11 @@ import { calendarResources } from '../../utils/calendarRecurrence.js';
 import { parseCalendarEvent } from '../../utils/ical.js';
 
 export const FILE_LIMIT = 50 * 1024 * 1024;
-export type ProcessingAction = 'probe' | 'unlock' | 'eml-parse' | 'eml-part' | 'cards';
-export interface ProcessingInput { action: ProcessingAction; bytes: Uint8Array; password?: string; index?: number; kind?: string }
+export type ProcessingAction = 'probe' | 'unlock' | 'eml-parse' | 'eml-part' | 'cards' | 'scan' | 'signatures' | 'archive-index' | 'archive-extract';
+export interface ProcessingInput { action: ProcessingAction; bytes: Uint8Array; password?: string; index?: number; kind?: string; entry?: string; filename?: string; remaining?: number }
 export interface ProcessingOutput { json?: Record<string, unknown>; bytes?: Uint8Array; filename?: string; type?: string }
 export class AttachmentProcessingError extends Error {
-  constructor(public code: 'LIMIT' | 'WRONG_PASSWORD' | 'UNSUPPORTED' | 'CORRUPT' | 'INVALID_INPUT' | 'CANCELLED') { super(code); }
+  constructor(public code: 'LIMIT' | 'WRONG_PASSWORD' | 'UNSUPPORTED' | 'CORRUPT' | 'INVALID_INPUT' | 'CANCELLED' | 'ENCRYPTED_ZIP') { super(code); }
 }
 function compound(bytes: Uint8Array): boolean { return [208, 207, 17, 224, 161, 177, 26, 225].every((byte, index) => bytes[index] === byte); }
 /** This function runs only in a disposable worker. No document data is logged or persisted. */

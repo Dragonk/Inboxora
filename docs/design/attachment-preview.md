@@ -146,3 +146,14 @@ succeeded: the completion report must name their exact SHA and results after ver
 No coding agents, release version bump, direct main push or changes to another workspace were
 used. User-facing limitations, exact implemented budgets and deployment requirements are in
 [the development release notes](../wiki/Release-notes-Unreleased.md).
+
+
+## 2026-10-01 refinement of the delivery contract
+
+The user's follow-up supersedes the metadata-only signature scope above. The same PR now
+includes current-time PDF/CMS validation (pyHanko 0.37.0), certificate/revocation details,
+optional ClamAV, native libarchive formats, compact controls, 100% initial PDF zoom,
+fullscreen restoration/native browser actions, DOCX page/background fidelity, Mermaid labels,
+and composer drop/size warnings. Original files remain unchanged. This is not historical
+PAdES-LTV or automatic EU qualified-signature validation. Runtime configuration, resource
+boundaries and limitations are recorded in the unreleased release notes.

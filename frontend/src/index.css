@@ -918,3 +918,7 @@ body, #root {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+
+[data-testid="compose-body-scroll"][data-file-drag="true"] { outline:2px dashed var(--accent); outline-offset:-5px; background:var(--accent-subtle,var(--bg-tertiary)); }
+.compose-attachment-notice { margin:0; padding:8px 14px; font-size:12px; color:var(--text-secondary); }
+.compose-attachment-warning { border-left:3px solid var(--yellow); background:var(--bg-secondary); }

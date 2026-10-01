@@ -26,6 +26,7 @@ interface FloatingWindowProps {
   minimizeLabel?: string;
   closeLabel?: string;
   children?: React.ReactNode;
+  contentTitlebar?: boolean;
 }
 
 export default function FloatingWindow({
@@ -40,6 +41,7 @@ export default function FloatingWindow({
   minimizeLabel = 'Minimize',
   closeLabel = 'Close',
   children,
+  contentTitlebar = false,
 }: FloatingWindowProps) {
   const elRef = useRef<HTMLDivElement | null>(null);
   const gestureCleanupRef = useRef<((options: { commit: boolean }) => void) | null>(null);
@@ -160,6 +162,7 @@ export default function FloatingWindow({
       ref={elRef}
       className="mailflow-window"
       onPointerDownCapture={onFocus}
+      onPointerDown={event => { if (contentTitlebar && event.target instanceof Element && event.target.closest('[data-window-drag]')) beginTitleDrag(event); }}
       style={{
         // left/top/width/height are applied imperatively (see layout effect above) so
         // background re-renders can't reset the window's position/size mid-gesture.
@@ -174,7 +177,7 @@ export default function FloatingWindow({
       }}
     >
       {/* Title bar — drag handle */}
-      <div
+      {!contentTitlebar && <div
         className="mailflow-window-titlebar"
         onPointerDown={beginTitleDrag}
         style={{
@@ -220,7 +223,7 @@ export default function FloatingWindow({
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
-      </div>
+      </div>}
 
       {/* Content — MessagePane fills this */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

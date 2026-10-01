@@ -229,6 +229,7 @@ describe('send failure semantics', () => {
     expect(mailOptions.envelope).toEqual({
       from: 'me@example.com',
       to: ['visible@example.com', 'copy@example.com', 'blind@example.com'],
+      size: mailOptions.raw.length,
     });
   });
 
@@ -248,7 +249,7 @@ describe('send failure semantics', () => {
     expect(rawHeaders).not.toHaveProperty('to');
     expect(rawHeaders).not.toHaveProperty('cc');
     expect(JSON.stringify(rawHeaders)).not.toContain('blind@example.com');
-    expect(mailOptions.envelope).toEqual({ from: 'me@example.com', to: ['blind@example.com'] });
+    expect(mailOptions.envelope).toEqual({ from: 'me@example.com', to: ['blind@example.com'], size: mailOptions.raw.length });
   });
 
   it('renders an SMTP reply with the authoritative RFC chain (THR-08)', async () => {

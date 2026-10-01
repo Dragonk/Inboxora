@@ -4,7 +4,7 @@
  * These are provider facts, not installation policy: Graph's 3 MB is where an attachment must stop travelling
  * inline in the create call and move to a resumable upload session (a choice of *method*, not a ceiling), its
  * 150 MB is the largest single file such a session accepts and also Exchange's own maximum message size, and
- * Gmail's 25 MB is a ceiling on the raw message it will accept. Keeping them here — rather than as literals
+ * Gmail's decoded attachment limit differs from its 35 MiB MIME upload ceiling. Keeping them here — rather than as literals
  * inside the adapter that happens to hit them — is what lets the send limit model be *derived* per transport
  * instead of guessed, and it is why `graphMailAttachments.ts` and `gmailApi.ts` now read their numbers from
  * this module rather than owning them.
@@ -41,7 +41,8 @@ export const GRAPH_UPLOAD_SESSION_FILE_MAX_BYTES = 150 * 1024 * 1024;
 /** Exchange's maximum message size, which is the whole-message ceiling a Graph send is bounded by. */
 export const GRAPH_MESSAGE_MAX_BYTES = 150 * 1024 * 1024;
 /** The largest raw RFC-822 message Gmail's `users.messages.send` accepts. */
-export const GMAIL_RAW_MESSAGE_MAX_BYTES = 25 * 1024 * 1024;
+export const GMAIL_RAW_MESSAGE_MAX_BYTES = 35 * 1024 * 1024;
+export const GMAIL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 
 export const MAIL_TRANSPORT_CAPABILITIES: Readonly<Record<MailTransportKind, MailTransportCapabilities>> = Object.freeze({
   // No universal SMTP limit exists: any server-side ceiling is a deployment fact this installation cannot
@@ -64,9 +65,8 @@ export const MAIL_TRANSPORT_CAPABILITIES: Readonly<Record<MailTransportKind, Mai
   }),
   gmail_api: Object.freeze({
     kind: 'gmail_api',
-    // Gmail's own limit is on the raw message, so a single attachment is bounded by that same ceiling rather
-    // than by a separate per-file number it does not publish.
-    singleAttachmentBytes: GMAIL_RAW_MESSAGE_MAX_BYTES,
+    // Decoded attachment bytes and the MIME upload window are separate dimensions.
+    singleAttachmentBytes: GMAIL_ATTACHMENT_MAX_BYTES,
     messageBytes: GMAIL_RAW_MESSAGE_MAX_BYTES,
     rawMessageBytes: GMAIL_RAW_MESSAGE_MAX_BYTES,
     uploadSessionThresholdBytes: null,

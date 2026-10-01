@@ -1,3 +1,5 @@
+import SignatureDetails from '../pdf/SignatureDetails.tsx';
+import PreviewAction from '../PreviewAction.tsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getDocument, GlobalWorkerOptions, PasswordResponses, type PDFDocumentProxy, type PDFDocumentLoadingTask, type RenderTask } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -7,7 +9,7 @@ import type { PreviewFile } from '../../../utils/attachments/types.ts';
 import { Button } from '../../ui.tsx';
 import AttachmentPasswordDialog from '../AttachmentPasswordDialog.tsx';
 import PreviewStatus from '../PreviewStatus.tsx';
-import FindBar, { findMatches } from '../findBar.tsx';
+import FindBar, { findMatches, type FindBarHandle } from '../findBar.tsx';
 import PdfPage from '../pdf/PdfPage.tsx';
 import OutlinePanel, { outlineItems, type OutlineItem } from '../pdf/OutlinePanel.tsx';
 import { editingTarget } from '../shortcuts.ts';
@@ -22,13 +24,13 @@ function metadata(value: object): Signature {
 export default function PdfPreview({ file }: { file: PreviewFile }) {
   const { t } = useTranslation(); const [pdf, setPdf] = useState<PDFDocumentProxy>(); const [error, setFailureCode] = useState<string>();
   const [base, setBase] = useState({ width: 612, height: 792 }); const [current, setCurrent] = useState(1); const [pageInput, setPageInput] = useState('1');
-  const [zoom, setZoom] = useState(1); const [fit, setFit] = useState<'width' | 'page' | null>('width'); const [rotation, setRotation] = useState(0);
+  const [zoom, setZoom] = useState(1); const [fit, setFit] = useState<'width' | 'page' | null>(null); const [rotation, setRotation] = useState(0);
   const [outline, setOutline] = useState<OutlineItem[]>([]); const [panel, setPanel] = useState<'outline' | 'thumbs' | null>(null);
   const [signatures, setSignatures] = useState<Signature[]>([]); const [signatureFields, setSignatureFields] = useState(0);
   const [password, setPassword] = useState<{ submit: (value: string) => void; incorrect: boolean }>();
   const [query, setQuery] = useState(''); const [matches, setMatches] = useState<Array<{ page: number; snippet: string }>>([]); const [match, setMatch] = useState(0); const [searching, setSearching] = useState(false);
   const [printing, setPrinting] = useState(0); const [printError, setPrintError] = useState(false);
-  const scroll = useRef<HTMLDivElement>(null); const searchInput = useRef<HTMLInputElement>(null);
+  const scroll = useRef<HTMLDivElement>(null); const searchInput = useRef<FindBarHandle>(null);
   const task = useRef<PDFDocumentLoadingTask>(); const printController = useRef<AbortController>(); const alive = useRef(true);
   useEffect(() => {
     let active = true; alive.current = true;
@@ -148,8 +150,8 @@ export default function PdfPreview({ file }: { file: PreviewFile }) {
       const images: Blob[] = []; let bytes = 0;
       for (let number = 1; number <= pdf.numPages; number++) {
         controller.signal.throwIfAborted(); const page = await pdf.getPage(number); controller.signal.throwIfAborted();
-        const normal = page.getViewport({ scale: 1, rotation }); const ratio = Math.min(1.5, Math.sqrt(4 * 1024 * 1024 / (normal.width * normal.height)));
-        const viewport = page.getViewport({ scale: ratio, rotation }); canvas.width = Math.max(1, Math.floor(viewport.width)); canvas.height = Math.max(1, Math.floor(viewport.height));
+        const normal = page.getViewport({ scale: 1, rotation: (page.rotate + rotation) % 360 }); const ratio = Math.min(1.5, Math.sqrt(4 * 1024 * 1024 / (normal.width * normal.height)));
+        const viewport = page.getViewport({ scale: ratio, rotation: (page.rotate + rotation) % 360 }); canvas.width = Math.max(1, Math.floor(viewport.width)); canvas.height = Math.max(1, Math.floor(viewport.height));
         render = page.render({ canvas, viewport, intent: 'print' }); await render.promise;
         const image = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('CORRUPT')), 'image/png'));
         bytes += image.size; if (bytes > 100 * 1024 * 1024) throw new Error('LIMIT'); images.push(image); canvas.width = 0; canvas.height = 0;
@@ -168,7 +170,7 @@ export default function PdfPreview({ file }: { file: PreviewFile }) {
     if (event.key === 'ArrowRight' || event.key === 'PageDown') jump(current + 1);
     if (event.key === 'ArrowLeft' || event.key === 'PageUp') jump(current - 1);
     if (event.key === 'Home') jump(1); if (event.key === 'End') jump(pdf.numPages);
-    if (event.key === '+' || event.key === '=') scale(.25); if (event.key === '-') scale(-.25); if (event.key === '0') setFit('width');
+    if (event.key === '+' || event.key === '=') scale(.25); if (event.key === '-') scale(-.25); if (event.key === '0') { setFit(null); setZoom(1); }
   }}>
     <div className="attachment-toolbar">
       <Button aria-label={t('attachment.preview.previousPage')} disabled={current === 1} onClick={() => jump(current - 1)}>‹</Button>
@@ -178,18 +180,17 @@ export default function PdfPreview({ file }: { file: PreviewFile }) {
         {![.5, .75, 1, 1.25, 1.5, 2, 3, 4].includes(zoom) && <option value={zoom}>{Math.round(zoom * 100)}%</option>}
         {[.5, .75, 1, 1.25, 1.5, 2, 3, 4].map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}
       </select><Button aria-label={t('attachment.preview.zoomIn')} onClick={() => scale(.25)}>+</Button>
-      <Button onClick={() => setFit('width')}>{t('attachment.preview.fitWidth')}</Button><Button onClick={() => setFit('page')}>{t('attachment.preview.fitPage')}</Button>
-      <Button aria-label={t('attachment.preview.rotateLeft')} onClick={() => setRotation(value => (value + 270) % 360)}>↶</Button>
-      <Button onClick={() => setRotation(value => (value + 90) % 360)}>{t('attachment.preview.rotate')}</Button>
-      {!!outline.length && <Button aria-pressed={panel === 'outline'} onClick={() => setPanel(value => value === 'outline' ? null : 'outline')}>{t('attachment.preview.outline')}</Button>}
-      <Button aria-pressed={panel === 'thumbs'} onClick={() => setPanel(value => value === 'thumbs' ? null : 'thumbs')}>{t('attachment.preview.thumbnails')}</Button>
-      <Button onClick={() => void print()} disabled={!!printing}>{t('attachment.preview.print')}</Button>
-    </div>
+      <PreviewAction onClick={() => setFit('width')} icon="fitWidth" label={t('attachment.preview.fitWidth')} tooltip={t('attachment.tips.fitWidth')} /><PreviewAction onClick={() => setFit('page')} icon="fitPage" label={t('attachment.preview.fitPage')} tooltip={t('attachment.tips.fitPage')} />
+      <PreviewAction icon="rotateLeft" label={t('attachment.preview.rotateLeft')} onClick={() => setRotation(value => (value + 270) % 360)} /><PreviewAction icon="rotateRight" label={t('attachment.preview.rotateRight')} onClick={() => setRotation(value => (value + 90) % 360)} />
+      {!!outline.length && <PreviewAction aria-pressed={panel === 'outline'} onClick={() => setPanel(value => value === 'outline' ? null : 'outline')} icon="outline" label={t('attachment.preview.outline')} tooltip={t('attachment.tips.outline')} />}
+      <PreviewAction aria-pressed={panel === 'thumbs'} onClick={() => setPanel(value => value === 'thumbs' ? null : 'thumbs')} icon="thumbnails" label={t('attachment.preview.thumbnails')} tooltip={t('attachment.tips.thumbnails')} />
+      <PreviewAction onClick={() => void print()} disabled={!!printing} icon="print" label={t('attachment.preview.print')} tooltip={t('attachment.tips.print')} />
+      {(signatures.length > 0 || signatureFields > 0) && <SignatureDetails file={file} count={Math.max(signatureFields, signatures.length)} metadata={signatures} />}
     <FindBar ref={searchInput} query={query} setQuery={setQuery} current={match} total={matches.length} onNext={nextMatch} />
+    </div>
     {searching && <p role="status">{t('attachment.preview.searching')}</p>}
     {query && matches[match] && <p className="attachment-pdf-snippet">{matches[match].snippet}</p>}
-    {(signatures.length > 0 || signatureFields > 0) && <details className="attachment-signatures"><summary>{t('attachment.preview.signatureFields', { count: Math.max(signatureFields, signatures.length) })}</summary>
-      <p>{t('attachment.preview.signatureUnverified')}</p>{signatures.map((signature, index) => <p key={index}>{signature.name} · {signature.date} · {signature.reason}</p>)}</details>}
+
     {!!printing && <div role="status">{t('attachment.preview.printProgress', { page: printing, total: pdf.numPages })}<Button onClick={() => printController.current?.abort()}>{t('common.cancel')}</Button></div>}
     {printError && <PreviewStatus error="LIMIT" />}{error && <PreviewStatus error={error} />}
     <div className="attachment-pdf-layout">

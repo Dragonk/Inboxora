@@ -24,3 +24,7 @@ limit. Do not extract those archives to the filesystem.
 The `*.eml.json`, `*.ics.json` and `*.vcf.json` files are expected parser output for the
 mocked browser matrix; the live browser gate calls the production parser instead. The
 `unlocked-example.*` files are decrypted forms of the licensed synthetic Office fixtures.
+
+`sample-rar5.rar` is the stored RAR5 fixture from libarchive (`libarchive/test/test_read_format_rar5_stored.rar.uu`, Git blob `afd565ff97d461dad905185f83860ecb2f1bccf8`). Its upstream license is included in LICENSE-libarchive.txt. No archive content is executed.
+
+Follow-up fixtures: archive.7z, archive.rar (stored RAR4), archive.tar, archive.tar.gz, single.txt.gz and signature-sample.pdf are synthetic outputs of backend/preview/generate_fixtures.py. The PDF uses a test-only CA, not an independently trusted identity. Its private keys were never saved. paged-background.docx extends document.docx with an explicit page break, a second-page marker and a DCEBFA page background. Browser metadata fixtures exercise UI, while Python tests generate fresh PKI and verify actual cryptographic/revocation results.

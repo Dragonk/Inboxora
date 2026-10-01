@@ -139,3 +139,5 @@ button, input, textarea, select { font-family: inherit; }
 
 .mobile-header-action[aria-pressed="true"] { background: var(--bg-hover); box-shadow: inset 0 0 0 1px var(--accent); }
 .mobile-header-action[aria-busy="true"] svg { animation: spin .8s linear infinite; }
+
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }

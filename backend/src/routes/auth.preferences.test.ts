@@ -280,3 +280,21 @@ describe('PATCH /auth/preferences Undo Send delay', () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe('attachment-size warning preference', () => {
+  it.each([0, 1, 20, 150])('persists %s MiB for the authenticated user without changing sender limits', async value => {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { attachmentWarningMiB: value } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(req, res);
+    const [sql, params] = recordedQueryCall(0);
+    expect(sql).toContain("jsonb_build_object('attachmentWarningMiB', $55::int)");
+    expect(params[0]).toBe('user-1'); expect(params[54]).toBe(value);
+    expect(sql).not.toContain('MAIL_MAX_ATTACHMENT_BYTES'); expect(res.json).toHaveBeenCalledWith({ ok: true });
+  });
+  it.each([-1, 151, 1.5, '20', null, true])('rejects malformed warning value %s without writing preferences', async value => {
+    const req = mockRequest({ session: { userId: 'user-1' }, body: { attachmentWarningMiB: value } });
+    const res = mockResponse({ status: vi.fn().mockReturnThis(), json: vi.fn() });
+    await patchPreferences(req, res);
+    expect(res.status).toHaveBeenCalledWith(400); expect(query).not.toHaveBeenCalled();
+  });
+});

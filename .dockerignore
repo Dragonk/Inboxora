@@ -6,3 +6,7 @@
 certs
 *.local
 .git
+backend/preview/test_*.py
+backend/preview/generate_fixtures.py
+**/__pycache__
+backend/fixtures/attachments/generated

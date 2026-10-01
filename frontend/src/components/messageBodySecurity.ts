@@ -19,11 +19,12 @@ function purifier() {
 
 
 const SAFE_PROPERTIES = new Set(['background','background-color','background-image','background-position','background-repeat','background-size','border','border-top','border-right','border-bottom','border-left','border-radius','border-collapse','border-spacing','color','display','float','clear','font','font-family','font-size','font-style','font-weight','letter-spacing','line-height','height','min-height','max-height','width','min-width','max-width','margin','margin-top','margin-right','margin-bottom','margin-left','padding','padding-top','padding-right','padding-bottom','padding-left','text-align','text-decoration','text-transform','text-indent','vertical-align','white-space','word-break','overflow','overflow-x','overflow-y','opacity','table-layout','visibility','mso-line-height-rule','-webkit-text-size-adjust','direction','unicode-bidi']);
+const DOCUMENT_PROPERTIES = new Set(['break-before', 'break-after', 'break-inside', 'page-break-before', 'page-break-after', 'page-break-inside', 'box-sizing', 'box-shadow', 'flex', 'flex-flow', 'flex-direction', 'flex-shrink', 'align-items', 'justify-content', 'gap', 'column-count', 'column-gap', 'column-rule']);
 const BAD_CSS = /(?:expression\s*\(|behavior\s*:|-moz-binding\s*:|javascript\s*:|vbscript\s*:|@import\b)/i;
 const URL_RE = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
 function safeCssUrl(value: string) { let bad = false; const next = value.replace(URL_RE, (_all, _q, raw) => { const url = String(raw || '').trim(); if (/^(https?:|\/\/|cid:|data:image\/)/i.test(url)) return `url("${url.replace(/"/g, '%22')}")`; bad = true; return 'none'; }); return bad ? null : next; }
-export function sanitizeInlineStyle(style: string | null = '') { const kept: unknown[] = []; for (const declaration of String(style).split(';')) { const i = declaration.indexOf(':'); if (i < 1) continue; const property = declaration.slice(0, i).trim().toLowerCase(); let value: string | null = declaration.slice(i + 1).trim(); if (!SAFE_PROPERTIES.has(property) || !value || BAD_CSS.test(value)) continue; value = safeCssUrl(value); if (value != null) kept.push(`${property}:${value}`); } return kept.join(';'); }
-export function sanitizeEmailCss(css = '') { let root; try { root = postcss.parse(String(css)); } catch { return ''; } root.walkAtRules(rule => { if (!['media','supports'].includes(rule.name.toLowerCase()) || BAD_CSS.test(rule.params)) rule.remove(); }); root.walkDecls(declaration => { const property = declaration.prop.toLowerCase(); const value = safeCssUrl(declaration.value); if (!SAFE_PROPERTIES.has(property) || BAD_CSS.test(declaration.value) || value == null) declaration.remove(); else declaration.value = value; }); return root.toString(); }
+export function sanitizeInlineStyle(style: string | null = '', documentLayout = false) { const kept: unknown[] = []; for (const declaration of String(style).split(';')) { const i = declaration.indexOf(':'); if (i < 1) continue; const property = declaration.slice(0, i).trim().toLowerCase(); let value: string | null = declaration.slice(i + 1).trim(); if (!(SAFE_PROPERTIES.has(property) || documentLayout && DOCUMENT_PROPERTIES.has(property)) || !value || BAD_CSS.test(value)) continue; value = safeCssUrl(value); if (value != null) kept.push(`${property}:${value}`); } return kept.join(';'); }
+export function sanitizeEmailCss(css = '', documentLayout = false) { let root; try { root = postcss.parse(String(css)); } catch { return ''; } root.walkAtRules(rule => { if (!['media','supports', ...(documentLayout ? ['page'] : [])].includes(rule.name.toLowerCase()) || BAD_CSS.test(rule.params)) rule.remove(); }); root.walkDecls(declaration => { const property = declaration.prop.toLowerCase(); const value = safeCssUrl(declaration.value); if (!(SAFE_PROPERTIES.has(property) || documentLayout && DOCUMENT_PROPERTIES.has(property)) || BAD_CSS.test(declaration.value) || value == null) declaration.remove(); else declaration.value = value; }); return root.toString(); }
 
 // Shared email HTML security policy. This is a leaf module so browser tests and
 // both React renderers exercise the exact same sanitizer/CSP/srcDoc implementation.
@@ -134,7 +135,7 @@ export function adaptMessageForDarkCanvas(root: ParentNode | null) {
   }
 }
 
-export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, tone = null, blockAllNetwork = false }: { remoteImages?: boolean; tone?: string | null; blockAllNetwork?: boolean } = {}): string {
+export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, tone = null, blockAllNetwork = false, documentLayout = false }: { remoteImages?: boolean; tone?: string | null; blockAllNetwork?: boolean; documentLayout?: boolean } = {}): string {
   const purify = purifier();
   const sanitized = purify.sanitize(preserveCid(String(html)), {
     ...EMAIL_SANITIZE_POLICY,
@@ -144,13 +145,13 @@ export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, 
   const template = document.createElement('template');
   template.innerHTML = sanitized;
   for (const element of template.content.querySelectorAll('[style]')) {
-    const safe = sanitizeInlineStyle(element.getAttribute('style'));
+    const safe = sanitizeInlineStyle(element.getAttribute('style'), documentLayout);
     if (safe) element.setAttribute('style', safe); else element.removeAttribute('style');
   }
   // After sanitising, so adaptation can never reintroduce a property the sanitizer stripped.
   if (tone === 'dark') adaptMessageForDarkCanvas(template.content);
   for (const style of template.content.querySelectorAll('style')) {
-    const safe = sanitizeEmailCss(style.textContent);
+    const safe = sanitizeEmailCss(style.textContent || '', documentLayout);
     if (safe) style.textContent = safe; else style.remove();
   }
   for (const image of template.content.querySelectorAll('img')) {
@@ -266,7 +267,7 @@ function emailSurfaceCss(surface: EmailSurfaceLike | null | undefined) {
   return `\n  /* Mail body surface, declared from the app theme. Scoped to this document only. */\n${rules.join('\n')}`;
 }
 
-export function buildSrcDoc(html: unknown, { remoteImages = false, surface = null, blockAllNetwork = false }: { remoteImages?: boolean; surface?: EmailSurfaceLike | null; blockAllNetwork?: boolean } = {}): string {
+export function buildSrcDoc(html: unknown, { remoteImages = false, surface = null, blockAllNetwork = false, documentLayout = false }: { remoteImages?: boolean; surface?: EmailSurfaceLike | null; blockAllNetwork?: boolean; documentLayout?: boolean } = {}): string {
   const csp = emailCsp({ remoteImages, blockAllNetwork });
   const resolved = resolveEmailSurface(surface);
   const surfaceCss = emailSurfaceCss(resolved);
@@ -286,7 +287,7 @@ ${EMAIL_BASE_TAG}
      an oversized legacy newsletter must reflow or remain horizontally accessible. */
   html { margin: 0; padding: 0; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
   body { margin: 0; padding: 8px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
-  @media (max-width: 767px) { table { width: 100% !important; max-width: 100% !important; } }
+  ${documentLayout ? '' : '@media (max-width: 767px) { table { width: 100% !important; max-width: 100% !important; } }'}
   img, svg, video, canvas { max-width: 100%; height: auto; }
   pre, code { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
   a { overflow-wrap: anywhere; word-break: break-word; }
@@ -297,6 +298,7 @@ ${EMAIL_BASE_TAG}
   .mailflow-quote-toggle:hover { background: #e8e8e8; }
   .mailflow-quote-toggle:focus-visible { outline: 2px solid #4c8bf5; outline-offset: 2px; }
 ${surfaceCss}
+${documentLayout ? 'html,body{max-width:none;min-width:100%;width:max-content}body{padding:0;color:#000;background:#eee;color-scheme:light}.docx-wrapper{min-width:max-content}.docx-wrapper>section.docx{box-sizing:border-box;flex-shrink:0}' : ''}
 </style>
 </head><body>${html}</body></html>`;
 }

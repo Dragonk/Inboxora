@@ -1,5 +1,6 @@
+import { markPreviewScanned, rememberSourceScan } from './safety.ts';
 import { CSRF_HEADER, CSRF_VALUE } from '../api.ts';
-import { isCurrentAuthEpoch, onAuthEpochChange } from '../authEpoch.ts';
+import { getAuthEpoch, isCurrentAuthEpoch, onAuthEpochChange } from '../authEpoch.ts';
 import { PREVIEW_LIMIT } from './types.ts';
 type Progress = (loaded: number, total: number) => void;
 interface Entry { listeners: Set<Progress>; progress?: [number, number]; controller: AbortController; promise: Promise<Blob>; blob?: Blob; users: number; touched: number }
@@ -10,9 +11,16 @@ export function attachmentPath(path: string): string {
   if (!/^\/api\/mail\/(?:messages|scheduled)\/[^/?#]+\/(?:attachments\/[^/?#]+(?:\?revision=\d+)?|attachments\.zip)$/.test(path)) throw new Error('Invalid attachment path');
   return path;
 }
-async function readBlob(path: string, signal: AbortSignal, progress?: (loaded: number, total: number) => void): Promise<Blob> {
-  const response = await fetch(attachmentPath(path), { credentials: 'include', headers: { [CSRF_HEADER]: CSRF_VALUE }, signal, cache: 'no-store' });
-  if (!response.ok) throw new Error('UNAVAILABLE');
+async function readBlob(path: string, signal: AbortSignal, progress?: (loaded: number, total: number) => void, preview = true): Promise<Blob> {
+  const epoch = getAuthEpoch();
+  const response = await fetch(attachmentPath(path) + (preview ? (path.includes('?') ? '&preview=1' : '?preview=1') : ''), { credentials: 'include', headers: { [CSRF_HEADER]: CSRF_VALUE }, signal, cache: 'no-store' });
+  if (!response.ok) {
+    const result: unknown = await response.json().catch(() => null);
+    signal.throwIfAborted();
+    const code = result && typeof result === 'object' && 'code' in result && typeof result.code === 'string' ? result.code : 'UNAVAILABLE';
+    if (preview) rememberSourceScan(path, code, epoch);
+    throw new Error(code);
+  }
   const total = Number(response.headers.get('content-length')) || 0;
   if (total > PREVIEW_LIMIT) { await response.body?.cancel(); throw new Error('LIMIT'); }
   const reader = response.body?.getReader();
@@ -26,7 +34,10 @@ async function readBlob(path: string, signal: AbortSignal, progress?: (loaded: n
       chunks.push(new Uint8Array(result.value)); progress?.(loaded, total);
     }
     signal.throwIfAborted();
-    return new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' });
+    const blob = new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' });
+    if (preview && ['clean', 'disabled'].includes(response.headers.get('x-attachment-scan') || '')) markPreviewScanned(blob);
+    if (preview) rememberSourceScan(path, response.headers.get('x-attachment-scan') || '', epoch);
+    return blob;
   } catch (error) { await reader.cancel().catch(() => undefined); throw error; }
   finally { reader.releaseLock(); }
 }
@@ -80,3 +91,20 @@ export function downloadBlob(blob: Blob, filename: string): void {
 
 // Also clear resources for session transitions initiated outside the main store.
 onAuthEpochChange(clearAttachmentCache);
+
+const downloads = new Set<AbortController>();
+/** Explicit original-byte downloads are never inserted into the preview cache. */
+export async function fetchOriginalAttachment(path: string, epoch: number, signal: AbortSignal): Promise<Blob> {
+  signal.throwIfAborted();
+  if (!isCurrentAuthEpoch(epoch)) throw new DOMException('Cancelled', 'AbortError');
+  if (downloads.size >= 2) throw new Error('LIMIT');
+  const controller = new AbortController(); const abort = () => controller.abort();
+  downloads.add(controller); signal.addEventListener('abort', abort, { once: true });
+  try {
+    const blob = await readBlob(path, controller.signal, undefined, false);
+    controller.signal.throwIfAborted();
+    if (!isCurrentAuthEpoch(epoch)) throw new DOMException('Cancelled', 'AbortError');
+    return blob;
+  } finally { signal.removeEventListener('abort', abort); downloads.delete(controller); }
+}
+onAuthEpochChange(() => { for (const controller of downloads) controller.abort(); });

@@ -61,6 +61,8 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
+      - uses: ./.github/actions/preview-dependencies
+
       - name: Install dependencies
         run: npm ci --prefix backend && npm ci --prefix frontend
       - name: Install Chromium

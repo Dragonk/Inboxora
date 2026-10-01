@@ -1,0 +1,72 @@
+# Optional overlay for either source builds or docker-compose.ghcr.yml.
+# No scanner dependency is added to the ordinary installation.
+# Official ClamAV images currently target amd64; CLAMAV_IMAGE can select an
+# operator-maintained native image on other architectures, or use an external clamd.
+services:
+  backend:
+    environment:
+      ATTACHMENT_CLAMAV_HOST: clamav
+      ATTACHMENT_CLAMAV_PORT: 3310
+    networks:
+      - attachment-scan
+  clamav:
+    image: ${CLAMAV_IMAGE:-clamav/clamav:1.5_base}
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - clamav-data:/var/lib/clamav
+    tmpfs:
+      - /tmp:size=200m,mode=1777
+    configs:
+      - source: attachment-clamd
+        target: /etc/clamav/clamd.conf
+    # Never publish the unauthenticated clamd protocol on a host port.
+    networks:
+      - attachment-scan
+      - clamav-updates
+    healthcheck:
+      test: ["CMD-SHELL", "printf 'zPING\\0' | nc -w 2 127.0.0.1 3310 | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+volumes:
+  clamav-data:
+networks:
+  attachment-scan:
+    internal: true
+  clamav-updates:
+configs:
+  attachment-clamd:
+    content: |
+      User clamav
+      DatabaseDirectory /var/lib/clamav
+      TemporaryDirectory /tmp
+      LocalSocket /tmp/clamd.sock
+      TCPSocket 3310
+      TCPAddr 0.0.0.0
+      Foreground yes
+      MaxThreads 2
+      MaxQueue 8
+      ReadTimeout 20
+      CommandReadTimeout 10
+      StreamMaxLength 50M
+      MaxFileSize 50M
+      MaxScanSize 150M
+      MaxRecursion 5
+      MaxFiles 500
+      MaxScanTime 10000
+      AlertExceedsMax yes
+      AlertEncrypted yes
+      ScanArchive yes
+      ScanPDF yes
+      ScanOLE2 yes

@@ -1,4 +1,4 @@
-export type AttachmentKind = 'image' | 'tiff' | 'svg' | 'pdf' | 'docx' | 'sheet' | 'office' | 'markdown' | 'json' | 'xml' | 'csv' | 'text' | 'zip' | 'audio' | 'video' | 'html' | 'eml' | 'ics' | 'vcf' | 'unsupported';
+export type AttachmentKind = 'image' | 'tiff' | 'svg' | 'pdf' | 'docx' | 'sheet' | 'office' | 'markdown' | 'json' | 'xml' | 'csv' | 'text' | 'zip' | 'archive' | 'audio' | 'video' | 'html' | 'eml' | 'ics' | 'vcf' | 'unsupported';
 export interface PreviewAttachment { filename: string; type: string; size?: number; path: string }
 export interface AttachmentSelection {
   attachments: PreviewAttachment[];

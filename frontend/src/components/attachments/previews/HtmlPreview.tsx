@@ -5,9 +5,9 @@ import { TEXT_LIMIT, type PreviewFile } from '../../../utils/attachments/types.t
 import MessageBodyRenderer from '../../MessageBodyRenderer.tsx';
 import { usePreviewResource } from '../usePreviewResource.ts';
 import PreviewStatus from '../PreviewStatus.tsx';
-export function SafeAttachmentHtml({ html, text = '' }: { html: string; text?: string }) {
+export function SafeAttachmentHtml({ html, text = '', documentLayout = false }: { html: string; text?: string; documentLayout?: boolean }) {
   const { t } = useTranslation(); const iframe = useRef<HTMLIFrameElement>(null);
-  return <div className="attachment-html"><MessageBodyRenderer iframeRef={iframe} html={html} text={text} remoteImages={false} blockAllNetwork quoteFolding={false} title={t('attachment.preview.content')}
+  return <div className="attachment-html"><MessageBodyRenderer documentLayout={documentLayout} iframeRef={iframe} html={html} text={text} remoteImages={false} blockAllNetwork quoteFolding={false} title={t('attachment.preview.content')}
     onFrameKeyDown={event => {
       if (event.key !== 'Escape') return;
       event.preventDefault();

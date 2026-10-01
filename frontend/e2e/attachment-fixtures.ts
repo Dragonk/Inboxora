@@ -14,6 +14,8 @@ const byDigest = new Map(officeFiles.map(name => [digest(fileBytes(name)), name]
 async function processing(route: Route) {
   if (process.env.ATTACHMENT_LIVE_PROCESSING === '1') return route.continue();
   const action = new URL(route.request().url()).pathname.split('/').at(-1);
+  if (action === 'scan') return route.fulfill({ json: { scan: 'disabled' } });
+  if (action === 'signatures') return route.fulfill({ json: { status: 'unknown', signatures: [{ status: 'unknown', diagnostic: 'EMPTY_FIELD', field: 'Signature', certificate: {} }] } });
   const body = new Response(route.request().postDataBuffer(), { headers: { 'content-type': route.request().headers()['content-type'] } });
   const form = await body.formData(); const file = form.get('file');
   if (!file || typeof file === 'string') throw new Error('Expected multipart fixture');
@@ -27,6 +29,12 @@ async function processing(route: Route) {
     const name = action === 'eml-parse' ? 'message.eml' : form.get('kind') === 'ics' ? 'events.ics' : 'contacts.vcf';
     return route.fulfill({ contentType: 'application/json', body: fileBytes(name + '.json') });
   }
+  if (action === 'archive-index' || action === 'archive-extract') {
+    const archives = JSON.parse(fileBytes('archive-fixtures.json').toString()) as Record<string, { index: unknown; files: Record<string, string> }>;
+    const fixture = archives[String(form.get('filename'))];
+    if (!fixture) throw new Error('Missing native archive fixture');
+    return action === 'archive-index' ? route.fulfill({ json: fixture.index }) : route.fulfill({ contentType: 'application/octet-stream', body: Buffer.from(fixture.files[String(form.get('entry'))], 'base64') });
+  }
   if (action === 'eml-part') return route.fulfill({ contentType: 'application/octet-stream', body: 'Nested EML attachment bytes\n' });
   throw new Error('Unexpected processing action');
 }
@@ -37,7 +45,7 @@ export async function attachmentMessage(page: Page, names: string[], options: { 
   await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Attachment message body</p>', text: 'Attachment message body', attachments } }));
   await page.route('**/api/mail/messages/*/attachments/*', route => {
     const name = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!);
-    return route.fulfill({ contentType: 'application/octet-stream', headers: { 'cache-control': 'no-store' }, body: fileBytes(name) });
+    return route.fulfill({ contentType: 'application/octet-stream', headers: { 'cache-control': 'no-store', 'x-attachment-scan': 'disabled' }, body: fileBytes(name) });
   });
   await page.route('**/api/mail/attachments/process/*', processing);
   if (process.env.ATTACHMENT_LIVE_PROCESSING === '1') {

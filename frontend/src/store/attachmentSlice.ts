@@ -9,6 +9,7 @@ export interface AttachmentState {
   selectAttachmentPreview: (index: number) => void;
   selectAttachmentWindow: (id: string, index: number) => void;
   detachAttachmentPreview: () => void;
+  restoreAttachmentWindow: (id: string) => void;
   closeAttachmentWindow: (id: string) => void;
   focusAttachmentWindow: (id: string) => void;
   minimizeAttachmentWindow: (id: string, minimized: boolean) => void;
@@ -40,6 +41,13 @@ export function createAttachmentSlice(set: StoreApi<StoreState>['setState'], get
       return { attachmentPreview: null, _winSeq: seq, attachmentWindows: [...state.attachmentWindows, {
         id: `aw-${seq}`, selection, x: Math.max(12, (window.innerWidth - w) / 2), y: 40, w, h, z: seq, minimized: false,
       }] };
+    }),
+    restoreAttachmentWindow: id => set(state => {
+      const win = state.attachmentWindows.find(item => item.id === id);
+      return win && win.selection.authEpoch === state.authEpoch ? {
+        attachmentPreview: win.selection,
+        attachmentWindows: state.attachmentWindows.filter(item => item.id !== id),
+      } : {};
     }),
     closeAttachmentWindow: id => set(state => ({ attachmentWindows: state.attachmentWindows.filter(window => window.id !== id) })),
     focusAttachmentWindow: id => set(state => ({ _winSeq: state._winSeq + 1, attachmentWindows: state.attachmentWindows.map(window => window.id === id ? { ...window, z: state._winSeq + 1 } : window) })),

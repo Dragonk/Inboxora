@@ -3,7 +3,7 @@ import DOMPurify from 'dompurify';
 import { useTranslation } from 'react-i18next';
 import AiMarkdown from '../../AiMarkdown.tsx';
 import { Button } from '../../ui.tsx';
-import FindBar, { findMatches } from '../findBar.tsx';
+import FindBar, { findMatches, type FindBarHandle } from '../findBar.tsx';
 import PreviewStatus from '../PreviewStatus.tsx';
 import { usePreviewResource } from '../usePreviewResource.ts';
 import { attachmentWork } from '../../../utils/attachments/workerClient.ts';
@@ -30,7 +30,7 @@ function HighlightedText({ text, language }: { text: string; language: string })
 export default function TextPreview({ file, kind }: { file: PreviewFile; kind: string }) {
   const { t } = useTranslation(); const [encoding, setEncoding] = useState(''); const [raw, setRaw] = useState(false);
   const [query, setQuery] = useState(''); const [current, setCurrent] = useState(0); const [copyStatus, setCopyStatus] = useState<'done' | 'failed' | null>(null);
-  const section = useRef<HTMLElement>(null); const search = useRef<HTMLInputElement>(null); const content = useRef<HTMLPreElement>(null); const mounted = useRef(true);
+  const section = useRef<HTMLElement>(null); const search = useRef<FindBarHandle>(null); const content = useRef<HTMLPreElement>(null); const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const state = usePreviewResource(signal => attachmentWork('text', { blob: file.blob, type: file.type, kind, encoding }, signal), [file.blob, file.type, kind, encoding]);
   useEffect(() => {
@@ -65,8 +65,8 @@ export default function TextPreview({ file, kind }: { file: PreviewFile; kind: s
         {['utf-8', 'windows-1250', 'windows-1252', 'utf-16le', 'utf-16be'].map(value => <option key={value} value={value}>{value}</option>)}
       </select></label>
       {copyStatus && <span role="status">{copyStatus === 'done' ? t('attachment.preview.copied') : t('attachment.preview.clipboardError')}</span>}
-    </div>
     <FindBar ref={search} query={query} setQuery={value => { setQuery(value); setCurrent(0); }} current={index} total={matches.length} onNext={direction => setCurrent(value => (value + direction + matches.length) % Math.max(1, matches.length))} />
+    </div>
     {data.failed && <p role="status">{t('attachment.preview.rawFallback')}</p>}
     {data.limited && <p role="status">{t('attachment.preview.rowsLimited')}</p>}
     {query && kind === 'markdown' && <p>{t('attachment.preview.searchSource')}</p>}

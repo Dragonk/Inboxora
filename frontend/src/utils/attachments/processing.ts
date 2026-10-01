@@ -1,7 +1,7 @@
 import { getAuthEpoch, isCurrentAuthEpoch } from '../authEpoch.ts';
 import { CSRF_HEADER, CSRF_VALUE } from '../api.ts';
 import { PREVIEW_LIMIT } from './types.ts';
-export type ProcessingAction = 'probe' | 'unlock' | 'eml-parse' | 'eml-part' | 'cards';
+export type ProcessingAction = 'probe' | 'unlock' | 'eml-parse' | 'eml-part' | 'cards' | 'scan' | 'signatures' | 'archive-index' | 'archive-extract';
 /** The server processes only these supplied bytes; it never fetches a client-supplied URL. */
 export async function processAttachment(blob: Blob, action: ProcessingAction, fields: Record<string, string>, signal: AbortSignal): Promise<Response> {
   const epoch = getAuthEpoch();

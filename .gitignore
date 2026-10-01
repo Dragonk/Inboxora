@@ -60,3 +60,8 @@ pnpm-workspace.yaml
 
 # Generated from the pinned pdfjs-dist package during frontend build/dev.
 /frontend/public/pdf-assets/
+
+# Disposable Python preview helpers
+__pycache__/
+*.pyc
+backend/fixtures/attachments/generated/

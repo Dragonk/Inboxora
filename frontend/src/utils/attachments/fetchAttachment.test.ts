@@ -50,7 +50,7 @@ test('late completed reads cannot repopulate the cache after a session change', 
     globalThis.fetch = async url => { count++; return new Response(String(url)); };
     for (const message of ['message-1', 'message-2']) {
       const url = `/api/mail/messages/${message}/attachments/1`;
-      const next = acquireAttachment(url, 815); assert.equal(await (await next.promise).text(), url); next.release();
+      const next = acquireAttachment(url, 815); assert.equal(await (await next.promise).text(), url + '?preview=1'); next.release();
     }
     assert.equal(count, 2);
   } finally { clearAttachmentCache(); globalThis.fetch = original; }

@@ -52,20 +52,19 @@ cache expiry is not mail deletion, and freed PostgreSQL pages need not immediate
 
 ## Attachment previews in development
 
-The `dev` images add an in-app attachment reader. Click an attachment to preview it; the
-separate download button remains available. Images, PDF, DOCX, XLSX/XLS/ODS, Markdown with
-Mermaid, JSON/JSONC, XML, CSV/TSV, plain text, ZIP entries, native media, HTML/EML and ICS/VCF
-cards share the same preview surface. Desktop previews can be detached into floating windows.
+The `dev` reader opens PDF at 100%, uses compact icon actions and search, and fills the mobile
+viewport. Images rotate both ways. Desktop previews can move into a floating window and back
+to fullscreen; PDF/images also have a native-browser action using private, short-lived blobs.
 
-PDFs have page navigation, search, outline, thumbnails, zoom, rotation and printing. PDF
-passwords stay in the browser; supported encrypted Office documents are unlocked in memory
-on your Inboxora server. Signature metadata is informational, not a validity check.
+Supported readers include images, PDF, DOCX with page/background preservation, spreadsheets,
+Markdown/Mermaid, structured text, ZIP/7z/RAR/TAR/compressed streams, media, HTML/EML and contact/calendar cards.
+The signature dialog separates integrity, certificate trust and revocation, with green/red/yellow
+results rather than treating a signature field as valid. Optional ClamAV blocks unsafe or unscannable
+previews but permits a warned download. All attachment/API access still requires the owning session.
+The composer accepts file drops, checks sender limits and offers a configurable large-attachment warning.
 
-PPTX, DOC, PPT, ODT, ODP, macro-enabled documents and encrypted ZIP entries are download-only.
-Large or malformed files can hit explicit preview limits without losing the download option.
-There is no LibreOffice service or third-party document-viewing service. This is development
-work after 4.2.0; see [unreleased notes](docs/wiki/Release-notes-Unreleased.md) for limits,
-security details and reverse-proxy requirements.
+See [development release notes](docs/wiki/Release-notes-Unreleased.md) for trust configuration,
+optional ClamAV setup, format limitations and resource budgets. Deploy both development images together.
 
 ## Screenshots
 

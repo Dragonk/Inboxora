@@ -55,7 +55,7 @@ export default function DocxPreview({ file }: { file: PreviewFile }) {
     let fallback = false;
     try {
       const { renderAsync } = await import('docx-preview'); signal.throwIfAborted();
-      await renderAsync(blob, container, container, { useBase64URL: true, renderAltChunks: false, ignoreFonts: true, ignoreWidth: true, ignoreHeight: true, experimental: false, h: inert.h });
+      await renderAsync(blob, container, container, { useBase64URL: true, renderAltChunks: false, ignoreFonts: true, ignoreWidth: false, ignoreHeight: false, breakPages: true, ignoreLastRenderedPageBreak: false, experimental: false, h: inert.h });
     } catch (error) {
       signal.throwIfAborted();
       if (error instanceof Error && error.message === 'LIMIT') throw error;
@@ -67,5 +67,5 @@ export default function DocxPreview({ file }: { file: PreviewFile }) {
     signal.throwIfAborted(); return { html: container.innerHTML, fallback };
   }, [file.blob]);
   if (!state.value) return <PreviewStatus loading={state.loading} error={state.error} />;
-  return <section className="attachment-docx">{state.value.fallback && <p role="status">{t('attachment.preview.docxFallback')}</p>}<SafeAttachmentHtml html={state.value.html} /></section>;
+  return <section className="attachment-docx">{state.value.fallback && <p role="status">{t('attachment.preview.docxFallback')}</p>}<SafeAttachmentHtml documentLayout html={state.value.html} /></section>;
 }

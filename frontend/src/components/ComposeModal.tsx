@@ -1,3 +1,4 @@
+import { attachmentBatchIssue } from '../utils/attachmentUpload.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
 import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
 import type { Editor } from '@tiptap/react';
@@ -313,7 +314,11 @@ export default function ComposeModal() {
   // latest invocation is allowed to advance the saved baseline.
   const draftSaveVersionRef = useRef(0);
   const [attachments, setAttachmentsState] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>(() => (composeData?.attachments ?? []).map(a => ({ name: a.filename, data: a.content, type: a.contentType, size: Math.floor(a.content.length * 3 / 4) })));
-  const setAttachments = (value: React.SetStateAction<Array<{ name?: string; size?: number; [key: string]: unknown }>>) => { recordDraftEdit(); setAttachmentsState(value); };
+  const attachmentValues = useRef(attachments);
+  const setAttachments = (value: React.SetStateAction<typeof attachments>) => {
+    const next = typeof value === 'function' ? value(attachmentValues.current) : value;
+    attachmentValues.current = next; recordDraftEdit(); setAttachmentsState(next);
+  };
   /**
    * The limits the sending account's transport is measured against, asked of the server (P06).
    *
@@ -323,7 +328,23 @@ export default function ComposeModal() {
    */
   const [sendLimits, setSendLimits] = useState<{ transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } } | null>(null);
   const [fwdAttachments, setFwdAttachmentsState] = useState(() => composeData?.forwardedAttachments || []);
-  const setFwdAttachments = (value: React.SetStateAction<typeof fwdAttachments>) => { recordDraftEdit(); setFwdAttachmentsState(value); };
+  const forwardedValues = useRef(fwdAttachments);
+  const setFwdAttachments = (value: React.SetStateAction<typeof fwdAttachments>) => {
+    const next = typeof value === 'function' ? value(forwardedValues.current) : value;
+    forwardedValues.current = next; recordDraftEdit(); setFwdAttachmentsState(next);
+  };
+  const warningMiB = useStore(state => state.attachmentWarningMiB);
+  const pendingReads = useRef(new Map<FileReader, File>());
+  const readGeneration = useRef(0);
+  const [readingFiles, setReadingFiles] = useState(false);
+  const [fileDropActive, setFileDropActive] = useState(false);
+  const dragDepth = useRef(0);
+  const cancelAttachmentReads = () => {
+    readGeneration.current++;
+    for (const reader of pendingReads.current.keys()) reader.abort();
+    pendingReads.current.clear(); setReadingFiles(false);
+  };
+  useEffect(() => () => { readGeneration.current++; for (const reader of pendingReads.current.keys()) reader.abort(); pendingReads.current.clear(); }, []);
 
   // Baseline values captured at open time — updated after each successful keep-open save
   // so isDirty() reflects changes since the last save, not since the modal opened.
@@ -371,6 +392,7 @@ export default function ComposeModal() {
     for (const field of ['to', 'cc', 'bcc'] as const) recipientRevisionRef.current[field] += 1;
     if (next.cc.length) setShowCc(true);
     if (next.bcc.length) setShowBcc(true);
+    cancelAttachmentReads(); setSendLimits(null);
     recordDraftEdit(); setFromValueState(value);
   };
   if (initialFromRef.current === null) initialFromRef.current = fromValue;
@@ -391,7 +413,7 @@ export default function ComposeModal() {
   // Ask once per sending account; a late answer must not apply to a later session or another account.
   useEffect(() => {
     if (!sendingAccountId) { setSendLimits(null); return; }
-    let cancelled = false;
+    let cancelled = false; setSendLimits(null);
     api.getSendLimits(sendingAccountId)
       .then((data: { transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } }) => {
         if (!cancelled) setSendLimits(data ?? null);
@@ -847,44 +869,71 @@ export default function ComposeModal() {
     }
   }, [editor]);
 
-  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    files.forEach(file => {
-      // Known-limit pre-check: refuse locally what the server would refuse anyway, so the user is not made to
-      // upload a file to be told its size. The server repeats the check and remains authoritative.
-      const single = sendLimits?.limits?.singleAttachmentBytes ?? null;
-      if (single !== null && file.size > single) {
-        setError(t('compose.limitAttachmentTooLarge', {
-          name: file.name, actual: byteSize(file.size), limit: byteSize(single), transport: limitTransportName(sendLimits?.transport),
-        }));
-        return;
-      }
-      const total = sendLimits?.limits?.totalAttachmentBytes ?? null;
-      if (total !== null) {
-        const already = attachments.reduce((sum, a) => sum + (a.size || 0), 0)
-          + fwdAttachments.reduce((sum, a) => sum + (Number(a.size) || 0), 0);
-        if (already + file.size > total) {
-          setError(t('compose.limitTooLarge', {
-            actual: byteSize(already + file.size), limit: byteSize(total), transport: limitTransportName(sendLimits?.transport),
-          }));
-          return;
-        }
-      }
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
-        const result = ev.target?.result;
-        const base64 = typeof result === 'string' ? result.split(',')[1] : '';
-        setAttachments(prev => {
-          if (prev.some(a => a.name === file.name)) return prev;
-          return [...prev, { name: file.name, size: file.size, type: file.type, data: base64 }];
-        });
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
+  const attachmentBytes = () => attachmentValues.current.reduce((sum, value) => sum + (Number(value.size) || 0), 0)
+    + forwardedValues.current.reduce((sum, value) => sum + (Number(value.size) || 0), 0);
+  const reportAttachmentLimit = (issue: NonNullable<ReturnType<typeof attachmentBatchIssue>>) => {
+    const values = { name: issue.name, actual: byteSize(issue.actual), limit: byteSize(issue.limit), transport: limitTransportName(sendLimits?.transport) };
+    if (issue.kind === 'single') setError(t('compose.limitAttachmentTooLarge', values));
+    else setError(t('compose.limitTooLarge', values));
   };
+  const addAttachmentFiles = (candidates: File[]) => {
+    if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
+    const names = new Set([...attachmentValues.current.map(value => value.name), ...[...pendingReads.current.values()].map(file => file.name)]);
+    const files = candidates.filter(file => { if (names.has(file.name)) return false; names.add(file.name); return true; });
+    if (!files.length) return;
+    if (files.length + attachmentValues.current.length + forwardedValues.current.length + pendingReads.current.size > 100) {
+      setError(t('attachment.compose.tooMany')); return;
+    }
+    // Use conservative installation defaults until the account's authoritative response arrives.
+    const limits = { singleAttachmentBytes: sendLimits?.limits?.singleAttachmentBytes ?? 25 * 1024 * 1024,
+      totalAttachmentBytes: sendLimits?.limits?.totalAttachmentBytes ?? 25 * 1024 * 1024 };
+    const pending = [...pendingReads.current.values()].reduce((sum, file) => sum + file.size, 0);
+    const issue = attachmentBatchIssue(files, attachmentBytes(), pending, limits);
+    if (issue) { reportAttachmentLimit(issue); return; }
+    const generation = readGeneration.current;
+    const batch = files.map(file => { const reader = new FileReader(); pendingReads.current.set(reader, file); return { file, reader }; });
+    setReadingFiles(true);
+    for (const { file, reader } of batch) {
+      const finish = () => { pendingReads.current.delete(reader); if (generation === readGeneration.current && currentCompose()) setReadingFiles(pendingReads.current.size > 0); };
+      reader.onload = () => {
+        try {
+          if (generation !== readGeneration.current || !currentCompose() || sendingRef.current || frozenQueueRef.current) return;
+          if (typeof reader.result !== 'string' || !reader.result.includes(',')) { setError(t('attachment.compose.readError')); return; }
+          const data = reader.result.slice(reader.result.indexOf(',') + 1);
+          setAttachments(previous => [...previous, { name: file.name, size: file.size, type: file.type, data }]);
+        } finally { finish(); }
+      };
+      reader.onerror = () => { if (generation === readGeneration.current && currentCompose()) setError(t('attachment.compose.readError')); finish(); };
+      reader.onabort = finish;
+      try { reader.readAsDataURL(file); } catch { if (currentCompose()) setError(t('attachment.compose.readError')); finish(); }
+    }
+  };
+  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    addAttachmentFiles(Array.from(event.target.files || [])); event.target.value = '';
+  };
+  const fileDrag = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes('Files');
+  const dropHandlers = {
+    onDragEnterCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.preventDefault(); event.stopPropagation();
+      dragDepth.current++; if (!sendingRef.current && !frozenQueueRef.current) setFileDropActive(true);
+    },
+    onDragOverCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.preventDefault(); event.stopPropagation();
+      event.dataTransfer.dropEffect = sendingRef.current || frozenQueueRef.current ? 'none' : 'copy';
+    },
+    onDragLeaveCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.stopPropagation(); dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (!dragDepth.current) setFileDropActive(false);
+    },
+    onDropCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.preventDefault(); event.stopPropagation();
+      dragDepth.current = 0; setFileDropActive(false); addAttachmentFiles(Array.from(event.dataTransfer.files));
+    },
+  };
+  const attachmentNotice = <>
+    {readingFiles && <p role="status" className="compose-attachment-notice">{t('attachment.compose.reading')}</p>}
+    {warningMiB > 0 && attachmentBytes() > warningMiB * 1024 * 1024 && <p role="status" className="compose-attachment-notice compose-attachment-warning">{t('attachment.compose.largeWarning', { size: warningMiB })}</p>}
+  </>;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1003,6 +1052,11 @@ export default function ComposeModal() {
 
   /** Submit only after all autosave acknowledgements reconcile the queued revision. */
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false, merge = false } = {}) => {
+    if (pendingReads.current.size) { setError(t('attachment.compose.reading')); return; }
+    if (!frozenQueueRef.current) {
+      const known = attachmentBatchIssue([...attachmentValues.current, ...forwardedValues.current].map(value => ({ name: String(value.name || value.filename || ''), size: Number(value.size) || 0 })), 0, 0, sendLimits?.limits || {});
+      if (known) { reportAttachmentLimit(known); return; }
+    }
     if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || !currentCompose()) return;
     if (merge && composeData?.queuedMail) { setError(t('queue.mergeQueuedBlocked')); return; }
     if (!frozenQueueRef.current && (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)) { setError(t('queue.preferencesLoading')); return; }
@@ -1734,7 +1788,7 @@ export default function ComposeModal() {
         )}
 
         {/* Scrollable fields + body */}
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div {...dropHandlers} data-file-drag={fileDropActive} data-testid="compose-body-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {/* From */}
           <div style={fieldStyle}>
             <span style={labelStyle}>{t('compose.from')}</span>
@@ -1978,6 +2032,7 @@ export default function ComposeModal() {
             <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
           )}
 
+          {attachmentNotice}
           {/* Error */}
           {error && (
             <div style={{
@@ -2546,8 +2601,9 @@ export default function ComposeModal() {
         <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} />
       )}
 
+      {attachmentNotice}
       {/* Scrollable body area */}
-      <div data-testid="compose-body-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div {...dropHandlers} data-file-drag={fileDropActive} data-testid="compose-body-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {/* Body */}
         {plaintextCompose ? (
           <textarea

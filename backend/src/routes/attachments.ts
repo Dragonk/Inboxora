@@ -1,3 +1,4 @@
+import { scanAttachment, AttachmentScanError } from '../services/attachments/scan.js';
 import { Router, type Request, type Response } from 'express';
 import busboy from 'busboy';
 import { RateLimiterRedis } from 'rate-limiter-flexible';
@@ -10,7 +11,7 @@ import { AttachmentProcessingError, FILE_LIMIT, type ProcessingAction, type Proc
 const userLimiter = new RateLimiterRedis({ storeClient: redisClient, useRedisPackage: true, keyPrefix: 'attachment-preview-user', points: 30, duration: 60 });
 const passwordLimiter = new RateLimiterRedis({ storeClient: redisClient, useRedisPackage: true, keyPrefix: 'attachment-preview-password', points: 10, duration: 60 });
 const ipLimiter = new RateLimiterRedis({ storeClient: redisClient, useRedisPackage: true, keyPrefix: 'attachment-preview-ip', points: 60, duration: 60 });
-const actions = new Set<ProcessingAction>(['probe', 'unlock', 'eml-parse', 'eml-part', 'cards']);
+const actions = new Set<ProcessingAction>(['probe', 'unlock', 'eml-parse', 'eml-part', 'cards', 'scan', 'signatures', 'archive-index', 'archive-extract']);
 interface Dependencies { admit: (userId: string, ip: string, action: ProcessingAction) => Promise<void>; process: (input: ProcessingInput, signal: AbortSignal) => Promise<ProcessingOutput> }
 async function admit(userId: string, ip: string, action: ProcessingAction): Promise<void> {
   await userLimiter.consume(userId); await ipLimiter.consume(ip);
@@ -22,7 +23,7 @@ export async function readProcessingInput(req: Request, action: ProcessingAction
   if (Number(req.headers['content-length'] || 0) > FILE_LIMIT + 16384) throw new AttachmentProcessingError('LIMIT');
   return new Promise((resolve, reject) => {
     let parser: ReturnType<typeof busboy>;
-    try { parser = busboy({ headers: req.headers, limits: { fileSize: FILE_LIMIT, files: 1, fields: 3, fieldSize: 1024, parts: 4, headerPairs: 100 } }); }
+    try { parser = busboy({ headers: req.headers, limits: { fileSize: FILE_LIMIT, files: 1, fields: 6, fieldSize: 1024, parts: 7, headerPairs: 100 } }); }
     catch { reject(new AttachmentProcessingError('INVALID_INPUT')); return; }
     const fields = new Map<string, string>(); const chunks: Buffer[] = []; let size = 0; let files = 0; let failed = false;
     const fail = (code: AttachmentProcessingError['code']) => {
@@ -42,7 +43,7 @@ export async function readProcessingInput(req: Request, action: ProcessingAction
       stream.on('data', (chunk: Buffer) => { size += chunk.length; if (size > FILE_LIMIT) fail('LIMIT'); else if (!failed) chunks.push(chunk); });
     });
     parser.on('field', (name, value, info) => {
-      if (info.valueTruncated || !['password', 'index', 'kind'].includes(name) || fields.has(name)) { fail('INVALID_INPUT'); return; }
+      if (info.valueTruncated || !['password', 'index', 'kind', 'entry', 'filename', 'remaining'].includes(name) || fields.has(name)) { fail('INVALID_INPUT'); return; }
       fields.set(name, value);
     });
     parser.on('filesLimit', () => fail('LIMIT')); parser.on('fieldsLimit', () => fail('LIMIT')); parser.on('partsLimit', () => fail('LIMIT'));
@@ -53,7 +54,7 @@ export async function readProcessingInput(req: Request, action: ProcessingAction
       const rawIndex = fields.get('index');
       if (rawIndex !== undefined && !/^(?:0|[1-9]\d{0,2})$/.test(rawIndex)) { reject(new AttachmentProcessingError('INVALID_INPUT')); return; }
       const index = rawIndex === undefined ? undefined : Number(rawIndex);
-      resolve({ action, bytes: Buffer.concat(chunks, size), password: fields.get('password'), kind: fields.get('kind'), index });
+      resolve({ action, bytes: Buffer.concat(chunks, size), password: fields.get('password'), kind: fields.get('kind'), entry: fields.get('entry'), filename: fields.get('filename'), remaining: fields.has('remaining') ? Number(fields.get('remaining')) : undefined, index });
     });
     req.pipe(parser);
   });
@@ -81,6 +82,8 @@ export function createAttachmentRouter(dependencies: Dependencies = { admit, pro
       }
       controller.signal.throwIfAborted();
       input = await readProcessingInput(req, action, controller.signal);
+      const scan = await scanAttachment(input.bytes, controller.signal);
+      if (action === 'scan') { res.json({ scan }); return; }
       const result = await dependencies.process(input, controller.signal); controller.signal.throwIfAborted();
       if (result.bytes) {
         if (result.bytes.byteLength > FILE_LIMIT) throw new AttachmentProcessingError('LIMIT');
@@ -90,8 +93,8 @@ export function createAttachmentRouter(dependencies: Dependencies = { admit, pro
       } else res.json(result.json || {});
     } catch (error) {
       if (!res.headersSent && !res.destroyed) {
-        const code = error instanceof AttachmentProcessingError ? error.code : controller.signal.aborted ? 'CANCELLED' : 'CORRUPT';
-        res.status(code === 'LIMIT' ? 413 : code === 'UNSUPPORTED' ? 415 : code === 'WRONG_PASSWORD' ? 422 : 400).json({ code });
+        const code = error instanceof AttachmentScanError ? error.code : error instanceof AttachmentProcessingError ? error.code : controller.signal.aborted ? 'CANCELLED' : 'CORRUPT';
+        res.status(code === 'LIMIT' ? 413 : code === 'UNSUPPORTED' ? 415 : code === 'WRONG_PASSWORD' || code === 'INFECTED' ? 422 : code === 'SCAN_UNAVAILABLE' || code === 'SCAN_LIMIT' ? 503 : 400).json({ code });
       }
     } finally {
       input?.bytes.fill(0); if (input) input.password = undefined;

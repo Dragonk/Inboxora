@@ -275,7 +275,7 @@ export async function createAccountMailTransport<Account extends MailTransportAc
       // Hand over the message composed for the accounting instead of letting the transport compose a
       // second one: a pre-composed buffer delivered through `raw` is byte-identical, and the buffer
       // carries no `Bcc:` header, which is what makes it safe to send verbatim.
-      const info = await smtpTransport.sendMail({ ...rendered.mailOptions, raw: rendered.raw });
+      const info = await smtpTransport.sendMail({ ...rendered.mailOptions, envelope: { ...rendered.envelope, size: rendered.raw.length }, raw: rendered.raw });
       return {
         status: 'accepted',
         accepted: asStringList(info.accepted),

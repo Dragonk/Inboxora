@@ -44,6 +44,8 @@ jobs:
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
 
+      - uses: ./.github/actions/preview-dependencies
+
       - name: Install dependencies
         working-directory: backend
         run: npm ci
@@ -69,6 +71,9 @@ jobs:
       - name: Test
         working-directory: backend
         run: npm test
+
+      - name: PDF validation and archive security tests
+        run: python -m unittest discover -s backend/preview -p 'test_*.py' -v
 
       - name: Audit
         working-directory: backend
@@ -110,6 +115,8 @@ jobs:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: backend/package-lock.json
+
+      - uses: ./.github/actions/preview-dependencies
 
       - name: Install dependencies
         working-directory: backend

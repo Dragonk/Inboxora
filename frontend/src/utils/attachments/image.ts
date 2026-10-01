@@ -47,11 +47,15 @@ export async function loadImage(blob: Blob, signal: AbortSignal): Promise<HTMLIm
     return image;
   } finally { URL.revokeObjectURL(url); }
 }
-export async function imagePng(blob: Blob, signal: AbortSignal, thumbnail = false): Promise<Blob> {
+export async function imagePng(blob: Blob, signal: AbortSignal, thumbnail = false, rotation = 0): Promise<Blob> {
   const image = await loadImage(blob, signal); const canvas = document.createElement('canvas');
   const factor = thumbnail ? Math.min(1, 48 / Math.max(image.naturalWidth, image.naturalHeight)) : 1;
-  canvas.width = Math.max(1, Math.round(image.naturalWidth * factor)); canvas.height = Math.max(1, Math.round(image.naturalHeight * factor));
-  const context = canvas.getContext('2d'); if (!context) throw new Error('UNSUPPORTED'); context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const width = Math.max(1, Math.round(image.naturalWidth * factor)); const height = Math.max(1, Math.round(image.naturalHeight * factor));
+  const angle = ((rotation % 360) + 360) % 360;
+  canvas.width = angle % 180 ? height : width; canvas.height = angle % 180 ? width : height;
+  const context = canvas.getContext('2d'); if (!context) throw new Error('UNSUPPORTED');
+  context.translate(canvas.width / 2, canvas.height / 2); context.rotate(angle * Math.PI / 180);
+  context.drawImage(image, -width / 2, -height / 2, width, height);
   try { const result = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('CORRUPT')), 'image/png')); signal.throwIfAborted(); return result; }
   finally { canvas.width = 0; canvas.height = 0; image.src = ''; }
 }

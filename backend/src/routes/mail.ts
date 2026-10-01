@@ -1,3 +1,4 @@
+import { approveAttachmentPreview } from '../services/attachments/scan.js';
 import { messageFolderMembershipSql } from '../services/messageFolderMembership.js';
 import { listThreadMessages, ThreadAccountNotFoundError } from '../services/mailThreadService.js';
 import { populatedMessageSql, visiblePhysicalMessageSql } from '../services/messageVisibility.js';
@@ -672,6 +673,8 @@ const ZIP_MAX_FILE_BYTES  =  50 * 1024 * 1024; //  50 MB per file
 
 // Download all attachments as a ZIP archive
 router.get('/messages/:id/attachments.zip', async (req, res) => {
+  res.set('Cache-Control', 'private, no-store'); res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Cache-Control', 'private, no-store'); res.set('X-Content-Type-Options', 'nosniff');
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
@@ -778,6 +781,8 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
     if (entries.length === 0) return res.status(404).json({ error: 'Could not fetch attachments' });
 
     const zipName = (message.subject || 'attachments').substring(0, 100) + '-attachments.zip';
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', attachmentDisposition(zipName));
 
@@ -855,6 +860,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
         ATTACHMENT_SIZE_LIMIT,
       );
       if (!bytes.length) return res.status(404).json({ error: 'Could not fetch attachment' });
+      if (!await approveAttachmentPreview(req, res, bytes)) return;
       res.setHeader('Content-Type', att.type || 'application/octet-stream');
       res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
       res.setHeader('Content-Length', bytes.length);
@@ -882,6 +888,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
         ATTACHMENT_SIZE_LIMIT,
       );
       if (!bytes.length) return res.status(404).json({ error: 'Could not fetch attachment' });
+      if (!await approveAttachmentPreview(req, res, bytes)) return;
       res.setHeader('Content-Type', att.type || 'application/octet-stream');
       res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
       res.setHeader('Content-Length', bytes.length);
@@ -890,6 +897,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     const buffer = await imapManager.fetchAttachment(attachmentAccount, message.uid, message.folder, partNum);
 
     if (!buffer) return res.status(404).json({ error: 'Could not fetch attachment' });
+    if (!await approveAttachmentPreview(req, res, buffer)) return;
 
     res.setHeader('Content-Type', att.type || 'application/octet-stream');
     res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
