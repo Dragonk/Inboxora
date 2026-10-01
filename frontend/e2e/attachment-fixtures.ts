@@ -39,15 +39,8 @@ async function processing(route: Route) {
   throw new Error('Unexpected processing action');
 }
 
-export async function attachmentMessage(page: Page, names: string[], options: { theme?: string; grouped?: boolean } = {}) {
-  Object.assign(page, { __languageOverride: 'en', __themeOverride: options.theme || 'light', __conversationMatrix: options.grouped ? '11' : '00', __noNativeThread: !options.grouped });
-  const attachments = names.map(name => ({ part: name, filename: name, size: fileBytes(name).length, type: 'application/octet-stream' }));
-  await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Attachment message body</p>', text: 'Attachment message body', attachments } }));
-  await page.route('**/api/mail/messages/*/attachments/*', route => {
-    const name = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!);
-    return route.fulfill({ contentType: 'application/octet-stream', headers: { 'cache-control': 'no-store', 'x-attachment-scan': 'disabled' }, body: fileBytes(name) });
-  });
-  await page.route('**/api/mail/attachments/process/*', processing);
+/** Authenticate the real processor even in composer-only tests with mocked mail data. */
+export async function authenticateAttachmentProcessing(page: Page): Promise<void> {
   if (process.env.ATTACHMENT_LIVE_PROCESSING === '1') {
     const origin = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:4173';
     let cookies = sessions.get(origin);
@@ -58,6 +51,18 @@ export async function attachmentMessage(page: Page, names: string[], options: { 
     }
     await page.context().addCookies(cookies);
   }
+}
+
+export async function attachmentMessage(page: Page, names: string[], options: { theme?: string; grouped?: boolean } = {}) {
+  Object.assign(page, { __languageOverride: 'en', __themeOverride: options.theme || 'light', __conversationMatrix: options.grouped ? '11' : '00', __noNativeThread: !options.grouped });
+  const attachments = names.map(name => ({ part: name, filename: name, size: fileBytes(name).length, type: 'application/octet-stream' }));
+  await page.route('**/api/mail/messages/*/body**', route => route.fulfill({ json: { html: '<p>Attachment message body</p>', text: 'Attachment message body', attachments } }));
+  await page.route('**/api/mail/messages/*/attachments/*', route => {
+    const name = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1)!);
+    return route.fulfill({ contentType: 'application/octet-stream', headers: { 'cache-control': 'no-store', 'x-attachment-scan': 'disabled' }, body: fileBytes(name) });
+  });
+  await page.route('**/api/mail/attachments/process/*', processing);
+  await authenticateAttachmentProcessing(page);
   {
     const nginx = readFileSync(new URL('../nginx.conf', import.meta.url), 'utf8');
     const policy = [...nginx.matchAll(/add_header Content-Security-Policy\s+"([^"]+)"/g)].map(match => match[1]).find(value => value.includes('wss: ws:'));

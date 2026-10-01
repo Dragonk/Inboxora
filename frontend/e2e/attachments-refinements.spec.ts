@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures.ts';
-import { attachmentMessage, fileBytes, preview } from './attachment-fixtures.ts';
+import { attachmentMessage, authenticateAttachmentProcessing, fileBytes, preview } from './attachment-fixtures.ts';
 
 for (const theme of ['light', 'dark']) {
   test(`compact preview controls, default PDF zoom and document fidelity (${theme})`, async ({ page, fixtureApi, isMobile }) => {
@@ -167,7 +167,7 @@ async function drop(page: Page, files: Array<{ name: string; size: number }>) {
 }
 
 test('file drop attaches bytes, checks the aggregate limit and shows the configured warning', async ({ page, fixtureApi }) => {
-  await fixtureApi;
+  await fixtureApi; await authenticateAttachmentProcessing(page);
   await page.route('**/api/auth/preferences**', route => route.fulfill({ json: { language: 'en', attachmentWarningMiB: 1, undoSendSeconds: 0 } }));
   await page.route('**/api/mail/send-limits**', route => route.fulfill({ json: { transport: 'smtp', limits: { singleAttachmentBytes: 4*1024*1024, totalAttachmentBytes: 5*1024*1024 } } }));
   await page.route('**/api/mail/send', route => route.fulfill({ status: 503, json: { error: 'Fixture cannot send actual mail' } }));
