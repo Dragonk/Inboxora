@@ -1,3 +1,4 @@
+import { AttachmentReadLimitError } from '../services/attachmentRead.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import session from 'express-session';
@@ -62,3 +63,12 @@ describe('attachment links never grant access by themselves', () => {
     expect(mocks.scan).toHaveBeenCalledTimes(2);
   }));
 });
+
+it('rejects an actual-byte read overflow before previewing or scanning', async () => serverFor(async origin => {
+  mocks.fetchAttachment.mockRejectedValue(new AttachmentReadLimitError());
+  const response = await fetch(`${origin}/api/mail/messages/${messageId}/attachments/1?preview=1`, {
+    headers: { 'X-Test-Identity': 'owner', 'X-Requested-With': 'MailFlow' },
+  });
+  expect(response.status).toBe(413); expect(await response.json()).toMatchObject({ code: 'LIMIT' });
+  expect(mocks.scan).not.toHaveBeenCalled();
+}));

@@ -34,12 +34,14 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Keep plain-text BZh/ustar content in its declared viewer instead of misclassifying it as an archive.
 - Restore Mermaid node text, bidirectional image rotation and DOCX page sections/backgrounds; remove the mobile preview side gap.
 - Separate Gmail's 35-MiB raw-message limit from its 25-MiB attachment budget, discover SMTP SIZE and pass the exact MIME size to SMTP.
 - Keep attachment previews touch-first on landscape phones, preserve Back navigation through rotation and update download progress in every active preview.
 - Reject malformed EML part indexes, bound MIME attachment counts and decoded bytes during streaming, and report worker memory exhaustion as a resource limit.
 
 ### Security
+- Bound IMAP attachment reads before buffering, preserve original text encodings, and enforce actual-byte aggregate ZIP limits across providers.
 - Update sanitization, routing, IP classification and request-parser dependencies to patched releases; React Router moves to 7.18.4.
 - Verify attachment ownership before retrieval, preserve session/revision boundaries, share known scan warnings across download actions and keep native-browser blobs session-scoped.
 - Isolate native archive parsing with a syscall allow-list and bounded subprocesses; restrict certificate lookups to public pinned addresses without redirects, cookies or inherited application secrets.

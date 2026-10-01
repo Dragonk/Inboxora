@@ -106,3 +106,18 @@ test('the passive DOCX fixture actually references both external image and HTML 
     assert.match(relationships, new RegExp(`<Relationship\\b[^>]*Id="${id}"[^>]*TargetMode="External"`));
   }
 });
+
+
+test('loose archive signatures do not steal declared text or document formats', () => {
+  const samples = [new TextEncoder().encode('BZh9 example text'), new TextEncoder().encode('a'.repeat(257) + 'ustar')];
+  for (const sample of samples) {
+    assert.equal(detectKind('notes.txt', 'text/plain', sample), 'text');
+    assert.equal(detectKind('notes.md', 'text/markdown', sample), 'markdown');
+    assert.equal(detectKind('document.docx', 'application/octet-stream', sample), 'unsupported');
+    assert.equal(detectKind('document.pdf', 'application/octet-stream', sample), 'unsupported');
+    assert.equal(detectKind('unknown', 'text/plain', sample), 'text');
+    assert.equal(detectKind('unknown', 'application/octet-stream', sample), 'archive');
+  }
+  assert.equal(detectKind('notes.txt', 'text/plain', new Uint8Array([55,122,188,175,39,28])), 'archive');
+  assert.equal(detectKind('file.bz2', '', new TextEncoder().encode('BZh9')), 'archive');
+});

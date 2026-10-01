@@ -1,3 +1,4 @@
+import { readImapAttachment, AttachmentReadLimitError, AttachmentByteBudget, ATTACHMENT_READ_BYTES, ATTACHMENT_BATCH_BYTES } from './attachmentRead.js';
 import { assertImapAccount, assertCurrentImapAccount, isImapAccount, isImapAccountChanged, readCurrentImapAccount, IMAP_TRANSPORT_GUARD } from './imapTransportGuard.js';
 import { prefetchVisibleBodies, readNativePrefetchBody } from './mailBodyPrefetch.js';
 import { ImapFlow } from 'imapflow';
@@ -623,34 +624,6 @@ export function looksLikeTextPayload(buf: Buffer | string): boolean {
 export function attachmentTransferEncoding(results: { attachments?: AttachmentRef[] } | null | undefined, partNum: string, fallback = 'base64'): string {
   const match = (results?.attachments || []).find(attachment => String(attachment.part) === String(partNum));
   return match?.encoding || fallback;
-}
-
-function decodeAttachmentBuffer(buf: Buffer, encoding: string | null | undefined): Buffer {
-  const enc = (encoding || '').toLowerCase();
-  if (enc === 'base64') {
-    return Buffer.from(buf.toString('utf8').replace(/\s/g, ''), 'base64');
-  }
-  if (enc === 'quoted-printable') {
-    const qpStr = buf.toString('ascii');
-    const cleaned = qpStr.replace(/=\r\n/g, '').replace(/=\n/g, '');
-    const bytes = [];
-    let i = 0;
-    while (i < cleaned.length) {
-      if (cleaned[i] === '=' && i + 2 < cleaned.length) {
-        const hex = cleaned.slice(i + 1, i + 3);
-        if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
-          bytes.push(parseInt(hex, 16));
-          i += 3;
-          continue;
-        }
-      }
-      bytes.push(cleaned.charCodeAt(i) & 0xFF);
-      i++;
-    }
-    return Buffer.from(bytes);
-  }
-  // 7bit / 8bit / binary — raw bytes, no decoding needed
-  return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
 }
 
 export function walkStructure(node: BodyStructureNode, results: CollectedParts): void {
@@ -5070,69 +5043,37 @@ export class ImapManager {
   }
 
   async fetchAttachment(account: EmailAccountRow, uid: number | string, folder: string, partNum: string) {
-    return withFreshClient(account, async (client) => {
+    return withFreshClient(account, async client => {
       const lock = await client.getMailboxLock(folder);
       try {
-        let buffer = null;
-        const uidStr = String(uid);
-
-        for await (const msg of client.fetch(uidStr, { uid: true, bodyStructure: true, bodyParts: [partNum] }, { uid: true })) {
-          let encoding = 'base64';
-          if (msg.bodyStructure) {
-            const r: { textParts: BodyPartRef[]; attachments: AttachmentRef[] } = { textParts: [], attachments: [] };
-            walkStructure(msg.bodyStructure, r);
-            encoding = attachmentTransferEncoding(r, partNum);
-          }
-          const buf = msg.bodyParts?.get(partNum);
-          if (buf) {
-            buffer = decodeAttachmentBuffer(buf, encoding);
-          }
-        }
-        return buffer;
-      } finally {
-        lock.release();
-      }
+        return await readImapAttachment(client, uid, partNum, message => {
+          const structure: { textParts: BodyPartRef[]; attachments: AttachmentRef[] } = { textParts: [], attachments: [] };
+          if (message.bodyStructure) walkStructure(message.bodyStructure, structure);
+          return attachmentTransferEncoding(structure, partNum);
+        });
+      } finally { lock.release(); }
     });
   }
 
-  // Fetch multiple attachment parts in a single IMAP round trip.
-  // parts: array of { part, encoding } (metadata from messages.attachments).
-  // Returns Map<partNum, Buffer> — missing or empty parts are omitted.
+  // Share one connection, but bound each decoded part and the aggregate before
+  // retaining its bytes. A single unbounded FETCH defeats the ZIP size budget.
   async fetchMultipleAttachments(account: EmailAccountRow, uid: number | string, folder: string, parts: Array<{ part: string; filename?: string; type?: string; encoding?: string; size?: number; [key: string]: unknown }>) {
-    return withFreshClient(account, async (client) => {
+    if (parts.length > 100) throw new AttachmentReadLimitError();
+    return withFreshClient(account, async client => {
       const lock = await client.getMailboxLock(folder);
+      const buffers = new Map<string, Buffer>(); const budget = new AttachmentByteBudget(ATTACHMENT_BATCH_BYTES);
       try {
-        const uidStr = String(uid);
-        const partNums = parts.map((p: { part: string }) => p.part);
-        const buffers = new Map();
-
-        for await (const msg of client.fetch(
-          uidStr,
-          { uid: true, bodyStructure: true, bodyParts: partNums },
-          { uid: true }
-        )) {
-          // Build a live encoding map from BODYSTRUCTURE (more reliable than stored metadata)
-          const liveEncodings = new Map();
-          if (msg.bodyStructure) {
-            const r: { textParts: BodyPartRef[]; attachments: AttachmentRef[] } = { textParts: [], attachments: [] };
-            walkStructure(msg.bodyStructure, r);
-            for (const att of r.attachments) liveEncodings.set(att.part, att.encoding);
-          }
-
-          if (msg.bodyParts) {
-            for (const [partNum, buf] of msg.bodyParts) {
-              if (!buf || buf.length === 0) continue;
-              const inputPart = parts.find((p: { part: string }) => p.part === partNum);
-              const encoding = liveEncodings.get(partNum) || inputPart?.encoding || 'base64';
-              buffers.set(partNum, decodeAttachmentBuffer(buf, encoding));
-            }
-          }
+        for (const part of parts) {
+          if (buffers.has(part.part)) continue;
+          const buffer = await readImapAttachment(client, uid, part.part, message => {
+            const structure: { textParts: BodyPartRef[]; attachments: AttachmentRef[] } = { textParts: [], attachments: [] };
+            if (message.bodyStructure) walkStructure(message.bodyStructure, structure);
+            return attachmentTransferEncoding(structure, part.part, part.encoding || 'base64');
+          }, { maxBytes: Math.min(ATTACHMENT_READ_BYTES, budget.remaining) });
+          if (buffer?.length) { budget.consume(buffer.length); buffers.set(part.part, buffer); }
         }
-
         return buffers;
-      } finally {
-        lock.release();
-      }
+      } finally { lock.release(); }
     });
   }
 

@@ -102,6 +102,11 @@ limit. Only an explicitly requested inner attachment is retained in memory; the 
 metadata instead of all attachment bodies. Invalid part indexes are rejected before processing,
 and worker heap exhaustion is reported as a resource limit rather than corrupt input.
 
+IMAP downloads use bounded partial reads and decode only MIME transfer encoding, without
+changing a text attachment’s charset or line folding. Actual decoded bytes and wire bytes are
+limited even when BODYSTRUCTURE sizes are missing or incorrect. Download-all applies its
+150-MiB aggregate limit before retaining each provider attachment.
+
 Input and each ZIP entry are capped at 50 MiB. Expanded archive work has a shared 150-MiB
 budget, at most 500 directory entries and three nested archive levels. Office packages have
 separate entry/XML limits and at most 50 MiB expanded content. Decoded images are capped at

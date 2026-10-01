@@ -36,12 +36,14 @@ export function detectKind(filename: string, mime = '', bytes?: Uint8Array): Att
   if (bytes?.length) {
     const ascii = new TextDecoder('latin1').decode(bytes.subarray(0, 1024));
     if (ascii.includes('%PDF-')) return 'pdf';
+    const looseArchive = (declared === 'archive' || (!declared && !type.startsWith('text/')))
+      && (/^BZh[1-9]/.test(ascii) || ascii.slice(257, 262) === 'ustar');
     if ((ascii.startsWith('7z') && bytes[2] === 188 && bytes[3] === 175 && bytes[4] === 39 && bytes[5] === 28)
       || (ascii.startsWith('Rar!') && bytes[4] === 26 && bytes[5] === 7)
-      || (bytes[0] === 31 && bytes[1] === 139) || ascii.startsWith('BZh')
+      || (bytes[0] === 31 && bytes[1] === 139)
       || (bytes[0] === 253 && ascii.slice(1, 5) === '7zXZ' && bytes[5] === 0)
       || (bytes[0] === 40 && bytes[1] === 181 && bytes[2] === 47 && bytes[3] === 253)
-      || ascii.slice(257, 262) === 'ustar') return 'archive';
+      || looseArchive) return 'archive';
     if (isCompound(bytes)) return declared === 'docx' || declared === 'sheet' ? 'office' : 'unsupported';
     if (isZip(bytes)) return declared === 'docx' || declared === 'sheet' ? declared : 'zip';
     if ((bytes[0] === 137 && ascii.slice(1, 4) === 'PNG') || (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) || /^GIF8[79]a/.test(ascii) || ascii.startsWith('BM') || (ascii.startsWith('RIFF') && ascii.slice(8, 12) === 'WEBP') || (ascii.slice(4, 8) === 'ftyp' && /avif|avis/.test(ascii.slice(8, 40)))) return 'image';
