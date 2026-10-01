@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "Copiado",
       "error": "No se pudo copiar. Use el atajo de teclado o el menú del navegador."
+    },
+    "trust": {
+      "chain": "Cadena de certificados verificada",
+      "chainMissing": "No hay una cadena verificada hasta un ancla de confianza aprobada.",
+      "source": "Origen de confianza",
+      "euSource": "Listas de confianza de la UE",
+      "configuredSource": "Conjunto de certificados aprobado por el administrador",
+      "timestampAbsent": "No hay sello de tiempo criptográfico",
+      "listsReady": "Las listas cargadas tienen firmas válidas y están vigentes.",
+      "listsPartial": "Algunas listas o servicios no están disponibles. Solo las entradas verificadas y vigentes pueden otorgar confianza.",
+      "listsUnavailable": "No hay una lista de la UE vigente y verificada para esta validación. Espere a la actualización o compruebe la conexión del servidor.",
+      "listsDisabled": "Las listas automáticas de confianza de la UE están desactivadas.",
+      "listIssued": "Fecha de emisión de la lista",
+      "listExpires": "Plazo firmado de próxima actualización",
+      "revocationUnavailable": "La cadena de certificados está verificada, pero no se pudo obtener evidencia CRL/OCSP válida.",
+      "revocationOffline": "La cadena está verificada, pero faltan datos de revocación sin conexión y las comprobaciones en línea están desactivadas.",
+      "noAnchor": "No se pudo verificar una cadena hasta un ancla aprobada. El nombre del emisor por sí solo no demuestra confianza.",
+      "constraints": "La cadena o el uso permitido para firmar documentos no cumple la política de validación.",
+      "networkUnavailable": "No se pudo usar un servidor público del emisor o de revocación. Un error de red no significa que el certificado esté revocado.",
+      "networkLimit": "La descarga de datos del certificado alcanzó un límite de seguridad. No se confirmó el estado de revocación.",
+      "scope": "Las entradas de la UE se autentican mediante la lista de listas de la Comisión Europea. Otras jurisdicciones requieren un conjunto aprobado por el administrador. No se importa Adobe AATL automáticamente ni se determina la cualificación legal de la firma."
     }
   }
 }

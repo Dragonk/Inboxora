@@ -13,7 +13,7 @@ export function runNativeProcessor(input: ProcessingInput, signal: AbortSignal):
   const header = Buffer.from(JSON.stringify(options) + '\n');
   if (header.length > 8192) return Promise.reject(new AttachmentProcessingError('INVALID_INPUT'));
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, LANG: 'C.UTF-8', PYTHONDONTWRITEBYTECODE: '1' };
-  for (const key of ['PDF_SIGNATURE_TRUST_ROOTS', 'PDF_SIGNATURE_REVOCATION_DIR', 'PDF_SIGNATURE_ONLINE']) {
+  for (const key of ['PDF_SIGNATURE_TRUST_ROOTS', 'PDF_SIGNATURE_REVOCATION_DIR', 'PDF_SIGNATURE_ONLINE', 'PDF_SIGNATURE_EUTL', 'PDF_SIGNATURE_EUTL_CACHE']) {
     if (process.env[key]) env[key] = process.env[key];
   }
   return new Promise((resolve, reject) => {

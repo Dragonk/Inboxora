@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "Copied",
       "error": "Could not copy. Use the keyboard shortcut or the browser menu."
+    },
+    "trust": {
+      "chain": "Verified certificate path",
+      "chainMissing": "No verified path to an approved trust anchor is available.",
+      "source": "Trust source",
+      "euSource": "EU Trusted Lists",
+      "configuredSource": "Administrator-approved certificate bundle",
+      "timestampAbsent": "No cryptographic timestamp is present",
+      "listsReady": "The loaded lists have valid signatures and are current.",
+      "listsPartial": "Some lists or service entries are unavailable. Only verified current entries can confer trust.",
+      "listsUnavailable": "No current verified EU trust list is available for this validation. Wait for the refresh or check server connectivity.",
+      "listsDisabled": "Automatic EU trust lists are disabled.",
+      "listIssued": "List issued",
+      "listExpires": "Signed next-update deadline",
+      "revocationUnavailable": "The certificate path is verified, but valid CRL/OCSP evidence could not be obtained.",
+      "revocationOffline": "The certificate path is verified, but offline revocation evidence is missing and online checks are disabled.",
+      "noAnchor": "No path to an approved trust anchor could be verified. An issuer name alone is not proof of trust.",
+      "constraints": "The certificate path or permitted document-signing usage does not meet the validation policy.",
+      "networkUnavailable": "A public issuer or revocation endpoint could not be used. Network errors do not mean a certificate is revoked.",
+      "networkLimit": "Certificate retrieval reached a safety limit. Revocation has not been confirmed.",
+      "scope": "EU entries are authenticated through the European Commission list of lists. Other jurisdictions require an approved administrator bundle. This is not an automatic import of Adobe AATL or a legal qualification decision."
     }
   }
 }

@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "Zkopírováno",
       "error": "Kopírování se nezdařilo. Použijte klávesovou zkratku nebo nabídku prohlížeče."
+    },
+    "trust": {
+      "chain": "Ověřená cesta certifikátů",
+      "chainMissing": "Není k dispozici ověřená cesta ke schválenému bodu důvěry.",
+      "source": "Zdroj důvěry",
+      "euSource": "Důvěryhodné seznamy EU",
+      "configuredSource": "Sada certifikátů schválená správcem",
+      "timestampAbsent": "Kryptografické časové razítko není přítomno",
+      "listsReady": "Načtené seznamy mají platné podpisy a jsou aktuální.",
+      "listsPartial": "Některé seznamy nebo služby nejsou dostupné. Důvěru mohou zajistit pouze ověřené aktuální položky.",
+      "listsUnavailable": "Pro toto ověření není dostupný aktuální ověřený seznam EU. Vyčkejte na aktualizaci nebo zkontrolujte připojení serveru.",
+      "listsDisabled": "Automatické důvěryhodné seznamy EU jsou vypnuté.",
+      "listIssued": "Vydání seznamu",
+      "listExpires": "Podepsaný termín další aktualizace",
+      "revocationUnavailable": "Cesta certifikátů je ověřena, ale platné údaje CRL/OCSP se nepodařilo získat.",
+      "revocationOffline": "Cesta certifikátů je ověřena, ale offline údaje o odvolání chybí a online ověření je vypnuté.",
+      "noAnchor": "Cestu ke schválenému bodu důvěry se nepodařilo ověřit. Samotný název vydavatele není důkazem důvěry.",
+      "constraints": "Cesta certifikátů nebo povolené použití pro podepisování dokumentů nesplňuje zásady ověření.",
+      "networkUnavailable": "Veřejný server vydavatele nebo odvolání nelze použít. Chyba sítě neznamená odvolání certifikátu.",
+      "networkLimit": "Stahování údajů o certifikátu dosáhlo bezpečnostního limitu. Stav odvolání nebyl potvrzen.",
+      "scope": "Položky EU jsou ověřovány prostřednictvím seznamu seznamů Evropské komise. Jiné jurisdikce vyžadují sadu schválenou správcem. Nejde o automatický import Adobe AATL ani právní posouzení kvalifikace podpisu."
     }
   }
 }

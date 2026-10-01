@@ -6,7 +6,6 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from asn1crypto import pem, x509, crl
-import certifi
 from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.pdf_utils.generic import pdf_string
 from pyhanko.sign.fields import enumerate_sig_fields
@@ -14,7 +13,9 @@ from pyhanko.sign.validation import async_validate_pdf_signature
 from pyhanko.sign.validation.dss import DocumentSecurityStore, NoDSSFoundError
 from pyhanko.sign.validation.pdf_embedded import EmbeddedPdfSignature
 from pyhanko.sign.validation.settings import KeyUsageConstraints
-from pyhanko_certvalidator import ValidationContext
+from pyhanko_certvalidator import ValidationContext, CertificateValidator
+from pyhanko_certvalidator.policy_decl import CertRevTrustPolicy, RevocationCheckingPolicy, RevocationCheckingRule
+from trust_lists import load_registry, DocumentTrust
 from pyhanko_certvalidator.fetchers.aiohttp_fetchers import AIOHttpFetcherBackend
 from public_network import certificate_session
 
@@ -131,12 +132,12 @@ def result_for_status(status, certificate):
             'revocation': 'revoked' if status.revoked else 'checked' if trusted_chain else 'unknown',
             'coverage': coverage, 'modification': modification, 'diagnostic': reason,
             'digestAlgorithm': status.md_algorithm, 'signatureAlgorithm': status.pkcs7_signature_mechanism,
-            'timestamp': 'invalid' if timestamp_invalid else 'valid' if status.timestamp_validity and status.timestamp_validity.trusted else 'unknown'}
+            'timestamp': 'invalid' if timestamp_invalid else 'valid' if status.timestamp_validity and status.timestamp_validity.trusted else 'absent' if not timestamps else 'unknown'}
 
 
 async def inspect_signatures(data):
     report = {'checkedAt': datetime.now(timezone.utc).isoformat(), 'status': 'unknown', 'signatures': [],
-              'policy': 'current-time', 'trustSource': 'configured' if os.getenv('PDF_SIGNATURE_TRUST_ROOTS') else 'system-tls'}
+              'policy': 'current-time', 'trustSource': 'eu-trusted-lists+configured' if os.getenv('PDF_SIGNATURE_TRUST_ROOTS') else 'eu-trusted-lists'}
     reader = PdfFileReader(io.BytesIO(data), strict=True)
     if reader.encrypted:
         return {'json': report | {'diagnostic': 'ENCRYPTED_PDF'}}
@@ -148,17 +149,52 @@ async def inspect_signatures(data):
     if not fields:
         return {'json': report | {'diagnostic': 'UNSIGNED'}}
     pages = page_numbers(reader)
-    roots = certificates(os.getenv('PDF_SIGNATURE_TRUST_ROOTS') or certifi.where())
+    configured = os.getenv('PDF_SIGNATURE_TRUST_ROOTS')
+    roots = certificates(configured) if configured else []
+    # Country hints only select the first local XML files to parse. Actual trust
+    # comes from authenticated service keys; a missing issuer loads all lists.
+    territories = set()
+    embedded_fields = {}
+    for name, value, ref in fields:
+        if value is None:
+            continue
+        try:
+            embedded = EmbeddedPdfSignature(reader, ref, name)
+            embedded_fields[name] = embedded
+            for cert in [embedded.signer_cert, *embedded.other_embedded_certs]:
+                for dn in (cert.subject, cert.issuer):
+                    country = dn.native.get('country_name')
+                    if isinstance(country, str) and len(country) == 2:
+                        territories.add(country.upper())
+        except (MemoryError, RecursionError):
+            raise ValueError('LIMIT') from None
+        except Exception:
+            pass  # A malformed field gets its own diagnostic below.
+    registry, lists = load_registry(territories)
+    report['trustLists'] = lists
+    def all_lists():
+        registry, complete = load_registry()
+        lists.clear(); lists.update(complete)
+        return registry
+    trust = DocumentTrust(registry, roots, fallback=all_lists if territories else None)
     crls = local_revocation()
     online = os.getenv('PDF_SIGNATURE_ONLINE', 'true').lower() == 'true'
-    async with certificate_session() as session:
-        context_args = dict(trust_roots=roots, crls=crls, revocation_mode='require', allow_fetching=online,
+    network = []
+    async with certificate_session(diagnostics=network) as session:
+        context_args = dict(trust_manager=trust, crls=crls, revocation_mode='require', allow_fetching=online,
                             fetcher_backend=AIOHttpFetcherBackend(session, per_request_timeout=5))
-        try:
-            context = DocumentSecurityStore.read_dss(reader).as_validation_context(context_args)
-        except NoDSSFoundError:
-            context = ValidationContext(**context_args)
+        def make_context(arguments):
+            try:
+                return DocumentSecurityStore.read_dss(reader).as_validation_context(arguments)
+            except NoDSSFoundError:
+                return ValidationContext(**arguments)
+        context = make_context(context_args)
+        # NO_CHECK is used ONLY to explain whether the cryptographic path exists.
+        # Its result can never turn the overall signature/revocation status green.
+        path_context = make_context(context_args | {'revinfo_policy': CertRevTrustPolicy(
+            RevocationCheckingPolicy(RevocationCheckingRule.NO_CHECK, RevocationCheckingRule.NO_CHECK))})
         for name, value, ref in fields:
+            network.clear()
             item = {'field': text(name), 'page': pages.get(getattr(ref, 'reference', None)),
                     'status': 'unknown', 'integrity': 'unknown', 'trust': 'unknown', 'revocation': 'unknown'}
             if value is None:
@@ -166,7 +202,7 @@ async def inspect_signatures(data):
                 report['signatures'].append(item)
                 continue
             try:
-                embedded = EmbeddedPdfSignature(reader, ref, name)
+                embedded = embedded_fields.get(name) or EmbeddedPdfSignature(reader, ref, name)
                 cert = certificate_details(embedded.signer_cert)
                 sig = embedded.sig_object
                 item.update(certificate=cert, signer=cert['commonName'] or cert['subject'],
@@ -180,14 +216,53 @@ async def inspect_signatures(data):
                 # so select an EKU constraint only when that extension exists.
                 eku = None if embedded.signer_cert.extended_key_usage_value is None else {
                     x509.KeyPurposeId(oid).native for oid in ('1.3.6.1.5.5.7.3.36', '1.2.840.113583.1.1.5', '2.5.29.37.0')}
+                usage = KeyUsageConstraints(key_usage={'digital_signature', 'non_repudiation'}, extd_key_usage=eku)
+                generation = trust.generation
                 status = await async_validate_pdf_signature(embedded, signer_validation_context=context,
-                    ts_validation_context=context, key_usage_settings=KeyUsageConstraints(key_usage={'digital_signature', 'non_repudiation'},
-                        extd_key_usage=eku))
+                    ts_validation_context=context, key_usage_settings=usage)
+                timestamps = [value for value in (status.timestamp_validity, status.content_timestamp_validity) if value is not None]
+                incomplete_path = not status.trusted or any(not value.trusted for value in timestamps)
+                if incomplete_path and (trust.load_all() or trust.generation != generation):
+                    # Country hints must not prevent cross-border chains or a
+                    # directly trusted foreign TSA. Retry once with all lists
+                    # and a fresh path-building cache, never a relaxed policy.
+                    context = make_context(context_args)
+                    path_context = make_context(context_args | {'revinfo_policy': CertRevTrustPolicy(
+                        RevocationCheckingPolicy(RevocationCheckingRule.NO_CHECK, RevocationCheckingRule.NO_CHECK))})
+                    status = await async_validate_pdf_signature(embedded, signer_validation_context=context,
+                        ts_validation_context=context, key_usage_settings=usage)
                 item.update(result_for_status(status, cert))
+                path = status.validation_path if status.trusted else None
+                if path is None:
+                    try:
+                        # Path signatures, validity, name constraints and allowed
+                        # document-signing usages are checked independently of CRL.
+                        usage.validate(embedded.signer_cert)
+                        path = await CertificateValidator(embedded.signer_cert,
+                            intermediate_certs=embedded.other_embedded_certs, validation_context=path_context).async_validate_path()
+                        if len(path) > 1:
+                            item['trust'] = 'valid'
+                    except (MemoryError, RecursionError):
+                        raise ValueError('LIMIT') from None
+                    except Exception:
+                        path = None
+                if path is not None and len(path) <= 12:
+                    item['chain'] = [certificate_details(value) for value in reversed(list(path))]
+                    item['trustSource'] = trust.source(path.trust_anchor.authority)
+                item['network'] = list(network)
+                if item['status'] != 'valid' and item['diagnostic'] not in ('CERTIFICATE_TIME', 'CHAIN_CONSTRAINTS_FAILURE'):
+                    if item['trust'] == 'valid' and item['revocation'] == 'unknown':
+                        item['diagnostic'] = 'REVOCATION_UNAVAILABLE' if online else 'REVOCATION_OFFLINE'
+                    elif item['trust'] == 'unknown' and not roots and lists['status'] in ('unavailable', 'disabled'):
+                        item['diagnostic'] = 'TRUST_LIST_UNAVAILABLE'
+                    elif item['trust'] == 'unknown' and not item['diagnostic']:
+                        item['diagnostic'] = 'NO_TRUST_ANCHOR'
             except (MemoryError, RecursionError):
                 raise ValueError('LIMIT') from None
             except Exception:
                 # Unsupported cryptography, malformed CMS and unavailable trust evidence never become green.
+                if item['status'] != 'invalid':
+                    item['status'] = 'unknown'
                 item['diagnostic'] = 'VALIDATION_UNAVAILABLE'
             report['signatures'].append(item)
     statuses = [item['status'] for item in report['signatures']]

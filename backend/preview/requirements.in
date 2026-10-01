@@ -1,3 +1,3 @@
 # Mature PDF/CMS validation and in-memory libarchive bindings. No converter service.
-pyhanko==0.37.0
+pyhanko[etsi,async-http]==0.37.0
 libarchive-c==5.3

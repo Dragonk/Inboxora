@@ -1,3 +1,4 @@
+import { startSignatureTrustRefresh } from './services/attachments/signatureTrust.js';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
@@ -444,13 +445,16 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
   }
 }
 
+let stopSignatureTrustRefresh: (() => void) | undefined;
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   startStorageMaintenance();
+  stopSignatureTrustRefresh = startSignatureTrustRefresh();
   console.log(`Inboxora backend running on port ${PORT}`);
 });
 
 process.on('SIGTERM', () => {
+  stopSignatureTrustRefresh?.();
   console.log('SIGTERM received — shutting down gracefully');
   const scheduledMailStopped = scheduledMailWorker.stop();
   const mailFlagsStopped = mailFlagWorker.stop();

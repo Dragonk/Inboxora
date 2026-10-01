@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "已复制",
       "error": "无法复制。请使用键盘快捷键或浏览器菜单。"
+    },
+    "trust": {
+      "chain": "已验证的证书链",
+      "chainMissing": "没有可通向已批准信任锚的已验证证书链。",
+      "source": "信任来源",
+      "euSource": "欧盟信任列表",
+      "configuredSource": "管理员批准的证书包",
+      "timestampAbsent": "未包含密码学时间戳",
+      "listsReady": "已加载的列表签名有效且未过期。",
+      "listsPartial": "部分列表或服务不可用。只有经过验证且仍有效的条目才能建立信任。",
+      "listsUnavailable": "本次验证没有可用的最新已验证欧盟列表。请等待更新或检查服务器网络。",
+      "listsDisabled": "欧盟信任列表自动更新已禁用。",
+      "listIssued": "列表发布日期",
+      "listExpires": "已签名的下次更新期限",
+      "revocationUnavailable": "证书链已验证，但无法获取有效的 CRL/OCSP 证据。",
+      "revocationOffline": "证书链已验证，但缺少离线吊销证据且在线检查已禁用。",
+      "noAnchor": "无法验证到已批准信任锚的证书链。仅有颁发者名称不能证明可信。",
+      "constraints": "证书链或文档签名用途不符合验证策略。",
+      "networkUnavailable": "无法使用公开的颁发者或吊销查询服务。网络错误不代表证书已被吊销。",
+      "networkLimit": "证书数据获取已达到安全限制，尚未确认吊销状态。",
+      "scope": "欧盟条目通过欧盟委员会的列表总表进行身份验证。其他司法辖区需要管理员批准的证书包。这不是自动导入 Adobe AATL，也不构成签名资格的法律认定。"
     }
   }
 }

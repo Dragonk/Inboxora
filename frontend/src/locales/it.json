@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "Copiato",
       "error": "Copia non riuscita. Usa la scorciatoia da tastiera o il menu del browser."
+    },
+    "trust": {
+      "chain": "Catena di certificati verificata",
+      "chainMissing": "Non è disponibile una catena verificata fino a un punto di fiducia approvato.",
+      "source": "Origine della fiducia",
+      "euSource": "Elenchi di fiducia dell’UE",
+      "configuredSource": "Raccolta di certificati approvata dall’amministratore",
+      "timestampAbsent": "Nessuna marca temporale crittografica presente",
+      "listsReady": "Gli elenchi caricati hanno firme valide e sono aggiornati.",
+      "listsPartial": "Alcuni elenchi o servizi non sono disponibili. Solo le voci verificate e aggiornate possono stabilire fiducia.",
+      "listsUnavailable": "Non è disponibile un elenco UE aggiornato e verificato per questa convalida. Attendere l’aggiornamento o controllare la connessione del server.",
+      "listsDisabled": "Gli elenchi di fiducia automatici dell’UE sono disattivati.",
+      "listIssued": "Data di pubblicazione dell’elenco",
+      "listExpires": "Scadenza firmata del prossimo aggiornamento",
+      "revocationUnavailable": "La catena è verificata, ma non è stato possibile ottenere prove CRL/OCSP valide.",
+      "revocationOffline": "La catena è verificata, ma mancano prove di revoca offline e i controlli online sono disattivati.",
+      "noAnchor": "Non è stato possibile verificare una catena fino a un punto approvato. Il solo nome dell’emittente non dimostra fiducia.",
+      "constraints": "La catena o l’uso consentito per firmare documenti non rispetta la politica di convalida.",
+      "networkUnavailable": "Non è stato possibile usare un server pubblico dell’emittente o di revoca. Un errore di rete non indica un certificato revocato.",
+      "networkLimit": "Il recupero dei dati del certificato ha raggiunto un limite di sicurezza. Lo stato di revoca non è stato confermato.",
+      "scope": "Le voci UE sono autenticate tramite l’elenco degli elenchi della Commissione europea. Altre giurisdizioni richiedono una raccolta approvata dall’amministratore. Non si tratta di un’importazione automatica Adobe AATL né di una decisione giuridica sulla qualificazione."
     }
   }
 }

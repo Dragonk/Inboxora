@@ -1,45 +1,31 @@
+import { signatureReport, type SignatureRecord } from '../../../utils/attachments/signatureReport.ts';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { PreviewFile } from '../../../utils/attachments/types.ts';
-import { processAttachment, record, textValue } from '../../../utils/attachments/processing.ts';
+import { processAttachment } from '../../../utils/attachments/processing.ts';
 import { usePreviewResource } from '../usePreviewResource.ts';
 import PreviewAction from '../PreviewAction.tsx';
 import { Button, Dialog } from '../../ui.tsx';
 
-type Verdict = 'valid' | 'invalid' | 'unknown';
-interface SignatureRecord { status: Verdict; certificate: Record<string, string>; fields: Record<string, string> }
-function verdict(value: unknown): Verdict { return value === 'valid' || value === 'invalid' ? value : 'unknown'; }
-export function signatureReport(value: unknown) {
-  const report = record(value);
-  if (!Array.isArray(report.signatures) || report.signatures.length > 50) throw new Error('CORRUPT');
-  const signatures: SignatureRecord[] = report.signatures.map(value => {
-    const item = record(value); const certificate: Record<string, string> = {}; const fields: Record<string, string> = {};
-    for (const key of ['commonName', 'givenName', 'surname', 'organization', 'country', 'email', 'subject', 'issuer', 'serial', 'validFrom', 'validTo', 'fingerprint']) {
-      certificate[key] = item.certificate && typeof item.certificate === 'object' ? textValue(record(item.certificate)[key]).slice(0, 2048) : '';
-    }
-    for (const key of ['field', 'signer', 'claimedSigner', 'reason', 'location', 'contact', 'claimedTime', 'subFilter', 'integrity', 'trust', 'revocation', 'coverage', 'modification', 'diagnostic', 'digestAlgorithm', 'signatureAlgorithm', 'timestamp']) fields[key] = textValue(item[key]).slice(0, 2048);
-    fields.page = typeof item.page === 'number' ? String(item.page) : '';
-    fields.signedRevision = typeof item.signedRevision === 'number' ? String(item.signedRevision) : '';
-    let status = verdict(item.status);
-    if (status === 'valid' && (fields.integrity !== 'valid' || fields.trust !== 'valid' || fields.revocation !== 'checked')) status = 'unknown';
-    return { status, certificate, fields };
-  });
-  const statuses = signatures.map(item => item.status);
-  return { signatures, checkedAt: textValue(report.checkedAt), trustSource: textValue(report.trustSource), diagnostic: textValue(report.diagnostic),
-    status: (statuses.includes('invalid') ? 'invalid' : statuses.length && statuses.every(value => value === 'valid') && report.status === 'valid' ? 'valid' : 'unknown') as Verdict };
-}
 
 export default function SignatureDetails({ file, count, metadata = [] }: { file: PreviewFile; count: number; metadata?: Array<{ name: string; date: string; reason: string }> }) {
   const { t, i18n } = useTranslation(); const [open, setOpen] = useState(false); const [selected, setSelected] = useState(0); const [retry, setRetry] = useState(0);
   const state = usePreviewResource(async signal => signatureReport(await (await processAttachment(file.blob, 'signatures', {}, signal)).json()), [file.blob, retry]);
   const report = state.value; const status = report?.status || 'unknown';
-  const entries = report?.signatures.length ? report.signatures : Array.from({ length: Math.min(count, 50) }, (_, index) => ({ status: 'unknown' as const, fields: { signer: metadata[index]?.name || '', claimedTime: metadata[index]?.date || '', reason: metadata[index]?.reason || '' }, certificate: {} } as SignatureRecord));
+  const entries = report?.signatures.length ? report.signatures : Array.from({ length: Math.min(count, 50) }, (_, index) => ({ status: 'unknown' as const, fields: { signer: metadata[index]?.name || '', claimedTime: metadata[index]?.date || '', reason: metadata[index]?.reason || '' }, certificate: {}, chain: [], network: [] } as SignatureRecord));
   const active = Math.min(selected, Math.max(0, entries.length - 1)); const current = entries[active];
   const coverage = (value: string) => value === 'ENTIRE_FILE' ? t('attachment.signatures.fullDocument') : value === 'ENTIRE_REVISION' ? t('attachment.signatures.signedRevision') : t('attachment.signatures.unknown');
   const modification = (value: string) => value === 'NONE' ? t('attachment.signatures.unchanged') : value === 'LTA_UPDATES' ? t('attachment.signatures.validationUpdates') : value === 'FORM_FILLING' ? t('attachment.signatures.formUpdates') : value === 'OTHER' ? t('attachment.signatures.contentChanged') : t('attachment.signatures.unknown');
-  const diagnostic = (value: string) => value === 'EMPTY_FIELD' ? t('attachment.signatures.empty') : value === 'CERTIFICATE_TIME' ? t('attachment.signatures.certTime') : value === 'VALIDATION_UNAVAILABLE' ? t('attachment.signatures.unavailable') : value ? t('attachment.signatures.trustUnavailable') : '';
-  const label = (value: string) => value === 'valid' || value === 'checked' ? t('attachment.signatures.valid') : value === 'invalid' || value === 'revoked' ? t('attachment.signatures.invalid') : t('attachment.signatures.unknown');
+  const diagnostic = (value: string) => value === 'REVOCATION_UNAVAILABLE' ? t('attachment.trust.revocationUnavailable')
+    : value === 'REVOCATION_OFFLINE' ? t('attachment.trust.revocationOffline')
+    : value === 'TRUST_LIST_UNAVAILABLE' ? t('attachment.trust.listsUnavailable')
+    : ['NO_TRUST_ANCHOR', 'NO_CERTIFICATE_CHAIN_FOUND'].includes(value) ? t('attachment.trust.noAnchor')
+    : value === 'CHAIN_CONSTRAINTS_FAILURE' ? t('attachment.trust.constraints')
+    : value === 'EMPTY_FIELD'  ? t('attachment.signatures.empty') : value === 'CERTIFICATE_TIME' ? t('attachment.signatures.certTime') : value === 'VALIDATION_UNAVAILABLE' ? t('attachment.signatures.unavailable') : value ? t('attachment.signatures.trustUnavailable') : '';
+  const label = (value: string) => value === 'absent' ? t('attachment.trust.timestampAbsent') : value === 'valid' || value === 'checked' ? t('attachment.signatures.valid') : value === 'invalid' || value === 'revoked' ? t('attachment.signatures.invalid') : t('attachment.signatures.unknown');
   const date = (value: string) => { const parsed = new Date(value); return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString(i18n.language) : value; };
+  const source = (value: string) => value === 'eu-trusted-lists' ? t('attachment.trust.euSource') : value === 'configured' ? t('attachment.trust.configuredSource') : t('attachment.signatures.unknown');
+  const listStatus = report?.listStatus === 'ready' ? t('attachment.trust.listsReady') : report?.listStatus === 'partial' ? t('attachment.trust.listsPartial') : report?.listStatus === 'disabled' ? t('attachment.trust.listsDisabled') : t('attachment.trust.listsUnavailable');
   const row = (key: string, title: string, value: string, timestamp = false) => <div className="attachment-signature-row" key={key}><dt>{title}</dt><dd>{value ? timestamp ? date(value) : value : t('attachment.signatures.notProvided')}</dd></div>;
   return <>
     <PreviewAction icon="signatures" label={t('attachment.signatures.title')} tooltip={state.loading ? t('attachment.signatures.checking') : `${t('attachment.signatures.title')}: ${label(status)}`}
@@ -57,6 +43,7 @@ export default function SignatureDetails({ file, count, metadata = [] }: { file:
           <h3>{t('attachment.signatures.validation')}</h3><dl>
             {row('integrity', t('attachment.signatures.integrity'), label(current.fields.integrity))}
             {row('trust', t('attachment.signatures.trust'), label(current.fields.trust))}
+            {row('trustSource', t('attachment.trust.source'), source(current.fields.trustSource))}
             {row('revocation', t('attachment.signatures.revocation'), current.fields.revocation === 'checked' ? t('attachment.signatures.revocationChecked') : current.fields.revocation === 'revoked' ? t('attachment.signatures.revoked') : t('attachment.signatures.unknown'))}
             {row('timestamp', t('attachment.signatures.timestamp'), label(current.fields.timestamp))}
             {row('checked', t('attachment.signatures.checkedAt'), report?.checkedAt || '', true)}
@@ -80,6 +67,15 @@ export default function SignatureDetails({ file, count, metadata = [] }: { file:
             {row('validTo', t('attachment.signatures.validTo'), current.certificate.validTo, true)}
             {row('fingerprint', t('attachment.signatures.fingerprint'), current.certificate.fingerprint)}
           </dl>
+          <h3>{t('attachment.trust.chain')}</h3>
+          {current.chain.length ? current.chain.map((certificate, index) => <dl key={`${index}:${certificate.fingerprint}`} data-testid="signature-chain-certificate">
+            {row('subject', t('attachment.signatures.certificate'), certificate.subject || certificate.commonName)}
+            {row('issuer', t('attachment.signatures.issuer'), certificate.issuer)}
+            {row('from', t('attachment.signatures.validFrom'), certificate.validFrom, true)}
+            {row('to', t('attachment.signatures.validTo'), certificate.validTo, true)}
+            {row('fingerprint', t('attachment.signatures.fingerprint'), certificate.fingerprint)}
+          </dl>) : <p>{t('attachment.trust.chainMissing')}</p>}
+          {current.network.length > 0 && current.status !== 'valid' && <p>{current.network.includes('NETWORK_LIMIT') ? t('attachment.trust.networkLimit') : t('attachment.trust.networkUnavailable')}</p>}
           <h3>{t('attachment.signatures.details')}</h3><dl>
             {row('field', t('attachment.signatures.field'), current.fields.field)}
             {row('page', t('attachment.preview.pageLabel'), current.fields.page)}
@@ -91,7 +87,15 @@ export default function SignatureDetails({ file, count, metadata = [] }: { file:
             {row('diagnostic', t('attachment.signatures.diagnostic'), diagnostic(current.fields.diagnostic))}
           </dl>
         </>}
-        {report?.trustSource === 'system-tls' && <p>{t('attachment.signatures.trustNote')}</p>}
+        {report?.trustSource === 'system-tls' ? <p>{t('attachment.signatures.trustNote')}</p> : <details data-testid="signature-trust-lists"><summary>{t('attachment.trust.euSource')}</summary>
+          <p>{listStatus}</p>
+          {report?.lists.map(list => <dl key={list.country}>
+            {row('country', t('attachment.signatures.country'), list.country)}
+            {row('issued', t('attachment.trust.listIssued'), list.issuedAt, true)}
+            {row('expires', t('attachment.trust.listExpires'), list.nextUpdate, true)}
+          </dl>)}
+          <p>{t('attachment.trust.scope')}</p>
+        </details>}
       </div></div>
     </Dialog>}
   </>;

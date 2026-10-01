@@ -205,16 +205,55 @@ malicious or damaged file can be detected. The renderer sandbox and resource bou
 
 ### Signature trust policy
 
-`PDF_SIGNATURE_ONLINE=true` allows bounded public issuer/OCSP/CRL lookups. `false` uses only
-available embedded/local evidence. Requests do not inherit proxy credentials or cookies, do not
-follow redirects and cannot target private, loopback, link-local or transition addresses. DNS
-answers are checked and pinned; ports are limited to 80/443, with per-request and aggregate limits.
+The default document trust source is now the **EU Trusted Lists**, not the public TLS root
+bundle. The backend fetches the European Commission List of Trusted Lists (LOTL), verifies its
+XML signature against the OJEU signer certificates pinned by pyHanko 0.37, then verifies each
+national list with the keys nominated by that authenticated LOTL. Issuer names alone never
+establish trust. Withdrawn or historical service identities are not accepted as current anchors.
 
-`PDF_SIGNATURE_TRUST_ROOTS` can name a read-only PEM certificate bundle inside the backend container.
-Mount the operator's approved CA bundle and set that path; do not trust roots merely supplied by
-a document. `PDF_SIGNATURE_REVOCATION_DIR` can name a read-only directory of current `.crl` files
-for offline/private-PKI use. Neither setting imports an EU Trusted List automatically. Lack of
-appropriate trust or revocation evidence produces yellow, not a guessed green result.
+`PDF_SIGNATURE_EUTL=true` is the default. An isolated updater refreshes public lists on startup
+and every six hours, independently of document processing. `PDF_SIGNATURE_EUTL_CACHE` defaults
+to `/tmp/inboxora-eutl` inside the backend container. Only public signed lists and update metadata
+are cached; no documents, passwords or signing keys are written there. Recreating a container
+with the default cache starts a fresh download. An operator may mount a dedicated writable cache
+volume at the configured path; do not share it with attachment storage or untrusted processes.
+
+Every PDF worker rechecks the cached XML signatures and signed next-update deadlines. Files
+older than 24 hours are not used. Monotonic sequence metadata prevents a previously observed
+newer list being replaced by an older response. Failed downloads do not replace existing valid
+lists. A cold, expired or partly unavailable cache is reported honestly; it never changes an
+unknown result to green. One unavailable country does not disable verified entries from others.
+Unsupported critical service extensions are not used to grant trust. Signer-key rotation not
+covered by the pinned LOTL keys requires a library/image update, not accepting an arbitrary key.
+
+`PDF_SIGNATURE_ONLINE=true` permits public issuer, OCSP and CRL requests. Setting it to `false`
+disables network refresh and revocation lookups; only still-current cached lists and embedded/local
+evidence are used. Requests do not inherit proxy credentials or cookies. DNS answers and socket
+addresses are checked against private, loopback, link-local and transition ranges; ports are
+limited to 80/443. Certificate/CRL responses are capped at 16 MiB each and 32 MiB per inspection,
+with 20 requests and five-second request timeouts. Encoded responses are refused. Only the
+trust-list updater may follow up to three redirects, checking every new public destination and
+refusing HTTPS downgrades; document-directed certificate/CRL requests do not follow redirects.
+Trust-list updates have separate 16-MiB/list, 128-MiB/refresh and 110-second limits.
+
+`PDF_SIGNATURE_TRUST_ROOTS` adds an operator-approved read-only PEM bundle. This supports approved
+non-EU and private document-signing CAs without trusting certificates supplied by a PDF. The
+bundle is **not** implicitly Adobe's AATL, a worldwide accreditation list, or the TLS trust store.
+The application does not automatically import AATL. Set `PDF_SIGNATURE_EUTL=false`
+to restrict trust to the administrator bundle alone. Administrators remain responsible for the
+scope and lifecycle of additional anchors. `PDF_SIGNATURE_REVOCATION_DIR` accepts current `.crl`
+files for offline/private-PKI verification. No API key or paid validation service is needed.
+
+The dialog now separates the verified issuer path from revocation evidence and shows its trust
+source and certificate fingerprints. A valid chain with missing CRL/OCSP remains yellow. A missing
+cryptographic timestamp is reported as absent, not as a failed check. Only the strict check with
+valid revocation evidence can yield green; the independent path-only diagnostic cannot. Validation
+still uses the current time, not the signer's claimed clock. This is not historical LTV validation,
+Adobe-parity certification, or a legal finding that a signature is qualified under eIDAS.
+
+During validation the backend sends only public certificate/revocation requests, not the PDF,
+to external endpoints. OCSP requests necessarily identify the certificate being checked. Network
+or safety-limit failures are distinguished from revocation and are never reported as a clean scan.
 
 The bundled nginx configuration allows local workers and blob media, serves the PDF worker
 as JavaScript, and gives the attachment-processing path a 51-MiB HTTP body window. Request

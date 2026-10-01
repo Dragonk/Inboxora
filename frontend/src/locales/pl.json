@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "Skopiowano",
       "error": "Nie udało się skopiować. Użyj skrótu klawiaturowego lub menu przeglądarki."
+    },
+    "trust": {
+      "chain": "Zweryfikowana ścieżka certyfikatów",
+      "chainMissing": "Brak zweryfikowanej ścieżki do zatwierdzonego punktu zaufania.",
+      "source": "Źródło zaufania",
+      "euSource": "Unijne listy zaufania",
+      "configuredSource": "Magazyn certyfikatów zatwierdzony przez administratora",
+      "timestampAbsent": "Brak kryptograficznego znacznika czasu",
+      "listsReady": "Wczytane listy mają prawidłowe podpisy i są aktualne.",
+      "listsPartial": "Niektóre listy lub wpisy usług są niedostępne. Zaufanie może wynikać tylko ze zweryfikowanych, aktualnych wpisów.",
+      "listsUnavailable": "Brak aktualnej, zweryfikowanej listy UE dla tej weryfikacji. Poczekaj na odświeżenie lub sprawdź łączność serwera.",
+      "listsDisabled": "Automatyczne listy zaufania UE są wyłączone.",
+      "listIssued": "Data publikacji listy",
+      "listExpires": "Podpisany termin następnej aktualizacji",
+      "revocationUnavailable": "Ścieżka certyfikatów została potwierdzona, ale nie udało się uzyskać prawidłowych danych CRL/OCSP.",
+      "revocationOffline": "Ścieżka certyfikatów została potwierdzona, ale brak danych o unieważnieniu offline, a sprawdzanie online jest wyłączone.",
+      "noAnchor": "Nie udało się zweryfikować ścieżki do zatwierdzonego punktu zaufania. Sama nazwa wystawcy nie dowodzi zaufania.",
+      "constraints": "Ścieżka certyfikatów lub dozwolone zastosowanie do podpisywania dokumentów nie spełnia zasad weryfikacji.",
+      "networkUnavailable": "Nie udało się skorzystać z publicznego adresu wystawcy lub usługi unieważnień. Błąd sieci nie oznacza unieważnienia certyfikatu.",
+      "networkLimit": "Pobieranie danych certyfikatu osiągnęło limit bezpieczeństwa. Nie potwierdzono statusu unieważnienia.",
+      "scope": "Wpisy UE są uwierzytelniane przez listę list Komisji Europejskiej. Inne jurysdykcje wymagają magazynu zatwierdzonego przez administratora. Nie jest to automatyczny import Adobe AATL ani prawna ocena kwalifikacji podpisu."
     }
   }
 }

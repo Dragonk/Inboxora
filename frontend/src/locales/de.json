@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "Kopiert",
       "error": "Kopieren fehlgeschlagen. Verwenden Sie die Tastenkombination oder das Browsermenü."
+    },
+    "trust": {
+      "chain": "Geprüfter Zertifikatspfad",
+      "chainMissing": "Kein geprüfter Pfad zu einem zugelassenen Vertrauensanker verfügbar.",
+      "source": "Vertrauensquelle",
+      "euSource": "EU-Vertrauenslisten",
+      "configuredSource": "Vom Administrator genehmigte Zertifikatssammlung",
+      "timestampAbsent": "Kein kryptografischer Zeitstempel vorhanden",
+      "listsReady": "Die geladenen Listen haben gültige Signaturen und sind aktuell.",
+      "listsPartial": "Einige Listen oder Dienste sind nicht verfügbar. Nur geprüfte aktuelle Einträge können Vertrauen begründen.",
+      "listsUnavailable": "Für diese Prüfung ist keine aktuelle verifizierte EU-Liste verfügbar. Warten Sie auf die Aktualisierung oder prüfen Sie die Serververbindung.",
+      "listsDisabled": "Automatische EU-Vertrauenslisten sind deaktiviert.",
+      "listIssued": "Ausstellungsdatum der Liste",
+      "listExpires": "Signierte Frist für die nächste Aktualisierung",
+      "revocationUnavailable": "Der Zertifikatspfad ist geprüft, aber gültige CRL/OCSP-Nachweise konnten nicht abgerufen werden.",
+      "revocationOffline": "Der Zertifikatspfad ist geprüft, aber Offline-Sperrinformationen fehlen und Online-Prüfungen sind deaktiviert.",
+      "noAnchor": "Kein Pfad zu einem genehmigten Vertrauensanker konnte geprüft werden. Der Ausstellername allein beweist kein Vertrauen.",
+      "constraints": "Der Zertifikatspfad oder die erlaubte Verwendung zur Dokumentensignatur erfüllt die Prüfrichtlinie nicht.",
+      "networkUnavailable": "Ein öffentlicher Aussteller- oder Sperrlistenserver konnte nicht verwendet werden. Netzwerkfehler bedeuten keine Zertifikatssperre.",
+      "networkLimit": "Der Abruf von Zertifikatsdaten hat eine Sicherheitsgrenze erreicht. Der Sperrstatus wurde nicht bestätigt.",
+      "scope": "EU-Einträge werden über die Listenliste der Europäischen Kommission authentifiziert. Andere Rechtsräume benötigen eine genehmigte Administratorsammlung. Dies ist weder ein automatischer Adobe-AATL-Import noch eine rechtliche Qualifikationsentscheidung."
     }
   }
 }

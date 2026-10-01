@@ -2832,6 +2832,27 @@
     "clipboard": {
       "copied": "Copié",
       "error": "Échec de la copie. Utilisez le raccourci clavier ou le menu du navigateur."
+    },
+    "trust": {
+      "chain": "Chaîne de certificats vérifiée",
+      "chainMissing": "Aucune chaîne vérifiée vers une ancre de confiance approuvée n’est disponible.",
+      "source": "Source de confiance",
+      "euSource": "Listes de confiance de l’UE",
+      "configuredSource": "Ensemble de certificats approuvé par l’administrateur",
+      "timestampAbsent": "Aucun horodatage cryptographique présent",
+      "listsReady": "Les listes chargées ont des signatures valides et sont à jour.",
+      "listsPartial": "Certaines listes ou certains services sont indisponibles. Seules les entrées vérifiées et à jour peuvent établir la confiance.",
+      "listsUnavailable": "Aucune liste UE actuelle et vérifiée n’est disponible pour cette validation. Attendez son actualisation ou vérifiez la connexion du serveur.",
+      "listsDisabled": "Les listes de confiance automatiques de l’UE sont désactivées.",
+      "listIssued": "Date de publication de la liste",
+      "listExpires": "Échéance signée de prochaine mise à jour",
+      "revocationUnavailable": "La chaîne est vérifiée, mais aucune preuve CRL/OCSP valide n’a pu être obtenue.",
+      "revocationOffline": "La chaîne est vérifiée, mais les preuves de révocation hors ligne manquent et les contrôles en ligne sont désactivés.",
+      "noAnchor": "Aucune chaîne vers une ancre approuvée n’a pu être vérifiée. Le nom de l’émetteur seul ne prouve pas la confiance.",
+      "constraints": "La chaîne ou l’usage autorisé pour signer des documents ne respecte pas la politique de validation.",
+      "networkUnavailable": "Un serveur public d’émetteur ou de révocation n’a pas pu être utilisé. Une erreur réseau ne signifie pas que le certificat est révoqué.",
+      "networkLimit": "Le téléchargement des données du certificat a atteint une limite de sécurité. Le statut de révocation n’a pas été confirmé.",
+      "scope": "Les entrées UE sont authentifiées par la liste des listes de la Commission européenne. Les autres juridictions nécessitent un ensemble approuvé par l’administrateur. Il ne s’agit ni d’un import automatique Adobe AATL ni d’une décision juridique de qualification."
     }
   }
 }
