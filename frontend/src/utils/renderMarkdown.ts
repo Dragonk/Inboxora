@@ -22,6 +22,7 @@ const ALLOWED_TAGS = [
 // removed immediately in finally so it never affects other DOMPurify sanitizes (e.g. the
 // email renderer, which uses inline options and no hooks).
 function hardenLinks(node: Element): void {
+  if (node.hasAttribute('class') && !(node.tagName === 'CODE' && /^language-[a-z0-9_-]{1,40}$/i.test(node.getAttribute('class') || ''))) node.removeAttribute('class');
   if (node.tagName === 'A') {
     node.setAttribute('target', '_blank');
     node.setAttribute('rel', 'noopener noreferrer');
@@ -36,7 +37,7 @@ export function renderMarkdown(text: string): string {
     // (no <img>/<svg>) removes the usual data:-URI vectors.
     return DOMPurify.sanitize(html, {
       ALLOWED_TAGS,
-      ALLOWED_ATTR: ['href', 'title', 'target', 'rel'],
+      ALLOWED_ATTR: ['href', 'title', 'target', 'rel', 'class'],
     });
   } finally {
     DOMPurify.removeHook('afterSanitizeAttributes', hardenLinks);

@@ -1,3 +1,6 @@
+import { useMobileInteractions } from '../hooks/useMobileInteractions.ts';
+import AttachmentWindow from './attachments/AttachmentWindow.tsx';
+import { Button } from './ui.tsx';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 import MessageWindow from './MessageWindow.tsx';
@@ -19,6 +22,12 @@ function hasWindowIdentifiers(window: StoreMessageWindow): window is IdentifiedM
 export default function WindowLayer() {
   const { t } = useTranslation();
   const windows = useStore((s: StoreState) => s.messageWindows);
+  const mobileInteractions = useMobileInteractions();
+  const storedAttachmentWindows = useStore(state => state.attachmentWindows);
+  const attachmentWindows = mobileInteractions ? [] : storedAttachmentWindows;
+  const minimizeAttachment = useStore(state => state.minimizeAttachmentWindow);
+  const closeAttachment = useStore(state => state.closeAttachmentWindow);
+  const minimizedAttachments = attachmentWindows.filter(window => window.minimized);
   const setMinimized = useStore((s: StoreState) => s.setMessageWindowMinimized);
   const closeWindow = useStore((s: StoreState) => s.closeMessageWindow);
   const messages = useStore((s: StoreState) => s.messages);
@@ -26,7 +35,7 @@ export default function WindowLayer() {
   const searchQuery = useStore((s: StoreState) => s.searchQuery);
   const threadMessages = useStore((s: StoreState) => s.threadMessages);
 
-  if (!windows.length) return null;
+  if (!windows.length && !attachmentWindows.length) return null;
 
   const open = windows.filter((window): window is OrderedMessageWindow =>
     !window.minimized && hasWindowIdentifiers(window) && typeof window.z === 'number');
@@ -34,7 +43,7 @@ export default function WindowLayer() {
     Boolean(window.minimized) && hasWindowIdentifiers(window));
   // Normalize the monotonic z stamps into a compact, bounded band so stacking order
   // is preserved without the raw counter creeping toward the compose modal's z-index.
-  const zOrder = [...open].sort((a, b) => a.z - b.z).map(w => w.winId);
+  const zOrder = [...open.map(win => ({ id: win.winId, z: win.z })), ...attachmentWindows.filter(win => !win.minimized).map(win => ({ id: win.id, z: win.z }))].sort((a, b) => a.z - b.z).map(win => win.id);
 
   const resolveTitle = (messageId: IdentifiedMessageWindow['messageId']) => {
     const list = searchQuery.trim() ? searchResults : messages;
@@ -52,11 +61,16 @@ export default function WindowLayer() {
         <MessageWindow key={win.winId} win={win} zIndex={Z_BASE + zOrder.indexOf(win.winId)} />
       ))}
 
-      {minimized.length > 0 && (
+      {attachmentWindows.filter(win => !win.minimized).map(win => <AttachmentWindow key={win.id} window={win} zIndex={Z_BASE + zOrder.indexOf(win.id)} />)}
+      {(minimized.length > 0 || minimizedAttachments.length > 0) && (
         <div style={{
           position: 'fixed', left: 12, bottom: 12, zIndex: Z_BASE - 1,
           display: 'flex', flexWrap: 'wrap', gap: 8, maxWidth: 'calc(100vw - 24px)',
         }}>
+          {minimizedAttachments.map(win => <div className="mailflow-window-min" key={win.id}>
+            <Button onClick={() => minimizeAttachment(win.id, false)}>{win.selection.attachments[win.selection.index]?.filename}</Button>
+            <Button aria-label={t('window.close')} onClick={() => closeAttachment(win.id)}>×</Button>
+          </div>)}
           {minimized.map(win => {
             const { title, accent } = resolveTitle(win.messageId);
             return (

@@ -1776,7 +1776,7 @@ describe('walkStructure attachment classification', () => {
         close: vi.fn(),
         mailbox: { exists: 1, uidValidity: 1n, path: 'INBOX' },
         getMailboxLock: vi.fn(async () => ({ release: vi.fn() })),
-        fetch: vi.fn(() => (async function* generate() { yield { bodyStructure, bodyParts: rawParts }; })()),
+        fetchOne: vi.fn(async () => ({ uid: 42, bodyStructure, bodyParts: rawParts })),
         list: vi.fn(async () => []),
       }));
     });

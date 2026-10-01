@@ -50,6 +50,25 @@ reviews:
     - "!.toolchain/**"
     - "!media/**"
     - "!docs/screenshots/**"
+    # Synthetic attachment documents are data, not source. Keep their generators,
+    # regression assertions, provenance and licensing in review; CI still tests every fixture.
+    - "!backend/fixtures/attachments/*.{pdf,png,jpg,gif,webp,avif,bmp,svg,tiff,docx,xlsx,xls,ods,doc,ppt,pptx,odt,odp,zip,mp3,ogg,wav,mp4,webm,ics,vcf,eml,csv,tsv,jsonc,xml,html}"
+    - "!backend/fixtures/attachments/*.{eml,ics,vcf}.json"
+    # Generated archive payloads, parser samples and dependency resolutions are
+    # reviewed through generators/manifests and dependency audits, not as source.
+    - "!backend/fixtures/attachments/*.{7z,rar,tar,gz,bz2,xz,zst,bin}"
+    - "!backend/fixtures/attachments/{data.json,invalid.json,invalid-mermaid.md,notes.md,polish.txt,text.txt,script.sh,archive-fixtures.json,signature-sample.pdf.json}"
+    - "!backend/package-lock.json"
+    - "!backend/preview/requirements.txt"
+    - "!frontend/e2e/**/*-snapshots/*.png"
+    # Keep the English/Polish source copy and all i18n assertions in the review.
+    # Parallel translations are checked by the nine-catalogue completeness and
+    # interpolation gates; release/deployment documentation stays in review too.
+    - "!frontend/src/locales/{cs,de,es,fr,it,ru,zhCN}.json"
+    - "!backend/fixtures/attachments/LICENSE-libarchive.txt"
+    - "!backend/fixtures/attachments/README.md"
+    - "!docs/design/attachment-preview.md"
+    - "!.gitignore"
   path_instructions:
     - path: "backend/src/**"
       instructions: >

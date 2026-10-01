@@ -62,7 +62,7 @@ describe('the Gmail send transport', () => {
 
   it('refuses an over-limit message before anything is dispatched', async () => {
     sendRaw.mockReset();
-    const huge = { ...composed, attachments: [{ filename: 'big.bin', content: Buffer.alloc(26 * 1024 * 1024) }] };
+    const huge = { ...composed, attachments: [{ filename: 'big.bin', content: Buffer.alloc(27 * 1024 * 1024) }] };
     const result = await gmailMailTransport(API).send({ composed: huge });
     expect(result).toMatchObject({ status: 'refused', statusCode: 413, code: 'MESSAGE_TOO_LARGE', retryable: false });
     // Nothing left the installation: this is a refusal the user can act on, not an unknown outcome.

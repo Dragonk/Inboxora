@@ -7,7 +7,7 @@ const source = readFileSync(new URL('./MessageDetailContent.tsx', import.meta.ur
 describe('dangerous attachment download warning contract', () => {
   it('defers risky individual downloads until confirmation', () => {
     assert.match(source, /import \{ isDangerousAttachment \} from '\.\.\/utils\/dangerousAttachment\.ts';/);
-    assert.match(source, /if \(isDangerousAttachment\(attachment\)\) \{/);
+    assert.match(source, /if \(isDangerousAttachment\(attachment\) \|\| sourceScanWarning\(pathForAttachment\(attachment\)\)\) \{/);
     assert.match(source, /setPendingDownload\(\{ kind: 'attachment', attachment \}\)/);
     assert.match(source, /void download\(target\.attachment\)/);
     assert.match(source, /data-testid="dangerous-attachment-download-confirm"/);

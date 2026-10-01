@@ -20,7 +20,39 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+- Composer attachment previews and archive folder browsing with list/thumbnail views.
+- PDF signature details and current-time integrity, certificate-chain and revocation checks, with distinct valid/invalid/unavailable indicators.
+- Optional private ClamAV container and a fail-closed preview gate; warned downloads remain available without changing original bytes.
+- Bounded 7z, RAR4/RAR5, TAR, GZIP, BZIP2, XZ and Zstandard readers alongside ZIP.
+- Composer file drop, sender-size checks and a configurable large-attachment warning in Appearance.
+- In-app attachment previews with a shared full-screen reader, separate downloads, lazy image thumbnails, an image gallery, and desktop floating windows.
+- Interactive PDF reading with lazy pages, search, selection, page navigation, outline, thumbnails, zoom, rotation, complete-document printing, local password prompts and signature details.
+- DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
+
+### Changed
+- PDF opens at 100%; compact icon toolbars combine filename/download actions and adapt search to desktop and mobile.
+- Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
+
+### Fixed
+- Return empty PDF signature fields without loading trust lists; retry failed trust-list refreshes with bounded backoff instead of waiting six hours after a cold-start outage.
+- Validate PDF certificate paths against authenticated EU Trusted Lists instead of the TLS root store. Refresh signed lists automatically, show the verified path and distinguish missing revocation evidence from missing trust or an absent timestamp.
+- Preserve signature metadata line breaks; keep PDF search text readable and allow typed zoom percentages.
+- Correct preview-window action order and the mobile Send arrow. Repair content-menu copy, search, selection and conversation actions.
+- Keep plain-text BZh/ustar content in its declared viewer instead of misclassifying it as an archive.
+- Restore Mermaid node text, bidirectional image rotation and DOCX page sections/backgrounds; remove the mobile preview side gap.
+- Separate Gmail's 35-MiB raw-message limit from its 25-MiB attachment budget, discover SMTP SIZE and pass the exact MIME size to SMTP.
+- Keep attachment previews touch-first on landscape phones, preserve Back navigation through rotation and update download progress in every active preview.
+- Reject malformed EML part indexes, bound MIME attachment counts and decoded bytes during streaming, and report worker memory exhaustion as a resource limit.
+
+### Security
+- Bound IMAP attachment reads before buffering, preserve original text encodings, and enforce actual-byte aggregate ZIP limits across providers.
+- Update sanitization, routing, IP classification and request-parser dependencies to patched releases; React Router moves to 7.18.4.
+- Verify attachment ownership before retrieval, preserve session/revision boundaries, share known scan warnings across download actions and keep native-browser blobs session-scoped.
+- Isolate native archive parsing with a syscall allow-list and bounded subprocesses; restrict certificate lookups to public pinned addresses without redirects, cookies or inherited application secrets.
+- Session- and queue-revision-scoped attachment caching; passive document frames, local workers, archive/image/workbook limits, bounded processing, rate-limited password attempts and unbuffered processing routes. Unsupported formats remain downloadable.
+
+See [Development release notes](wiki/Release-notes-Unreleased.md) for format limitations and proxy requirements.
 
 ## [4.2.0] - 2026-09-30
 

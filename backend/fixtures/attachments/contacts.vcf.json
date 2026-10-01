@@ -1,0 +1,18 @@
+{
+  "cards": [
+    {
+      "raw": "BEGIN:VCARD\nVERSION:3.0\nUID:preview-contact-1\nFN:First Fixture\nEMAIL:first@example.test\nEND:VCARD",
+      "title": "First Fixture",
+      "details": [
+        "first@example.test"
+      ]
+    },
+    {
+      "raw": "BEGIN:VCARD\nVERSION:3.0\nUID:preview-contact-2\nFN:Second Fixture\nEMAIL:second@example.test\nEND:VCARD",
+      "title": "Second Fixture",
+      "details": [
+        "second@example.test"
+      ]
+    }
+  ]
+}

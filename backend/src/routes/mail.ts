@@ -1,3 +1,5 @@
+import { AttachmentReadLimitError, AttachmentByteBudget } from '../services/attachmentRead.js';
+import { approveAttachmentPreview } from '../services/attachments/scan.js';
 import { messageFolderMembershipSql } from '../services/messageFolderMembership.js';
 import { listThreadMessages, ThreadAccountNotFoundError } from '../services/mailThreadService.js';
 import { populatedMessageSql, visiblePhysicalMessageSql } from '../services/messageVisibility.js';
@@ -672,6 +674,7 @@ const ZIP_MAX_FILE_BYTES  =  50 * 1024 * 1024; //  50 MB per file
 
 // Download all attachments as a ZIP archive
 router.get('/messages/:id/attachments.zip', async (req, res) => {
+  res.set('Cache-Control', 'private, no-store'); res.set('X-Content-Type-Options', 'nosniff');
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
@@ -707,7 +710,10 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
 
     // The provider is asked for each attachment; everything after this — the name
     // deduplication, the archive and the response — is shared with the IMAP path.
-    let bufferMap: Map<string, Buffer>;
+    let bufferMap: Map<string, Buffer>; const budget = new AttachmentByteBudget(ZIP_MAX_TOTAL_BYTES);
+    const retain = (part: string, bytes: Buffer) => {
+      budget.consume(bytes.length); if (bytes.length) bufferMap.set(part, bytes);
+    };
     if (account.mail_transport === 'microsoft_graph') {
       const identity = await resolveGraphMessageIdentity({ query }, {
         messageId: message.id, accountId: account.id,
@@ -723,8 +729,9 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
       for (const att of eligible) {
         try {
           const bytes = await fetchGraphAttachmentBytes(api, identity.providerMessageId, String(att.part), ZIP_MAX_FILE_BYTES);
-          if (bytes.length) bufferMap.set(att.part, bytes);
+          retain(att.part, bytes);
         } catch (caught) {
+          if (caught instanceof AttachmentReadLimitError) throw caught;
           // One unreadable or oversized attachment must not fail the whole archive.
           console.warn(`Attachment zip: skipped ${att.part}:`, caught instanceof Error ? caught.message : caught);
         }
@@ -746,8 +753,9 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
       for (const att of eligible) {
         try {
           const bytes = await fetchGmailAttachmentBytes(api, identity.providerMessageId, String(att.part), ZIP_MAX_FILE_BYTES);
-          if (bytes.length) bufferMap.set(att.part, bytes);
+          retain(att.part, bytes);
         } catch (caught) {
+          if (caught instanceof AttachmentReadLimitError) throw caught;
           // One unreadable or oversized attachment must not fail the whole archive.
           console.warn(`Attachment zip: skipped ${att.part}:`, caught instanceof Error ? caught.message : caught);
         }
@@ -778,6 +786,8 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
     if (entries.length === 0) return res.status(404).json({ error: 'Could not fetch attachments' });
 
     const zipName = (message.subject || 'attachments').substring(0, 100) + '-attachments.zip';
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', attachmentDisposition(zipName));
 
@@ -792,6 +802,7 @@ router.get('/messages/:id/attachments.zip', async (req, res) => {
     }
     archive.finalize();
   } catch (err) {
+    if (err instanceof AttachmentReadLimitError) return void res.status(413).json({ code: 'LIMIT', error: 'Attachment size limit exceeded' });
     console.error('ZIP fetch error:', err);
     if (!res.headersSent) res.status(500).json({ error: 'Failed to create ZIP' });
   }
@@ -855,6 +866,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
         ATTACHMENT_SIZE_LIMIT,
       );
       if (!bytes.length) return res.status(404).json({ error: 'Could not fetch attachment' });
+      if (!await approveAttachmentPreview(req, res, bytes)) return;
       res.setHeader('Content-Type', att.type || 'application/octet-stream');
       res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
       res.setHeader('Content-Length', bytes.length);
@@ -882,6 +894,7 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
         ATTACHMENT_SIZE_LIMIT,
       );
       if (!bytes.length) return res.status(404).json({ error: 'Could not fetch attachment' });
+      if (!await approveAttachmentPreview(req, res, bytes)) return;
       res.setHeader('Content-Type', att.type || 'application/octet-stream');
       res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
       res.setHeader('Content-Length', bytes.length);
@@ -890,12 +903,14 @@ router.get('/messages/:id/attachments/:part', async (req, res) => {
     const buffer = await imapManager.fetchAttachment(attachmentAccount, message.uid, message.folder, partNum);
 
     if (!buffer) return res.status(404).json({ error: 'Could not fetch attachment' });
+    if (!await approveAttachmentPreview(req, res, buffer)) return;
 
     res.setHeader('Content-Type', att.type || 'application/octet-stream');
     res.setHeader('Content-Disposition', attachmentDisposition(att.filename || 'attachment'));
     res.setHeader('Content-Length', buffer.length);
     res.send(buffer);
   } catch (err) {
+    if (err instanceof AttachmentReadLimitError) return void res.status(413).json({ code: 'LIMIT', error: 'Attachment size limit exceeded' });
     console.error('Attachment fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch attachment' });
   }

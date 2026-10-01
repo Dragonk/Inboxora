@@ -1,3 +1,6 @@
+import { attachmentWarningMiB as normalizeAttachmentWarning } from '../utils/attachmentUpload.ts';
+import { createAttachmentSlice, type AttachmentState } from './attachmentSlice.ts';
+import { clearAttachmentCache } from '../utils/attachments/fetchAttachment.ts';
 import { messageMatchesMailbox } from '../utils/mailViewScope.ts';
 import { appendPhysicalMessages, missingPhysicalMessages } from '../utils/nativeThreadMembership.ts';
 import { projectMailFlagIntents, projectMailThreadRows, scopedThreadUnreadCount } from '../utils/mailFlagIntents.ts';
@@ -108,7 +111,7 @@ export interface ComposeDraft {
 }
 
 
-export interface StoreState {
+export interface StoreState extends AttachmentState {
   user: StoreUserRow | null;
   /** Monotonic generation for invalidating asynchronous work from prior auth sessions. */
   authEpoch: number;
@@ -259,6 +262,8 @@ export interface StoreState {
   setConversationReaderViewEnabled: (val: boolean) => void;
   threadedView: boolean;
   setThreadedView: (val: boolean) => void;
+  attachmentWarningMiB: number;
+  setAttachmentWarningMiB: (value: number) => Promise<void>;
   plaintextEmail: boolean;
   setPlaintextEmail: (val: boolean) => void;
   hoverQuickActions: boolean;
@@ -565,7 +570,9 @@ const NAVIGATION_OWNER_KEY = 'mailflow_selected_navigation_owner';
 
 // The store shape is intentionally typed as `any` for now: it is a large,
 // dynamically-composed slice object, and typing it in full is tracked as part of
+let attachmentWarningOperation = 0;
 export const useStore = create<StoreState>()((set, get) => ({
+  ...createAttachmentSlice(set, get),
   // Auth
   user: null,
   authEpoch: 0,
@@ -578,6 +585,7 @@ export const useStore = create<StoreState>()((set, get) => ({
       && localStorage.getItem(NAVIGATION_OWNER_KEY) === user.id;
     const resetPrivateState = identityChanged && !isOwnedBootstrap;
     if (identityChanged) {
+      clearAttachmentCache();
       invalidateMailListCache();
       setAuthEpoch(get().authEpoch + 1);
       cancelPendingPrefSave();
@@ -592,7 +600,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }
     set((state: StoreStateRead) => ({
       user,
-      ...(identityChanged ? { calendarInviteAccountId: '', calendarInviteAliasId: '', calendarShowAgenda: true, authEpoch: state.authEpoch + 1, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
+      ...(identityChanged ? { attachmentPreview: null, attachmentWindows: [], calendarInviteAccountId: '', calendarInviteAliasId: '', calendarShowAgenda: true, authEpoch: state.authEpoch + 1, attachmentWarningMiB: 20, showScheduled: false, undoSendSeconds: 0, undoSendPreferencesStatus: 'loading' as const, undoSendSecondsSaving: false } : {}),
       ...(resetPrivateState ? {
         senderFaviconsLoaded: false,
         senderFavicons: false,
@@ -1194,6 +1202,13 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   // Compose format
+  attachmentWarningMiB: 20,
+  setAttachmentWarningMiB: async value => {
+    if (normalizeAttachmentWarning(value) !== value) throw new Error('Invalid attachment warning size');
+    const epoch = get().authEpoch; const operation = ++attachmentWarningOperation;
+    await api.savePreferences({ attachmentWarningMiB: value });
+    if (get().authEpoch === epoch && attachmentWarningOperation === operation) set({ attachmentWarningMiB: value });
+  },
   plaintextEmail: localStorage.getItem('mailflow_plaintext_email') === 'true',
   setPlaintextEmail: (val: boolean) =>{
     localStorage.setItem('mailflow_plaintext_email', String(val));
@@ -1699,6 +1714,7 @@ export const useStore = create<StoreState>()((set, get) => ({
   // Sets localStorage so subsequent page loads apply the right values instantly.
   loadPreferences: async () => {
     const epoch = get().authEpoch;
+    const warningOperation = attachmentWarningOperation;
     const undoOperation = _undoSendPreferenceOperation;
     const loadOperation = ++_preferencesLoadOperation;
     const agendaOperation = _calendarAgendaOperation;
@@ -1712,6 +1728,7 @@ export const useStore = create<StoreState>()((set, get) => ({
         const valid = typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= 0 && seconds <= 60;
         set(valid ? { undoSendSeconds: seconds, undoSendPreferencesStatus: 'ready' } : { undoSendPreferencesStatus: 'error' });
       }
+      if (warningOperation === attachmentWarningOperation) set({ attachmentWarningMiB: normalizeAttachmentWarning(prefs.attachmentWarningMiB) });
       // Per-user plugin activation. Absent = nothing activated (new users start with GTD off);
       // existing GTD users were grandfathered into ['gtd'] by migration 0042.
       set({ enabledPlugins: Array.isArray(prefs.enabledPlugins) ? prefs.enabledPlugins : [] });

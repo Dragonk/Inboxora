@@ -120,6 +120,15 @@ jobs:
           image="ghcr.io/$IMAGE_OWNER/inboxora-backend@$BACKEND_DIGEST"
           docker run --rm "$image" node dist/scripts/repairConversationHeaders.js --help
           docker run --rm "$image" node dist/scripts/storageMaintenanceStatus.js --help
+      - name: Verify native attachment processing in the built image
+        env:
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+        run: |
+          docker run --rm --network none --memory 768m --cpus 2 \
+            -e PDF_SIGNATURE_ONLINE=false \
+            -v "$PWD/backend/fixtures/attachments:/fixtures:ro" \
+            -v "$PWD/scripts/attachment-runtime-smoke.mjs:/runtime-smoke.mjs:ro" \
+            "ghcr.io/$IMAGE_OWNER/inboxora-backend@$BACKEND_DIGEST" node /runtime-smoke.mjs
       - name: Record verified platform digests
         env:
           ARCH: ${{ matrix.arch }}

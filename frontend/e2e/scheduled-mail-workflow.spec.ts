@@ -169,6 +169,30 @@ test('a server-authoritative past-time rejection keeps the schedule dialog edita
   await expect(page.getByTestId('scheduled-item-deadline')).toHaveCount(1);
 });
 
+test('queued attachment preview is revision-scoped and does not pause or mutate the queue', async ({ page }) => {
+  const server = await startBeforeDeadline(page);
+  server.previewOverrides.set('deadline', { message: { ...queueMessage,
+    attachments: [{ filename: 'milestones.txt', contentType: 'text/plain', size: 20 }],
+  } });
+  const reads: string[] = [];
+  await page.route('**/api/mail/scheduled/deadline/attachments/*', route => {
+    reads.push(route.request().url());
+    const parameters = new URL(route.request().url()).searchParams;
+    expect(parameters.get('revision')).toBe('1');
+    expect(parameters.get('preview')).toBe('1');
+    expect(route.request().headers()['x-requested-with']).toBe('MailFlow');
+    // The real revision-scoped download reports its server-side scan decision.
+    return route.fulfill({ contentType: 'text/plain', body: 'Queued preview text', headers: { 'X-Attachment-Scan': 'disabled' } });
+  });
+  await page.getByTestId('scheduled-refresh').click();
+  await page.getByTestId('scheduled-preview').locator('[data-message-detail-attachment="0"]').click();
+  const dialog = page.getByTestId('attachment-preview-dialog');
+  await expect(dialog.locator('pre')).toContainText('Queued preview text');
+  await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+  expect(reads).toHaveLength(1); expect(server.mutations).toEqual([]); expect(server.sendCalls).toBe(0);
+  expect(server.rows[0].state).toBe('pending');
+});
+
 test('queued attachments reuse inbox controls and dangerous-file confirmation without inbox operations or pausing', async ({ page }) => {
   const server = await startBeforeDeadline(page);
   server.previewOverrides.set('deadline', { message: { ...queueMessage,
@@ -196,15 +220,15 @@ test('queued attachments reuse inbox controls and dangerous-file confirmation wi
   await expect(preview.locator('[data-message-detail-attachment]')).toHaveCount(3);
   await expect(preview.locator('[data-message-detail-download-all]')).toHaveCount(0);
   const downloaded = page.waitForEvent('download');
-  await preview.locator('[data-message-detail-attachment="0"]').click();
+  await preview.locator('[data-message-detail-download="0"]').click();
   expect((await downloaded).suggestedFilename()).toBe('milestones.txt');
   expect(downloads).toEqual(['/api/mail/scheduled/deadline/attachments/0']);
-  await preview.locator('[data-message-detail-attachment="1"]').click();
+  await preview.locator('[data-message-detail-download="1"]').click();
   await expect(page.getByTestId('dangerous-attachment-download-dialog')).toBeVisible();
   expect(downloads).toHaveLength(1);
   await page.getByTestId('dangerous-attachment-download-dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(downloads).toHaveLength(1);
-  await preview.locator('[data-message-detail-attachment="1"]').click();
+  await preview.locator('[data-message-detail-download="1"]').click();
   const confirmed = page.waitForEvent('download');
   await page.getByTestId('dangerous-attachment-download-confirm').click();
   expect((await confirmed).suggestedFilename()).toBe('program.exe');
@@ -244,4 +268,32 @@ test('Scheduled uses the inbox list width, resize control, sender card and messa
   await expect(page.getByTestId('message-list-scroll')).toBeVisible();
   expect((await page.getByTestId('message-list-scroll').boundingBox())?.width).toBeCloseTo(resized!, 0);
   expect(server.mutations).toEqual([]); expect(server.sendCalls).toBe(0);
+});
+
+test('a blocked queue attachment cannot render or download before its warning is confirmed', async ({ page }) => {
+  const server = await startBeforeDeadline(page);
+  server.previewOverrides.set('deadline', { message: { ...queueMessage,
+    attachments: [{ filename: 'milestones.txt', contentType: 'text/plain', size: 20 }],
+  } });
+  let reads = 0; let downloads = 0;
+  await page.route('**/api/mail/scheduled/deadline/attachments/*', route => {
+    const parameters = new URL(route.request().url()).searchParams;
+    expect(parameters.get('revision')).toBe('1');
+    if (parameters.get('preview') === '1') {
+      reads++; return route.fulfill({ status: 422, json: { code: 'INFECTED' } });
+    }
+    downloads++; return route.fulfill({ contentType: 'text/plain', body: 'Queued preview text' });
+  });
+  await page.getByTestId('scheduled-refresh').click();
+  await page.getByTestId('scheduled-preview').locator('[data-message-detail-attachment="0"]').click();
+  const dialog = page.getByTestId('attachment-preview-dialog');
+  await expect(dialog.getByRole('alert')).toContainText('blocked');
+  await expect(dialog.locator('pre,iframe,canvas,img')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click();
+  const warning = page.getByTestId('attachment-dangerous-dialog');
+  await expect(warning).toContainText('scanner has not confirmed');
+  await warning.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(reads).toBe(1); expect(downloads).toBe(0);
+  expect(server.mutations).toEqual([]); expect(server.sendCalls).toBe(0);
+  expect(server.rows[0].state).toBe('pending');
 });

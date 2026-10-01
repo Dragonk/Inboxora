@@ -802,6 +802,8 @@ export async function patchPreferences(req: Request, res: Response) {
     if (error.status === 400) return res.status(400).json({ error: error.message });
     throw caught;
   }
+  const attachmentWarningMiB = req.body.attachmentWarningMiB;
+  if (attachmentWarningMiB !== undefined && (typeof attachmentWarningMiB !== 'number' || !Number.isInteger(attachmentWarningMiB) || attachmentWarningMiB < 0 || attachmentWarningMiB > 150)) return res.status(400).json({ error: 'Invalid attachment warning size' });
   const undoSendSeconds = req.body.undoSendSeconds;
   if (undoSendSeconds !== undefined && !validUndoSendSeconds(undoSendSeconds)) {
     return res.status(400).json({ error: 'undoSendSeconds must be an integer from 0 to 60' });
@@ -984,6 +986,7 @@ export async function patchPreferences(req: Request, res: Response) {
       || CASE WHEN $52::boolean IS NOT NULL THEN jsonb_build_object('mobileSidebarSwipeEnabled', $52::boolean) ELSE '{}'::jsonb END
       || CASE WHEN $53::int IS NOT NULL THEN jsonb_build_object('undoSendSeconds', $53::int) ELSE '{}'::jsonb END
       || $54::jsonb
+      || CASE WHEN $55::int IS NOT NULL THEN jsonb_build_object('attachmentWarningMiB', $55::int) ELSE '{}'::jsonb END
     WHERE id = $1
   `, [req.session.userId, theme ?? null, font ?? null, layout ?? null, notificationSound ?? null,
       pageSize ?? null, scrollMode ?? null, syncInterval ?? null,
@@ -999,7 +1002,7 @@ export async function patchPreferences(req: Request, res: Response) {
       calendarWorkDays !== undefined ? JSON.stringify(calendarWorkDays) : null,
       persistedWorkHoursStart ?? null, persistedWorkHoursEnd ?? null,
       themePrefs.themeMode, themePrefs.themeLight, themePrefs.themeDark,
-      mobileSidebarSwipeEnabled ?? null, undoSendSeconds ?? null, JSON.stringify(calendarPatch)]);
+      mobileSidebarSwipeEnabled ?? null, undoSendSeconds ?? null, JSON.stringify(calendarPatch), attachmentWarningMiB ?? null]);
 
   if (syncInterval != null) {
     const ms = parseInt(syncInterval) * 1000;

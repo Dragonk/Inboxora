@@ -1,3 +1,4 @@
+import { writeClipboardText } from '../utils/clipboard.ts';
 import { requestMailRefresh } from '../utils/mailRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
  
@@ -1560,10 +1561,10 @@ ${bodyContent}
       case 'open':
       case 'bulkSelect':
         break;
-      case 'copy':
+      case 'copy': break;
       case 'copySelection': {
-        const text = getPaneSelectionText();
-        if (text) navigator.clipboard?.writeText(text).catch(() => {});
+        const text = typeof data === 'string' ? data : contextMenu?.selectedText || getPaneSelectionText();
+        if (text) try { await writeClipboardText(text); } catch { addNotification({ title: t('attachment.clipboard.error'), body: '' }); }
         break;
       }
       case 'selectAllContent': {

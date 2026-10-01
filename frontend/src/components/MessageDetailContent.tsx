@@ -1,3 +1,8 @@
+import { writeClipboardText } from '../utils/clipboard.ts';
+import MessageBodyFind from './MessageBodyFind.tsx';
+import { sourceScanWarning } from '../utils/attachments/safety.ts';
+import { useStore } from '../store/index.ts';
+import AttachmentThumbnail from './attachments/AttachmentThumbnail.tsx';
 import CalendarInvitationCard from './CalendarInvitationCard.tsx';
 import SpamBadge from './SpamBadge.tsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -84,6 +89,7 @@ interface MessageDetailContentProps {
   onDownload?(physicalCopyId: string, part: string | undefined, filename: string | undefined): Promise<void> | void;
   /** Read-only previews can supply downloads without inventing a physical message ID. */
   onDownloadAttachment?(part: string | undefined, filename: string | undefined): Promise<void> | void;
+  getAttachmentPath?: (part: string | undefined) => string;
   hideDownloadAll?: boolean;
   readOnly?: boolean;
   downloadErrorLabel?: string;
@@ -112,6 +118,7 @@ export default function MessageDetailContent({
   onUnsubscribe,
   onDownload,
   onDownloadAttachment,
+  getAttachmentPath,
   hideDownloadAll = false,
   readOnly = false,
   downloadErrorLabel,
@@ -122,6 +129,8 @@ export default function MessageDetailContent({
   className = '',
 }: MessageDetailContentProps) {
   const { t } = useTranslation();
+  const authEpoch = useStore(state => state.authEpoch);
+  const openAttachmentPreview = useStore(state => state.openAttachmentPreview);
   // Keep existing catalogue entries live while native-only AI notices remain in the outer pane.
   const legacyAiLabels = [t('message.aiClassify.button'), t('message.aiClassify.info')];
   const [downloadingPart, setDownloadingPart] = useState<string | null | undefined>(null);
@@ -131,12 +140,14 @@ export default function MessageDetailContent({
     downloadScope.current += 1;
     setDownloadFailed(false);
     setDownloadingPart(null);
-    setPendingDownload(null);
+    setPendingDownload(null); setContextMenu(null); setFindOpen(false); setContentActionError(false);
     return () => { downloadScope.current += 1; };
   }, [physicalCopyId, message.id, body]);
   const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [contentActionError, setContentActionError] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const attachments: MessageDetailAttachment[] = Array.isArray(body?.attachments) ? body.attachments : [];
   const downloadAllUrl = !hideDownloadAll && canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments.zip` : undefined;
@@ -146,6 +157,23 @@ export default function MessageDetailContent({
   const blocked = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
   const listUnsubscribe = message?.list_unsubscribe ?? message?.listUnsubscribe;
   const unsubscribedAt = message?.unsubscribed_at ?? message?.unsubscribedAt;
+  const handleContentAction = (action: string, data?: unknown) => {
+    const selected = typeof data === 'string' ? data : contextMenu?.selectedText || '';
+    const scope = downloadScope.current; setContextMenu(null); setContentActionError(false);
+    if (action === 'copySelection') {
+      if (selected) void writeClipboardText(selected).catch(() => {
+        if (scope === downloadScope.current && useStore.getState().authEpoch === authEpoch) setContentActionError(true);
+      });
+      return;
+    }
+    if (action === 'selectAllContent') {
+      const doc = iframeRef.current?.contentDocument;
+      if (doc?.body) { const range = doc.createRange(); range.selectNodeContents(doc.body); const selection = doc.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); }
+      return;
+    }
+    if (action === 'findInContent') { setFindOpen(true); return; }
+    onContextAction?.(action, data, physicalCopyId);
+  };
   const openContextMenu = useCallback(({ x, y, selectedText = '' }: BodyContextMenuPosition) => {
     setContextMenu({ x, y, selectedText });
   }, []);
@@ -176,16 +204,29 @@ export default function MessageDetailContent({
     anchor.click();
     document.body.removeChild(anchor);
   };
+  const pathForAttachment = (attachment: MessageDetailAttachment) => {
+    if (getAttachmentPath) return getAttachmentPath(attachment.part);
+    return physicalCopyId && attachment.part !== undefined ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments/${encodeURIComponent(attachment.part)}` : undefined;
+  };
+  const previewAttachment = (attachment: MessageDetailAttachment) => {
+    if (!canAccessCopy) return;
+    const available = attachments.map(item => ({ item, path: pathForAttachment(item) })).filter(item => !!item.path);
+    const index = available.findIndex(item => item.item === attachment);
+    if (index < 0) { requestDownload(attachment); return; }
+    openAttachmentPreview({ authEpoch, index, downloadAllPath: downloadAllUrl, downloadAllDangerous: downloadAllContainsDangerousAttachment,
+      attachments: available.map(({ item, path }) => ({ filename: item.filename || t('attachment.preview.unnamed'), type: item.type || '', size: item.size, path: path! })),
+    });
+  };
   const requestDownload = (attachment: MessageDetailAttachment) => {
     if ((!physicalCopyId && !onDownloadAttachment) || !canAccessCopy || downloadingPart !== null) return;
-    if (isDangerousAttachment(attachment)) {
+    if (isDangerousAttachment(attachment) || sourceScanWarning(pathForAttachment(attachment))) {
       setPendingDownload({ kind: 'attachment', attachment });
       return;
     }
     void download(attachment);
   };
   const requestDownloadAll = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!downloadAllContainsDangerousAttachment) return;
+    if (!downloadAllContainsDangerousAttachment && !attachments.some(item => sourceScanWarning(pathForAttachment(item)))) return;
     event.preventDefault();
     if (!downloadAllUrl || downloadingPart !== null) return;
     setPendingDownload({ kind: 'all' });
@@ -234,10 +275,13 @@ export default function MessageDetailContent({
         </a>}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {attachments.map((att, i) => <button key={att.part || i} data-message-detail-attachment={String(att.part || i)} onClick={() => requestDownload(att)} disabled={!canAccessCopy || downloadingPart === att.part} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-secondary)', border: '1px solid var(--border)', cursor: downloadingPart === att.part ? 'wait' : 'pointer', color: 'var(--text-primary)', maxWidth: 240 }}>
-          <span style={{ display: 'flex', flexShrink: 0, color: 'var(--text-secondary)' }}><FileIcon type={att.type} /></span>
-          <span style={{ minWidth: 0, textAlign: 'left' }}><span style={{ display: 'block', fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)' }}>{downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}</span></span>
-        </button>)}
+        {attachments.map((att, i) => <div key={att.part || i} className="attachment-chip">
+          <button type="button" className="attachment-chip-main" data-message-detail-attachment={String(att.part || i)} onClick={() => previewAttachment(att)} disabled={!canAccessCopy}>
+            <AttachmentThumbnail path={canAccessCopy ? pathForAttachment(att) : undefined} filename={att.filename} type={att.type} epoch={authEpoch}><FileIcon type={att.type} /></AttachmentThumbnail>
+            <span style={{ minWidth: 0, textAlign: 'left' }}><span style={{ display: 'block', fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.filename}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)' }}>{downloadingPart === att.part ? t('message.downloading') : formatBytes(att.size)}</span></span>
+          </button>
+          <button type="button" className="attachment-chip-download" data-message-detail-download={String(att.part || i)} aria-label={t('attachment.preview.downloadNamed', { filename: att.filename })} onClick={() => requestDownload(att)} disabled={!canAccessCopy || downloadingPart === att.part}>↓</button>
+        </div>)}
       </div>
     </div>}
     {downloadFailed && <p role="alert" className="ui-alert">{downloadErrorLabel || t('common.error', { message: t('message.attachment', { count: 1 }) })}</p>}
@@ -253,9 +297,11 @@ export default function MessageDetailContent({
     {status.unavailable && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
     {!status.loading && !status.error && body && !html && !text && <div style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('message.noContent')}</div>}
     {!status.loading && !status.error && (html || text) && <div className="msg-card conversation-message-body-panel" data-message-detail-body="true" style={{ position: 'relative', padding: '14px 16px 12px', background: 'var(--message-body-bg)', borderRadius: mobile ? 0 : 10, border: mobile ? 'none' : '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout' }}>
-      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
+      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={readOnly ? null : openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
     </div>}
-    {!readOnly && contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={(action, data) => { setContextMenu(null); onContextAction?.(action, data, physicalCopyId); }} />}
+    {!readOnly && contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={handleContentAction} />}
+    {contentActionError && <p role="alert">{t('attachment.clipboard.error')}</p>}
+    {findOpen && <MessageBodyFind frame={iframeRef} onClose={() => setFindOpen(false)} />}
     {pendingDownload && <Dialog
       title={t('message.dangerousAttachment.title')}
       closeLabel={t('common.close')}
@@ -266,7 +312,7 @@ export default function MessageDetailContent({
         <Button variant="primary" data-testid="dangerous-attachment-download-confirm" onClick={confirmPendingDownload}>{t('message.dangerousAttachment.download')}</Button>
       </>}
     >
-      <p>{t('message.dangerousAttachment.body')}</p>
+      <p>{(pendingDownload?.kind === 'attachment' ? sourceScanWarning(pathForAttachment(pendingDownload.attachment)) : attachments.some(item => sourceScanWarning(pathForAttachment(item)))) ? t('attachment.security.downloadWarning') : t('message.dangerousAttachment.body')}</p>
     </Dialog>}
   </div>;
 }

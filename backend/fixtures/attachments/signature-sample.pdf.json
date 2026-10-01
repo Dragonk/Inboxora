@@ -1,0 +1,50 @@
+{
+  "checkedAt": "2026-10-01T09:33:36.591728+00:00",
+  "status": "valid",
+  "signatures": [
+    {
+      "field": "Approval",
+      "page": 1,
+      "status": "valid",
+      "integrity": "valid",
+      "trust": "valid",
+      "revocation": "checked",
+      "certificate": {
+        "commonName": "Inboxora synthetic signer",
+        "givenName": "Preview",
+        "surname": "Fixture",
+        "organization": "Inboxora tests",
+        "country": "PL",
+        "email": "fixture@example.test",
+        "subject": "Email Address: fixture@example.test, Country: PL, Organization: Inboxora tests, Surname: Fixture, Given Name: Preview, Common Name: Inboxora synthetic signer",
+        "issuer": "Common Name: Inboxora fixture root",
+        "serial": "273D8980F1C554FC6042948D0591CB358F139E52",
+        "fingerprint": "932509619a654346f6b46ed50c859a27e6da8e01c82a16d51f29a993e6092929",
+        "validFrom": "2026-09-30T09:26:04+00:00",
+        "validTo": "2027-10-01T09:26:04+00:00"
+      },
+      "signer": "Inboxora synthetic signer",
+      "claimedSigner": "",
+      "reason": "Fixture approval",
+      "location": "Warsaw",
+      "contact": "",
+      "claimedTime": "2026-10-01T09:26:04+00:00",
+      "subFilter": "/adbe.pkcs7.detached",
+      "byteRange": [
+        0,
+        77557,
+        84815,
+        592
+      ],
+      "signedRevision": 2,
+      "coverage": "ENTIRE_FILE",
+      "modification": "NONE",
+      "diagnostic": "",
+      "digestAlgorithm": "sha256",
+      "signatureAlgorithm": "sha256_rsa",
+      "timestamp": "unknown"
+    }
+  ],
+  "policy": "current-time",
+  "trustSource": "configured"
+}

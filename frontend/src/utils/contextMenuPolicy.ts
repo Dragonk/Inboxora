@@ -1,7 +1,7 @@
 export function getContextMenuPolicy(variant = 'inbox') {
   const gtdSidebar = variant === 'gtdSidebar';
   return {
-    select: !gtdSidebar,
+    select: !gtdSidebar && variant !== 'messagePane',
     compose: true,
     archive: !gtdSidebar,
     snooze: !gtdSidebar,

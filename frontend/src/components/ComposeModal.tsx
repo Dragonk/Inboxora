@@ -1,5 +1,7 @@
+import type { DraftPreviewSource } from '../utils/attachments/draftPreview.ts';
+import { attachmentBatchIssue } from '../utils/attachmentUpload.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
-import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef, lazy, Suspense } from 'react';
 import type { Editor } from '@tiptap/react';
 import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 import type { ChangeEvent } from 'react';
@@ -34,6 +36,8 @@ import { normalizeMailbox, partitionRejectedRecipients } from '../utils/retryRec
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 import { DefaultRecipients, type RecipientField } from '../utils/defaultRecipients.ts';
 import { initialComposeSender } from '../utils/composeSender.ts';
+
+const ComposeAttachmentPreview = lazy(() => import('./attachments/ComposeAttachmentPreview.tsx'));
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -313,7 +317,11 @@ export default function ComposeModal() {
   // latest invocation is allowed to advance the saved baseline.
   const draftSaveVersionRef = useRef(0);
   const [attachments, setAttachmentsState] = useState<Array<{ name?: string; size?: number; [key: string]: unknown }>>(() => (composeData?.attachments ?? []).map(a => ({ name: a.filename, data: a.content, type: a.contentType, size: Math.floor(a.content.length * 3 / 4) })));
-  const setAttachments = (value: React.SetStateAction<Array<{ name?: string; size?: number; [key: string]: unknown }>>) => { recordDraftEdit(); setAttachmentsState(value); };
+  const attachmentValues = useRef(attachments);
+  const setAttachments = (value: React.SetStateAction<typeof attachments>) => {
+    const next = typeof value === 'function' ? value(attachmentValues.current) : value;
+    attachmentValues.current = next; recordDraftEdit(); setAttachmentsState(next);
+  };
   /**
    * The limits the sending account's transport is measured against, asked of the server (P06).
    *
@@ -323,7 +331,23 @@ export default function ComposeModal() {
    */
   const [sendLimits, setSendLimits] = useState<{ transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } } | null>(null);
   const [fwdAttachments, setFwdAttachmentsState] = useState(() => composeData?.forwardedAttachments || []);
-  const setFwdAttachments = (value: React.SetStateAction<typeof fwdAttachments>) => { recordDraftEdit(); setFwdAttachmentsState(value); };
+  const forwardedValues = useRef(fwdAttachments);
+  const setFwdAttachments = (value: React.SetStateAction<typeof fwdAttachments>) => {
+    const next = typeof value === 'function' ? value(forwardedValues.current) : value;
+    forwardedValues.current = next; recordDraftEdit(); setFwdAttachmentsState(next);
+  };
+  const warningMiB = useStore(state => state.attachmentWarningMiB);
+  const pendingReads = useRef(new Map<FileReader, File>());
+  const readGeneration = useRef(0);
+  const [readingFiles, setReadingFiles] = useState(false);
+  const [fileDropActive, setFileDropActive] = useState(false);
+  const dragDepth = useRef(0);
+  const cancelAttachmentReads = () => {
+    readGeneration.current++;
+    for (const reader of pendingReads.current.keys()) reader.abort();
+    pendingReads.current.clear(); setReadingFiles(false);
+  };
+  useEffect(() => () => { readGeneration.current++; for (const reader of pendingReads.current.keys()) reader.abort(); pendingReads.current.clear(); }, []);
 
   // Baseline values captured at open time — updated after each successful keep-open save
   // so isDirty() reflects changes since the last save, not since the modal opened.
@@ -371,6 +395,7 @@ export default function ComposeModal() {
     for (const field of ['to', 'cc', 'bcc'] as const) recipientRevisionRef.current[field] += 1;
     if (next.cc.length) setShowCc(true);
     if (next.bcc.length) setShowBcc(true);
+    cancelAttachmentReads(); setSendLimits(null);
     recordDraftEdit(); setFromValueState(value);
   };
   if (initialFromRef.current === null) initialFromRef.current = fromValue;
@@ -391,7 +416,7 @@ export default function ComposeModal() {
   // Ask once per sending account; a late answer must not apply to a later session or another account.
   useEffect(() => {
     if (!sendingAccountId) { setSendLimits(null); return; }
-    let cancelled = false;
+    let cancelled = false; setSendLimits(null);
     api.getSendLimits(sendingAccountId)
       .then((data: { transport?: string; limits?: { singleAttachmentBytes?: number | null; totalAttachmentBytes?: number | null; inlineImageBytes?: number | null } }) => {
         if (!cancelled) setSendLimits(data ?? null);
@@ -453,6 +478,7 @@ export default function ComposeModal() {
   /** Fence asynchronous completions and mutations to the original unlocked compose session. */
   const currentCompose = () => composeAliveRef.current && useStore.getState().authEpoch === composeEpochRef.current
     && !useStore.getState().isLocked && useStore.getState().composing && useStore.getState().composeData === initialComposeDataRef.current;
+  const [draftPreview, setDraftPreview] = useState<{ files: DraftPreviewSource[]; index: number } | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -847,44 +873,86 @@ export default function ComposeModal() {
     }
   }, [editor]);
 
-  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    files.forEach(file => {
-      // Known-limit pre-check: refuse locally what the server would refuse anyway, so the user is not made to
-      // upload a file to be told its size. The server repeats the check and remains authoritative.
-      const single = sendLimits?.limits?.singleAttachmentBytes ?? null;
-      if (single !== null && file.size > single) {
-        setError(t('compose.limitAttachmentTooLarge', {
-          name: file.name, actual: byteSize(file.size), limit: byteSize(single), transport: limitTransportName(sendLimits?.transport),
-        }));
-        return;
-      }
-      const total = sendLimits?.limits?.totalAttachmentBytes ?? null;
-      if (total !== null) {
-        const already = attachments.reduce((sum, a) => sum + (a.size || 0), 0)
-          + fwdAttachments.reduce((sum, a) => sum + (Number(a.size) || 0), 0);
-        if (already + file.size > total) {
-          setError(t('compose.limitTooLarge', {
-            actual: byteSize(already + file.size), limit: byteSize(total), transport: limitTransportName(sendLimits?.transport),
-          }));
-          return;
-        }
-      }
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
-        const result = ev.target?.result;
-        const base64 = typeof result === 'string' ? result.split(',')[1] : '';
-        setAttachments(prev => {
-          if (prev.some(a => a.name === file.name)) return prev;
-          return [...prev, { name: file.name, size: file.size, type: file.type, data: base64 }];
-        });
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
+  const attachmentBytes = () => attachmentValues.current.reduce((sum, value) => sum + (Number(value.size) || 0), 0)
+    + forwardedValues.current.reduce((sum, value) => sum + (Number(value.size) || 0), 0);
+  const reportAttachmentLimit = (issue: NonNullable<ReturnType<typeof attachmentBatchIssue>>) => {
+    const values = { name: issue.name, actual: byteSize(issue.actual), limit: byteSize(issue.limit), transport: limitTransportName(sendLimits?.transport) };
+    if (issue.kind === 'single') setError(t('compose.limitAttachmentTooLarge', values));
+    else setError(t('compose.limitTooLarge', values));
   };
+  const addAttachmentFiles = (candidates: File[]) => {
+    if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
+    const names = new Set([...attachmentValues.current.map(value => value.name), ...[...pendingReads.current.values()].map(file => file.name)]);
+    const files = candidates.filter(file => { if (names.has(file.name)) return false; names.add(file.name); return true; });
+    if (!files.length) return;
+    if (files.length + attachmentValues.current.length + forwardedValues.current.length + pendingReads.current.size > 100) {
+      setError(t('attachment.compose.tooMany')); return;
+    }
+    // Use conservative installation defaults until the account's authoritative response arrives.
+    const limits = { singleAttachmentBytes: sendLimits?.limits?.singleAttachmentBytes ?? 25 * 1024 * 1024,
+      totalAttachmentBytes: sendLimits?.limits?.totalAttachmentBytes ?? 25 * 1024 * 1024 };
+    const pending = [...pendingReads.current.values()].reduce((sum, file) => sum + file.size, 0);
+    const issue = attachmentBatchIssue(files, attachmentBytes(), pending, limits);
+    if (issue) { reportAttachmentLimit(issue); return; }
+    const generation = readGeneration.current;
+    const batch = files.map(file => { const reader = new FileReader(); pendingReads.current.set(reader, file); return { file, reader }; });
+    setReadingFiles(true);
+    for (const { file, reader } of batch) {
+      const finish = () => { pendingReads.current.delete(reader); if (generation === readGeneration.current && currentCompose()) setReadingFiles(pendingReads.current.size > 0); };
+      reader.onload = () => {
+        try {
+          if (generation !== readGeneration.current || !currentCompose() || sendingRef.current || frozenQueueRef.current) return;
+          if (typeof reader.result !== 'string' || !reader.result.includes(',')) { setError(t('attachment.compose.readError')); return; }
+          const data = reader.result.slice(reader.result.indexOf(',') + 1);
+          setAttachments(previous => [...previous, { name: file.name, size: file.size, type: file.type, data }]);
+        } finally { finish(); }
+      };
+      reader.onerror = () => { if (generation === readGeneration.current && currentCompose()) setError(t('attachment.compose.readError')); finish(); };
+      reader.onabort = finish;
+      try { reader.readAsDataURL(file); } catch { if (currentCompose()) setError(t('attachment.compose.readError')); finish(); }
+    }
+  };
+  const previewComposerAttachment = (index: number, forwarded = false) => {
+    if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
+    const files: DraftPreviewSource[] = [];
+    for (const item of forwardedValues.current) {
+      if (!item.messageId || !item.part) { setError(t('attachment.compose.readError')); return; }
+      files.push({ filename: item.filename || t('attachment.preview.unnamed'), type: '', size: item.size ?? undefined,
+        path: `/api/mail/messages/${encodeURIComponent(item.messageId)}/attachments/${encodeURIComponent(item.part)}` });
+    }
+    for (const item of attachmentValues.current) files.push({
+      filename: String(item.name || t('attachment.preview.unnamed')), type: typeof item.type === 'string' ? item.type : '',
+      size: item.size, content: typeof item.data === 'string' ? item.data : '',
+    });
+    setDraftPreview({ files, index: index + (forwarded ? 0 : forwardedValues.current.length) });
+  };
+
+  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    addAttachmentFiles(Array.from(event.target.files || [])); event.target.value = '';
+  };
+  const fileDrag = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes('Files');
+  const dropHandlers = {
+    onDragEnterCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.preventDefault(); event.stopPropagation();
+      dragDepth.current++; if (!sendingRef.current && !frozenQueueRef.current) setFileDropActive(true);
+    },
+    onDragOverCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.preventDefault(); event.stopPropagation();
+      event.dataTransfer.dropEffect = sendingRef.current || frozenQueueRef.current ? 'none' : 'copy';
+    },
+    onDragLeaveCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.stopPropagation(); dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (!dragDepth.current) setFileDropActive(false);
+    },
+    onDropCapture: (event: React.DragEvent) => {
+      if (!fileDrag(event)) return; event.preventDefault(); event.stopPropagation();
+      dragDepth.current = 0; setFileDropActive(false); addAttachmentFiles(Array.from(event.dataTransfer.files));
+    },
+  };
+  const attachmentNotice = <>
+    {readingFiles && <p role="status" className="compose-attachment-notice">{t('attachment.compose.reading')}</p>}
+    {warningMiB > 0 && attachmentBytes() > warningMiB * 1024 * 1024 && <p role="status" className="compose-attachment-notice compose-attachment-warning">{t('attachment.compose.largeWarning', { size: warningMiB })}</p>}
+  </>;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1003,6 +1071,11 @@ export default function ComposeModal() {
 
   /** Submit only after all autosave acknowledgements reconcile the queued revision. */
   const handleSend = async ({ skipSubjectWarn = false, skipAttachWarn = false, merge = false } = {}) => {
+    if (pendingReads.current.size) { setError(t('attachment.compose.reading')); return; }
+    if (!frozenQueueRef.current) {
+      const known = attachmentBatchIssue([...attachmentValues.current, ...forwardedValues.current].map(value => ({ name: String(value.name || value.filename || ''), size: Number(value.size) || 0 })), 0, 0, sendLimits?.limits || {});
+      if (known) { reportAttachmentLimit(known); return; }
+    }
     if (sendingRef.current || savingDraftRef.current || autosaveReceiptRef.current || queuedConflictRef.current || !currentCompose()) return;
     if (merge && composeData?.queuedMail) { setError(t('queue.mergeQueuedBlocked')); return; }
     if (!frozenQueueRef.current && (undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving)) { setError(t('queue.preferencesLoading')); return; }
@@ -1222,6 +1295,7 @@ export default function ComposeModal() {
     style={{ flexShrink: 0, padding: '8px 14px', margin: 0, fontSize: 12 }}>{t('queue.editingNotice')}</div>;
 
   const scheduleControls = <>
+    {draftPreview && <Suspense fallback={null}><ComposeAttachmentPreview files={draftPreview.files} initialIndex={draftPreview.index} epoch={composeEpochRef.current} onClose={() => setDraftPreview(null)} /></Suspense>}
     {autosavePending && !savingDraft && <button type="button" data-testid="compose-autosave-retry" onClick={() => void doSaveDraft({ silent: true })}>{t('queue.retryEnqueue')}</button>}
     {(undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) && <span role="status" data-testid="compose-preferences-loading">{t(undoSendPreferencesStatus === 'error' ? 'queue.preferencesError' : 'queue.preferencesLoading')}{undoSendPreferencesStatus === 'error' && <button type="button" onClick={() => void useStore.getState().loadPreferences()}>{t('queue.refresh')}</button>}</span>}
     {showMergeConfirm && <Dialog title={t('queue.startMailMerge')} closeLabel={t('common.close')}
@@ -1734,7 +1808,7 @@ export default function ComposeModal() {
         )}
 
         {/* Scrollable fields + body */}
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div {...dropHandlers} data-file-drag={fileDropActive} data-testid="compose-body-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {/* From */}
           <div style={fieldStyle}>
             <span style={labelStyle}>{t('compose.from')}</span>
@@ -1972,12 +2046,13 @@ export default function ComposeModal() {
           )}
 
           {fwdAttachments.length > 0 && (
-            <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
+            <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onPreview={i => previewComposerAttachment(i, true)} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
           )}
           {attachments.length > 0 && (
-            <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
+            <AttachmentChips attachments={attachments} onPreview={i => previewComposerAttachment(i)} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
           )}
 
+          {attachmentNotice}
           {/* Error */}
           {error && (
             <div style={{
@@ -2540,14 +2615,15 @@ export default function ComposeModal() {
         </div>
       )}
       {fwdAttachments.length > 0 && (
-        <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} />
+        <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onPreview={i => previewComposerAttachment(i, true)} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} />
       )}
       {attachments.length > 0 && (
-        <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} />
+        <AttachmentChips attachments={attachments} onPreview={i => previewComposerAttachment(i)} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} />
       )}
 
+      {attachmentNotice}
       {/* Scrollable body area */}
-      <div data-testid="compose-body-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div {...dropHandlers} data-file-drag={fileDropActive} data-testid="compose-body-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         {/* Body */}
         {plaintextCompose ? (
           <textarea
@@ -3554,7 +3630,8 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${(n / 1048576).toFixed(1)}MB`;
 }
 
-function AttachmentChips({ attachments, onRemove, mobile = false }: { attachments: Array<{ filename?: string | null; name?: string | null; size?: number | null; [key: string]: unknown }>; onRemove: (index: number) => void; mobile?: boolean }) {
+function AttachmentChips({ attachments, onRemove, onPreview, mobile = false }: { attachments: Array<{ filename?: string | null; name?: string | null; size?: number | null; [key: string]: unknown }>; onRemove: (index: number) => void; onPreview: (index: number) => void; mobile?: boolean }) {
+  const { t } = useTranslation();
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 6,
@@ -3569,12 +3646,15 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
           borderRadius: 6, padding: '3px 6px 3px 8px', fontSize: 11,
           color: 'var(--text-secondary)', maxWidth: 240,
         }}>
+          <button type="button" className="compose-attachment-preview" aria-label={t('attachment.compose.preview', { filename: a.name })} title={t('attachment.compose.preview', { filename: a.name })} onClick={() => onPreview(i)}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
           </svg>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{a.name}</span>
           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{formatBytes(a.size)}</span>
+          </button>
           <button
+            aria-label={t('attachment.compose.remove', { filename: a.name })}
             type="button"
             onClick={() => onRemove(i)}
             style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0 }}

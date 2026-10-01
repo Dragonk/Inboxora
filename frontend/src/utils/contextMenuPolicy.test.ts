@@ -66,3 +66,8 @@ test('inbox actions keep their current row without resolving', async () => {
 
   assert.equal(result, message);
 });
+
+test('message content menus omit the list-only selection action', () => {
+  assert.equal(getContextMenuPolicy('messagePane').select, false);
+  assert.equal(getContextMenuPolicy('messagePane').compose, true);
+});

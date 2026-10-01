@@ -1,0 +1,38 @@
+{
+  "upstreamCommit": "6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3",
+  "upstreamLicense": "MIT",
+  "files": {
+    "example_password.docx": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/inputs/example_password.docx",
+      "sha256": "0605624697328060fdc75ca9929ea20b9d63ebed9387ff1a97aaf9979757234a"
+    },
+    "example_password.xlsx": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/inputs/example_password.xlsx",
+      "sha256": "3f792e3902a615bf0e91771f3f3016b80d59098b8e492efcdc0752748e15b997"
+    },
+    "ecma376standard_password.docx": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/inputs/ecma376standard_password.docx",
+      "sha256": "d265dcf02f7d552486229b8c67a627ef3752fe6802b02fd2d2d485fcfbbac5de"
+    },
+    "plain.xls": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/inputs/plain.xls",
+      "sha256": "0d57ed3cb8f9e09b0986a7d8d76407de6cb2dce84a2f30048eab9103225437f5"
+    },
+    "rc4cryptoapi_password.xls": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/inputs/rc4cryptoapi_password.xls",
+      "sha256": "b804cba40c27ea88f2ea994b6b7d75145661532f9356e7246d2499f63d58abfe"
+    },
+    "xor_password_123456789012345.xls": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/inputs/xor_password_123456789012345.xls",
+      "sha256": "c75375186933e2413325c4e64ce76903452d51413816d0df1d5fd677ea4dd76d"
+    },
+    "unlocked-example.docx": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/outputs/example.docx",
+      "sha256": "8c8212db6e624bfc69286e94d09b7e68c753ee86b6826e51427a33c841f133d1"
+    },
+    "unlocked-example.xlsx": {
+      "source": "https://raw.githubusercontent.com/nolze/msoffcrypto-tool/6d9e72c58de2cf7df1ab45ac0d74ebedac8c58e3/tests/outputs/example.xlsx",
+      "sha256": "4dd9dd0ccbfc7fb8769f1f3307830d3cc4c5042e32d619f4b2835fada89d13c6"
+    }
+  }
+}

@@ -29,6 +29,8 @@ interface MessageBodyRendererProps {
   html?: string;
   text?: string;
   remoteImages?: boolean;
+  blockAllNetwork?: boolean;
+  documentLayout?: boolean;
   quoteFolding?: boolean;
   onQuoteDetected?: ((detected: boolean) => void) | null;
   onHeightChange?: ((height: number) => void) | null;
@@ -41,10 +43,11 @@ interface MessageBodyRendererProps {
   style?: React.CSSProperties | null;
   onContextMenu?: ((position: { x: number; y: number; selectedText: string }) => void) | null;
   onOpenLink?: ((url: string) => void) | null;
+  onFrameKeyDown?: ((event: KeyboardEvent) => void) | null;
 }
 
 
-export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null, onOpenLink = null }: MessageBodyRendererProps) {
+export default function MessageBodyRenderer({ html = '', text = '', remoteImages = false, blockAllNetwork = false, documentLayout = false, quoteFolding = true, onQuoteDetected = null, onHeightChange = null, onInitialLayoutReady = null, iframeRef: externalIframeRef = null, onLoad = null, title = 'Message body', showQuotedTextLabel = 'Show quoted text', hideQuotedTextLabel = 'Hide quoted text', style: frameStyle = null, onContextMenu = null, onOpenLink = null, onFrameKeyDown = null }: MessageBodyRendererProps) {
   const internalIframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeRef = externalIframeRef || internalIframeRef;
 
@@ -56,12 +59,12 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
   const srcDoc = useMemo(() => {
     // The surface decides the canvas; its tone also tells the sanitiser whether the
     // message has to be adapted to a dark canvas before it is written into the frame.
-    const surface = getEmailSurface(theme);
+    const surface = documentLayout ? { tone: 'light' } : getEmailSurface(theme);
     const content = html
-      ? sanitizeMessageHtml(html, { remoteImages, tone: surface?.tone })
+      ? sanitizeMessageHtml(html, { remoteImages, tone: surface?.tone, blockAllNetwork, documentLayout })
       : `<pre data-mailflow-plain-text="true">${escapeMessageText(text)}</pre>`;
-    return buildSrcDoc(content, { remoteImages, surface });
-  }, [html, text, remoteImages, theme]);
+    return buildSrcDoc(content, { remoteImages, surface, blockAllNetwork, documentLayout });
+  }, [html, text, remoteImages, theme, blockAllNetwork, documentLayout]);
 
   // Auto-height: measure the iframe content and set the iframe height
   // so no internal scrollbar appears (same approach as MessagePane).
@@ -184,7 +187,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         // The same Inboxora menu is then available wherever the user right-clicks.
         event.preventDefault();
         const rect = iframe.getBoundingClientRect();
-        onContextMenu({ x: rect.left + event.clientX, y: rect.top + event.clientY, selectedText: selection });
+        onContextMenu({ x: rect.left + (Number.isFinite(event.clientX) ? event.clientX * rect.width / (iframe.offsetWidth || 1) : 0), y: rect.top + (Number.isFinite(event.clientY) ? event.clientY * rect.height / (iframe.offsetHeight || 1) : 0), selectedText: selection });
       };
       doc.addEventListener('click', onDocumentClick);
       doc.addEventListener('contextmenu', onDocumentContextMenu);
@@ -197,9 +200,12 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         observer = new ResizeObserver(measureExpanded);
         observer.observe(doc.body);
       }
+      const onKeyDown = (event: KeyboardEvent) => onFrameKeyDown?.(event);
+      doc.addEventListener('keydown', onKeyDown);
       measureExpanded();
       onLoad?.();
       return () => {
+        doc.removeEventListener('keydown', onKeyDown);
         doc.removeEventListener('click', onDocumentClick);
         doc.removeEventListener('contextmenu', onDocumentContextMenu);
         for (const image of images) {
@@ -219,7 +225,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cancelInitialLayout?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, iframeRef]);
+  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, onFrameKeyDown, iframeRef]);
 
 
   return (

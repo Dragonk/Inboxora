@@ -479,6 +479,16 @@ const dir = dirname(fileURLToPath(import.meta.url));
 type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
+  // Shared dictionary spellings, not untranslated fallback strings.
+  'attachment.archive.folder': [['en', 'pl']],
+  'attachment.archive.list': [['de', 'fr'], ['es', 'pl']],
+  // Established shared terms, reviewed only for these locale pairs.
+  'attachment.signatures.email': [['cs', 'fr', 'it', 'pl']],
+  'attachment.signatures.field': [['cs', 'pl']],
+  'attachment.signatures.fullDocument': [['es', 'it']],
+  'attachment.signatures.number': [['cs', 'pl'], ['en', 'fr'], ['es', 'it']],
+  'attachment.signatures.organization': [['de', 'fr']],
+  'attachment.signatures.title': [['cs', 'pl'], ['en', 'fr']],
   // General is the same section name in English and Spanish.
   'admin.tabs.groupAccountMail': [['en', 'es']],
   // Protocol names and the noun "port" have identical spellings in these locales.

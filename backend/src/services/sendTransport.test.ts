@@ -68,7 +68,7 @@ describe('binding a send to a transport', () => {
       accepted: ['you@example.test'],
       rejected: ['gone@example.test'],
     });
-    expect(sendMail).toHaveBeenCalledWith({ subject: 'hi', raw: rendered.raw });
+    expect(sendMail).toHaveBeenCalledWith({ subject: 'hi', raw: rendered.raw, envelope: { ...rendered.envelope, size: rendered.raw.length } });
     expect(graph).not.toHaveBeenCalled();
   });
 

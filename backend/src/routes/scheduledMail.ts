@@ -1,3 +1,4 @@
+import { approveAttachmentPreview } from '../services/attachments/scan.js';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth.js';
@@ -28,6 +29,7 @@ router.get('/scheduled/:id', handle(req => previewScheduledMail(req.session.user
 router.get('/scheduled/:id/attachments/:index', async (req, res) => {
   try {
     const attachment = await scheduledMailAttachment(req.session.userId!, String(req.params.id), req.params.index, req.query.revision);
+    if (!await approveAttachmentPreview(req, res, attachment.content)) return;
     res.set('Content-Type', 'application/octet-stream');
     res.set('Content-Disposition', attachmentDisposition(attachment.filename));
     res.set('X-Content-Type-Options', 'nosniff');

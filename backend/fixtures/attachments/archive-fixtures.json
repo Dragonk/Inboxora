@@ -1,0 +1,119 @@
+{
+  "archive.7z": {
+    "index": {
+      "entries": [
+        {
+          "name": "notes.md",
+          "size": 43,
+          "directory": false,
+          "encrypted": false
+        },
+        {
+          "name": "image.png",
+          "size": 1353,
+          "directory": false,
+          "encrypted": false
+        }
+      ],
+      "total": 1396
+    },
+    "files": {
+      "notes.md": "IyBBcmNoaXZlIHByZXZpZXcKClN5bnRoZXRpYyBhcmNoaXZlIHRleHQuCg==",
+      "image.png": "iVBORw0KGgoAAAANSUhEUgAAALQAAABkCAIAAACgkY1KAAAFEElEQVR4nO3df0zUdRzH8c/3e9wBAsbI2dpYFjBg/Ag1KeKHJAOGDQpsWTByE2WQNlBAkbkQOCVSoAOcuyCOuaiU3KigsnHp5okT5iTLfq4fUwnRcNbg7ojvcd/+uPHd7bg3k2scv16Pv777fr734bMvz33u+w9fuOF7owzAHn6+FwALF+IAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAksusrk4pfHuO1gFOc7ah9AGvxM4BJMQBpNl9rUgefGuCBcKBRwLsHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBaynH8cWuo7fRnY3rDfC9ksZrbOGIzchwe/f+KKmpdXRU3/xzu6Oqxe4Hm1KdzuoDFbinvHCP3/8lKTwkJ9NualmT3As1pxDETB//ibbZiM3JefSF54PrPo3p9/msvJ8REWs6/09L+7Y+/cowp9+9yVSgq6tQG4/gKd7eK4vzqpta0pI2boiOrVC3rw4Kj1odbj67y8Y7NyEmIiQwOeOKZdWFKVcvomD5jc0L2luctM3d09egNxh0lVU3K/clZuy52aooq66wnvDU0bDCO5x84oq45GJuRc7FTIy3VcizNn5oYV3O87d79vwXBVJSXHRYU4JybNu+cFIdgMnk/tLK17tDg7bs7SyotcQiCEBLovzc3+/OvdbXq993cFCmbYlIT47q1uvrm9tLd2wvePLr6YZ87f42kJsaV1TRZj1YfeEMQhJTnoqM3RBxpbC3Ykem/xvel3BIpjq1pSY2aj1pry6U12EzIGPug80t1zUFyzVPzV9a/m5meEh4cMHx3pKD8WId6ubxqwElxiGbxxeR4xpjvo6tHpSdEjrNUkrQxqr65nef5yuJ8xlhyfFRD64ePrPJJTYwrPHTspKqKMXbl2g/Wo4wxnuejnnqSMbYnN+ur85cuXL6qNxhnWIPNhDMs1XIgzX/pyrWbQ3csJ43j/5rNZp5fyl/HEifFIXdx8fL0sBxzHGc54DlONnWX5XK5yWSy+ZTBOO4ikxmM44wxURRtRmUyGc9xjLF9SlVi7NOZ6SkfEw+edie0JgUxOqYXppYhzT9pNp+oLnNVyM2iOHD9p2VSBnPaAynHc9NPTk6adf0DjLGeC5cjI0Ij14ZqdX2MMa2ub0NEyI3B231Xv2tUltYcbxNF0WbUep7vf/k9Of7ZiYmJCUGYYQ02EzLGRLNoFkXGmKeH+283BhljX5zr5aatdG1o0LnefsZYb/83mlOfOHwTFh0n7Rx2KRRyra7/ZEeXl6dHRXGeyTRZUa8+0611d3etLH697K2mwp1ZgX6P+T/u23n2fFFutvWo9TyvpCVt21Me5LfGy3PFhCAo5HK7P+5ww3vWE27ZnLAuPLiw/GiTsrR09/Z9h1U+3ivDggLk0z5ekr9NqWo+062VyfjyvXlzdTsWHm5W/6lJescD3s+x6Djwu1suX5/gAMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJAff7CO9CQSWMOwcQEIcQJrdO8FgWcHOASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEAaT/ABPKqNWFmQ3/AAAAAElFTkSuQmCC"
+    }
+  },
+  "archive.rar": {
+    "index": {
+      "entries": [
+        {
+          "name": "notes.md",
+          "size": 43,
+          "directory": false,
+          "encrypted": false
+        }
+      ],
+      "total": 43
+    },
+    "files": {
+      "notes.md": "IyBBcmNoaXZlIHByZXZpZXcKClN5bnRoZXRpYyBhcmNoaXZlIHRleHQuCg=="
+    }
+  },
+  "archive.tar": {
+    "index": {
+      "entries": [
+        {
+          "name": "notes.md",
+          "size": 43,
+          "directory": false,
+          "encrypted": false
+        },
+        {
+          "name": "image.png",
+          "size": 1353,
+          "directory": false,
+          "encrypted": false
+        }
+      ],
+      "total": 1396
+    },
+    "files": {
+      "notes.md": "IyBBcmNoaXZlIHByZXZpZXcKClN5bnRoZXRpYyBhcmNoaXZlIHRleHQuCg==",
+      "image.png": "iVBORw0KGgoAAAANSUhEUgAAALQAAABkCAIAAACgkY1KAAAFEElEQVR4nO3df0zUdRzH8c/3e9wBAsbI2dpYFjBg/Ag1KeKHJAOGDQpsWTByE2WQNlBAkbkQOCVSoAOcuyCOuaiU3KigsnHp5okT5iTLfq4fUwnRcNbg7ojvcd/+uPHd7bg3k2scv16Pv777fr734bMvz33u+w9fuOF7owzAHn6+FwALF+IAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAksusrk4pfHuO1gFOc7ah9AGvxM4BJMQBpNl9rUgefGuCBcKBRwLsHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBaynH8cWuo7fRnY3rDfC9ksZrbOGIzchwe/f+KKmpdXRU3/xzu6Oqxe4Hm1KdzuoDFbinvHCP3/8lKTwkJ9NualmT3As1pxDETB//ibbZiM3JefSF54PrPo3p9/msvJ8REWs6/09L+7Y+/cowp9+9yVSgq6tQG4/gKd7eK4vzqpta0pI2boiOrVC3rw4Kj1odbj67y8Y7NyEmIiQwOeOKZdWFKVcvomD5jc0L2luctM3d09egNxh0lVU3K/clZuy52aooq66wnvDU0bDCO5x84oq45GJuRc7FTIy3VcizNn5oYV3O87d79vwXBVJSXHRYU4JybNu+cFIdgMnk/tLK17tDg7bs7SyotcQiCEBLovzc3+/OvdbXq993cFCmbYlIT47q1uvrm9tLd2wvePLr6YZ87f42kJsaV1TRZj1YfeEMQhJTnoqM3RBxpbC3Ykem/xvel3BIpjq1pSY2aj1pry6U12EzIGPug80t1zUFyzVPzV9a/m5meEh4cMHx3pKD8WId6ubxqwElxiGbxxeR4xpjvo6tHpSdEjrNUkrQxqr65nef5yuJ8xlhyfFRD64ePrPJJTYwrPHTspKqKMXbl2g/Wo4wxnuejnnqSMbYnN+ur85cuXL6qNxhnWIPNhDMs1XIgzX/pyrWbQ3csJ43j/5rNZp5fyl/HEifFIXdx8fL0sBxzHGc54DlONnWX5XK5yWSy+ZTBOO4ikxmM44wxURRtRmUyGc9xjLF9SlVi7NOZ6SkfEw+edie0JgUxOqYXppYhzT9pNp+oLnNVyM2iOHD9p2VSBnPaAynHc9NPTk6adf0DjLGeC5cjI0Ij14ZqdX2MMa2ub0NEyI3B231Xv2tUltYcbxNF0WbUep7vf/k9Of7ZiYmJCUGYYQ02EzLGRLNoFkXGmKeH+283BhljX5zr5aatdG1o0LnefsZYb/83mlOfOHwTFh0n7Rx2KRRyra7/ZEeXl6dHRXGeyTRZUa8+0611d3etLH697K2mwp1ZgX6P+T/u23n2fFFutvWo9TyvpCVt21Me5LfGy3PFhCAo5HK7P+5ww3vWE27ZnLAuPLiw/GiTsrR09/Z9h1U+3ivDggLk0z5ekr9NqWo+062VyfjyvXlzdTsWHm5W/6lJescD3s+x6Djwu1suX5/gAMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJAff7CO9CQSWMOwcQEIcQJrdO8FgWcHOASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEAaT/ABPKqNWFmQ3/AAAAAElFTkSuQmCC"
+    }
+  },
+  "archive.tar.gz": {
+    "index": {
+      "entries": [
+        {
+          "name": "notes.md",
+          "size": 43,
+          "directory": false,
+          "encrypted": false
+        },
+        {
+          "name": "image.png",
+          "size": 1353,
+          "directory": false,
+          "encrypted": false
+        }
+      ],
+      "total": 1396
+    },
+    "files": {
+      "notes.md": "IyBBcmNoaXZlIHByZXZpZXcKClN5bnRoZXRpYyBhcmNoaXZlIHRleHQuCg==",
+      "image.png": "iVBORw0KGgoAAAANSUhEUgAAALQAAABkCAIAAACgkY1KAAAFEElEQVR4nO3df0zUdRzH8c/3e9wBAsbI2dpYFjBg/Ag1KeKHJAOGDQpsWTByE2WQNlBAkbkQOCVSoAOcuyCOuaiU3KigsnHp5okT5iTLfq4fUwnRcNbg7ojvcd/+uPHd7bg3k2scv16Pv777fr734bMvz33u+w9fuOF7owzAHn6+FwALF+IAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAEuIAksusrk4pfHuO1gFOc7ah9AGvxM4BJMQBpNl9rUgefGuCBcKBRwLsHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBCHEBaynH8cWuo7fRnY3rDfC9ksZrbOGIzchwe/f+KKmpdXRU3/xzu6Oqxe4Hm1KdzuoDFbinvHCP3/8lKTwkJ9NualmT3As1pxDETB//ibbZiM3JefSF54PrPo3p9/msvJ8REWs6/09L+7Y+/cowp9+9yVSgq6tQG4/gKd7eK4vzqpta0pI2boiOrVC3rw4Kj1odbj67y8Y7NyEmIiQwOeOKZdWFKVcvomD5jc0L2luctM3d09egNxh0lVU3K/clZuy52aooq66wnvDU0bDCO5x84oq45GJuRc7FTIy3VcizNn5oYV3O87d79vwXBVJSXHRYU4JybNu+cFIdgMnk/tLK17tDg7bs7SyotcQiCEBLovzc3+/OvdbXq993cFCmbYlIT47q1uvrm9tLd2wvePLr6YZ87f42kJsaV1TRZj1YfeEMQhJTnoqM3RBxpbC3Ykem/xvel3BIpjq1pSY2aj1pry6U12EzIGPug80t1zUFyzVPzV9a/m5meEh4cMHx3pKD8WId6ubxqwElxiGbxxeR4xpjvo6tHpSdEjrNUkrQxqr65nef5yuJ8xlhyfFRD64ePrPJJTYwrPHTspKqKMXbl2g/Wo4wxnuejnnqSMbYnN+ur85cuXL6qNxhnWIPNhDMs1XIgzX/pyrWbQ3csJ43j/5rNZp5fyl/HEifFIXdx8fL0sBxzHGc54DlONnWX5XK5yWSy+ZTBOO4ikxmM44wxURRtRmUyGc9xjLF9SlVi7NOZ6SkfEw+edie0JgUxOqYXppYhzT9pNp+oLnNVyM2iOHD9p2VSBnPaAynHc9NPTk6adf0DjLGeC5cjI0Ij14ZqdX2MMa2ub0NEyI3B231Xv2tUltYcbxNF0WbUep7vf/k9Of7ZiYmJCUGYYQ02EzLGRLNoFkXGmKeH+283BhljX5zr5aatdG1o0LnefsZYb/83mlOfOHwTFh0n7Rx2KRRyra7/ZEeXl6dHRXGeyTRZUa8+0611d3etLH697K2mwp1ZgX6P+T/u23n2fFFutvWo9TyvpCVt21Me5LfGy3PFhCAo5HK7P+5ww3vWE27ZnLAuPLiw/GiTsrR09/Z9h1U+3ivDggLk0z5ekr9NqWo+062VyfjyvXlzdTsWHm5W/6lJescD3s+x6Djwu1suX5/gAMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJMQBJAff7CO9CQSWMOwcQEIcQJrdO8FgWcHOASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEASTEAaT/ABPKqNWFmQ3/AAAAAElFTkSuQmCC"
+    }
+  },
+  "single.txt.gz": {
+    "index": {
+      "entries": [
+        {
+          "name": "single.txt",
+          "size": 43,
+          "directory": false,
+          "encrypted": false
+        }
+      ],
+      "total": 43
+    },
+    "files": {
+      "single.txt": "IyBBcmNoaXZlIHByZXZpZXcKClN5bnRoZXRpYyBhcmNoaXZlIHRleHQuCg=="
+    }
+  },
+  "sample-rar5.rar": {
+    "index": {
+      "entries": [
+        {
+          "name": "helloworld.txt",
+          "size": 29,
+          "directory": false,
+          "encrypted": false
+        }
+      ],
+      "total": 29
+    },
+    "files": {
+      "helloworld.txt": "aGVsbG8gbGliYXJjaGl2ZSB0ZXN0IHN1aXRlIQo="
+    }
+  }
+}

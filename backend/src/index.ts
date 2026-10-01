@@ -1,3 +1,4 @@
+import { startSignatureTrustRefresh } from './services/attachments/signatureTrust.js';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import 'express-async-errors'; // route a rejected async handler to the error middleware (Express 4 doesn't)
@@ -24,6 +25,7 @@ import providerWebhookRoutes from './routes/providerWebhooks.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/accounts.js';
 import mailRoutes from './routes/mail.js';
+import attachmentRoutes from './routes/attachments.js';
 import searchRoutes from './routes/search.js';
 import adminRoutes from './routes/admin.js';
 import totpRoutes from './routes/totp.js';
@@ -265,6 +267,7 @@ app.use('/api/integrations', integrationsRoutes);
 // header, and they authenticate themselves (Graph's clientState, Google's channel or Pub/Sub token).
 app.use('/api/provider-webhooks', providerWebhookRoutes);
 app.use('/api/accounts', accountRoutes);
+app.use('/api/mail', attachmentRoutes);
 app.use('/api/mail', mailRoutes);
 app.use('/api/mail', conversationsRoutes);
 app.use('/api/mail', conversationRebuildRoutes);
@@ -442,13 +445,16 @@ if (process.env.NODE_ENV !== 'test' && process.env.E2E_DISABLE_IMAP_CONNECT !== 
   }
 }
 
+let stopSignatureTrustRefresh: (() => void) | undefined;
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   startStorageMaintenance();
+  stopSignatureTrustRefresh = startSignatureTrustRefresh();
   console.log(`Inboxora backend running on port ${PORT}`);
 });
 
 process.on('SIGTERM', () => {
+  stopSignatureTrustRefresh?.();
   console.log('SIGTERM received — shutting down gracefully');
   const scheduledMailStopped = scheduledMailWorker.stop();
   const mailFlagsStopped = mailFlagWorker.stop();

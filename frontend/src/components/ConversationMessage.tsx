@@ -230,6 +230,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
       id: copyId,
       account_id: selectedAccountId,
       subject,
+      is_read: copy.isRead ?? copy.is_read, is_starred: copy.isStarred ?? copy.is_starred,
       from_email: copy.fromEmail || copy.from_email,
       from_name: copy.fromName || copy.from_name,
       list_unsubscribe: copy.listUnsubscribe ?? copy.list_unsubscribe,
@@ -285,12 +286,17 @@ export default function ConversationMessage({ conversationId, message, selectedC
     }
   };
 
+  const actionOwner = useRef({ alive: true, copyId: copy.id });
+  actionOwner.current.copyId = copy.id;
+  useEffect(() => { const owner = actionOwner.current; owner.alive = true; return () => { owner.alive = false; }; }, []);
   const actionOptions = { scope: 'THIS_COPY', copyId: copy.id, logicalMessageId: message.logicalMessageId ?? message.id };
   const runAction = async (callback: () => void, action: string, actionState: Record<string, unknown> = {}) => {
     if (!hasAccountCopy) return;
+    const epoch = useStore.getState().authEpoch; const copyId = copy.id;
+    const current = () => actionOwner.current.alive && actionOwner.current.copyId === copyId && useStore.getState().authEpoch === epoch;
     setActionError(null);
     try {
-      await callback();
+      await callback(); if (!current()) return;
       await onActionComplete({
         action,
         copyId: copy.id,
@@ -298,7 +304,7 @@ export default function ConversationMessage({ conversationId, message, selectedC
         ...actionState,
       });
     } catch (error) {
-      setActionError(toAppError(error).message || t('common.error'));
+      if (current()) setActionError(toAppError(error).message || t('common.error'));
     }
   };
   const loadFolders = async () => {
@@ -516,12 +522,24 @@ export default function ConversationMessage({ conversationId, message, selectedC
           if (!response.ok) throw new Error('Download failed');
           const blob = await response.blob(); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename || 'attachment'; anchor.click(); URL.revokeObjectURL(url);
         }}
-        onContextAction={(action: string, data: string, physicalCopyId: string) => {
+        onContextAction={(action: string, data: unknown, physicalCopyId?: string) => {
+          if (!physicalCopyId || physicalCopyId !== copy.id) return;
+          if (action === 'print') return handlePrint();
+          if (action === 'markRead' || action === 'markUnread') return runAction(() => onSetRead(physicalCopyId, action === 'markRead'), 'read', { isRead: action === 'markRead' });
+          if (action === 'toggleStar') return runAction(() => onSetStarred(physicalCopyId, !(copy.isStarred ?? copy.is_starred)), 'star', { isStarred: !(copy.isStarred ?? copy.is_starred) });
+          if (action === 'snooze' && typeof data === 'string') return runAction(() => api.snoozeMessage(physicalCopyId, data), 'snooze');
+          if (action === 'setCategory' && typeof data === 'string') return runAction(() => api.setMessageCategory(physicalCopyId, data), 'category');
+          if (action === 'createRuleFromMessage') {
+            useStore.getState().setRulesPreFill({ fromEmail: detailMessage.from_email, fromName: detailMessage.from_name });
+            setAdminTab('rules'); setShowAdmin(true); return;
+          }
+          if (action === 'addToBlockList' && detailMessage.from_email) return runAction(() => api.addToBlockList(detailMessage.from_email!), 'blockSender');
+
           if (action === 'reply') return reply(); if (action === 'replyAll') return reply(true); if (action === 'forward') return reply(false, true);
           if (action === 'archive') return runAction(() => conversationApi.archive(conversationId, { ...actionOptions, copyId: physicalCopyId }), 'archive', { copyId: physicalCopyId });
           if (action === 'delete') return runAction(() => conversationApi.delete(conversationId, { ...actionOptions, copyId: physicalCopyId }), 'delete', { copyId: physicalCopyId });
           if (action === 'markSpam') return runAction(() => api.markSpam(physicalCopyId), 'spam'); if (action === 'markHam') return runAction(() => api.markHam(physicalCopyId), 'ham');
-          if (action === 'moveTo' && data) return runAction(() => conversationApi.move(conversationId, data, { ...actionOptions, copyId: physicalCopyId }), 'move', { copyId: physicalCopyId });
+          if (action === 'moveTo' && typeof data === 'string') return runAction(() => conversationApi.move(conversationId, data, { ...actionOptions, copyId: physicalCopyId }), 'move', { copyId: physicalCopyId });
         }}
         onInitialBodyLayout={handleInitialBodyLayout}
         canAccessCopy={hasAccountCopy}

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { query } from '../services/db.js';
-import { effectiveSendLimits } from '../services/sendLimits.js';
+import { accountSendLimits, chooserAttachmentCeiling } from '../services/smtpSize.js';
+import type { EmailAccountRow } from '../services/imapManager.js';
 import { transportKindForAccount } from '../services/sendTransport.js';
 import { executeSend } from '../services/sendMail.js';
 export { ensureServerAutoSavedSentCopy, type SentCopyManager } from '../services/sendMail.js';
@@ -13,20 +14,22 @@ router.use(requireAuth);
 router.get('/send-limits', async (req, res) => {
   const accountId = typeof req.query.accountId === 'string' ? req.query.accountId : '';
   if (!accountId) return res.status(400).json({ error: 'accountId required' });
-  const result = await query<{ id: string; mail_transport: string | null }>(
-    'SELECT id, mail_transport FROM email_accounts WHERE id = $1 AND user_id = $2',
+  const result = await query<EmailAccountRow>(
+    'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
     [accountId, req.session.userId],
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const transport = transportKindForAccount(result.rows[0]);
-  const limits = effectiveSendLimits(transport);
+  const { limits, discovery } = await accountSendLimits(result.rows[0]);
+  res.set('Cache-Control', 'private, no-store');
+  const chooser = chooserAttachmentCeiling(limits);
   const orNull = (value: number) => (Number.isFinite(value) ? value : null);
   res.json({
-    transport,
+    transport, discovery: discovery.source, advertisedMessageBytes: discovery.bytes,
     limits: {
-      singleAttachmentBytes: orNull(limits.singleAttachmentBytes),
-      totalAttachmentBytes: orNull(limits.totalAttachmentBytes),
+      singleAttachmentBytes: orNull(Math.min(limits.singleAttachmentBytes, chooser)),
+      totalAttachmentBytes: orNull(Math.min(limits.totalAttachmentBytes, chooser)),
       inlineImageBytes: orNull(limits.inlineImageBytes),
       composedMessageBytes: orNull(limits.composedMessageBytes),
       providerRawMessageBytes: orNull(limits.providerRawMessageBytes),

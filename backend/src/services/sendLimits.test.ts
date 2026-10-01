@@ -19,12 +19,12 @@ import {
 } from './sendLimits.js';
 import {
   GMAIL_RAW_MESSAGE_MAX_BYTES,
+  GMAIL_ATTACHMENT_MAX_BYTES,
   GRAPH_UPLOAD_SESSION_FILE_MAX_BYTES,
   mailTransportCapabilities,
 } from './providers/mailCapabilities.js';
 
 const MIB = 1024 * 1024;
-const MIB25 = 25 * MIB;
 
 // P06: the limits belong to the transport. These cases pin the relationships rather than the numbers, so
 // that raising one ceiling cannot silently raise another — and so that a provider which declares a larger
@@ -48,8 +48,8 @@ describe('effective send limits', () => {
     expect(limits.composedMessageFromFallback).toBe(false);
     expect(limits.providerRawMessageBytes).toBe(GMAIL_RAW_MESSAGE_MAX_BYTES);
     expect(limits.providerMessageBytes).toBe(GMAIL_RAW_MESSAGE_MAX_BYTES);
-    expect(limits.totalAttachmentBytes).toBe(GMAIL_RAW_MESSAGE_MAX_BYTES);
-    expect(limits.singleAttachmentBytes).toBe(GMAIL_RAW_MESSAGE_MAX_BYTES);
+    expect(limits.totalAttachmentBytes).toBe(GMAIL_ATTACHMENT_MAX_BYTES);
+    expect(limits.singleAttachmentBytes).toBe(GMAIL_ATTACHMENT_MAX_BYTES);
     // Gmail has no upload object: an attachment travels inside the raw message, so there is no second method.
     expect(limits.providerUploadFileBytes).toBe(Number.POSITIVE_INFINITY);
     expect(limits.uploadSessionThresholdBytes).toBe(Number.POSITIVE_INFINITY);
@@ -214,6 +214,6 @@ describe('limit refusals', () => {
 
     const gmailBody = sendLimitRefusalBody(providerRawMessageRefusal(GMAIL_RAW_MESSAGE_MAX_BYTES + 1, gmail)!);
     expect(gmailBody.error).toContain('Gmail');
-    expect(sendLimitRefusalMessage(providerRawMessageRefusal(MIB25 + 1, gmail)!)).toContain('Gmail');
+    expect(sendLimitRefusalMessage(providerRawMessageRefusal(GMAIL_RAW_MESSAGE_MAX_BYTES + 1, gmail)!)).toContain('Gmail');
   });
 });

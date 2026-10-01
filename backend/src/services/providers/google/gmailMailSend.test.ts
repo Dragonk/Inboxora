@@ -57,10 +57,10 @@ describe('rendering the canonical model for Gmail', () => {
 
   it('refuses a message above Gmail\'s own raw ceiling, in the provider\'s terms', () => {
     expect(gmailMessageSizeRefusal(1024)).toBeNull();
-    expect(gmailMessageSizeRefusal(25 * 1024 * 1024 + 1)).toEqual({
+    expect(gmailMessageSizeRefusal(35 * 1024 * 1024 + 1)).toEqual({
       code: 'MESSAGE_TOO_LARGE',
-      actualBytes: 25 * 1024 * 1024 + 1,
-      limitBytes: 25 * 1024 * 1024,
+      actualBytes: 35 * 1024 * 1024 + 1,
+      limitBytes: 35 * 1024 * 1024,
     });
   });
 });

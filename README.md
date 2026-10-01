@@ -50,6 +50,22 @@ cache expiry is not mail deletion, and freed PostgreSQL pages need not immediate
 - **Desktop and mobile.** Resizable panes, themes, nine languages, installable PWA, Windows/Linux
   desktop apps and an Android app with UnifiedPush notifications.
 
+## Attachment previews in development
+
+The `dev` reader opens PDF at 100%, uses compact icon actions and search, and fills the mobile
+viewport. Images rotate both ways. Desktop previews can move into a floating window and back
+to fullscreen; PDF/images also have a native-browser action using private, short-lived blobs.
+
+Supported readers include images, PDF, DOCX with page/background preservation, spreadsheets,
+Markdown/Mermaid, structured text, ZIP/7z/RAR/TAR/compressed streams, media, HTML/EML and contact/calendar cards.
+The signature dialog separates integrity, certificate trust and revocation, with green/red/yellow
+results rather than treating a signature field as valid. Optional ClamAV blocks unsafe or unscannable
+previews but permits a warned download. All attachment/API access still requires the owning session.
+The composer accepts file drops, checks sender limits and offers a configurable large-attachment warning.
+
+See [development release notes](docs/wiki/Release-notes-Unreleased.md) for trust configuration,
+optional ClamAV setup, format limitations and resource budgets. Deploy both development images together.
+
 ## Screenshots
 
 Captured from the running application in one consistent style, on desktop (1440×900) and phone

@@ -141,6 +141,7 @@ function QueueDetail({ row, controller }: { row: ScheduledSummary; controller: S
         {message ? <MessageDetailContent key={`${row.id}:${row.revision}:${controller.authEpoch}`} message={{ id: row.id, account_id: row.accountId, from_email: sender }}
           body={detailBody} remoteImages={false} hideDownloadAll readOnly mobile={mobile}
           downloadErrorLabel={t('queue.actionError')}
+          getAttachmentPath={part => queuedAttachmentPath(row.id, row.revision, part)}
           onDownloadAttachment={async (part, filename) => {
             const request = requestRef.current;
             if (!request) return;
