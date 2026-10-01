@@ -1,5 +1,8 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 const paths = {
+  folder: 'M3 7V4h6l3 3h9v13H3z',
+  file: 'M14 2H5v20h14V7zM14 2v5h5M8 12h8M8 16h8',
+  image: 'M3 3h18v18H3zM3 17l6-6 4 4 3-3 5 5M8 7h1',
   download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
   downloadAll: 'M8 3v10m-4-4 4 4 4-4m4-6v10m-4-4 4 4 4-4M3 17v4h18v-4',
   detached: 'M9 3H3v18h18v-6M13 3h8v8m0-8L11 13',

@@ -21,6 +21,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 ## [Unreleased]
 
 ### Added
+- Composer attachment previews and archive folder browsing with list/thumbnail views.
 - PDF signature details and current-time integrity, certificate-chain and revocation checks, with distinct valid/invalid/unavailable indicators.
 - Optional private ClamAV container and a fail-closed preview gate; warned downloads remain available without changing original bytes.
 - Bounded 7z, RAR4/RAR5, TAR, GZIP, BZIP2, XZ and Zstandard readers alongside ZIP.
@@ -34,6 +35,8 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Preserve signature metadata line breaks; keep PDF search text readable and allow typed zoom percentages.
+- Correct preview-window action order and the mobile Send arrow. Repair content-menu copy, search, selection and conversation actions.
 - Keep plain-text BZh/ustar content in its declared viewer instead of misclassifying it as an archive.
 - Restore Mermaid node text, bidirectional image rotation and DOCX page sections/backgrounds; remove the mobile preview side gap.
 - Separate Gmail's 35-MiB raw-message limit from its 25-MiB attachment budget, discover SMTP SIZE and pass the exact MIME size to SMTP.

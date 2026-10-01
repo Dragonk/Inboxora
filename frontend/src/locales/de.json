@@ -2762,7 +2762,9 @@
       "largeWarning": "Die Anhänge überschreiten {{size}} MiB. Manche Empfänger können eine so große Nachricht ablehnen. Sie können sie trotzdem senden, sofern Ihr Anbieter dies erlaubt.",
       "readError": "Die Datei konnte nicht gelesen werden. Vorhandene Anhänge bleiben erhalten.",
       "reading": "Anhänge werden gelesen… Bitte vor dem Senden warten.",
-      "tooMany": "Eine Nachricht darf höchstens 100 Anhänge enthalten."
+      "tooMany": "Eine Nachricht darf höchstens 100 Anhänge enthalten.",
+      "preview": "Vorschau von {{filename}}",
+      "remove": "{{filename}} entfernen"
     },
     "signatures": {
       "certificate": "Signaturzertifikat",
@@ -2817,6 +2819,19 @@
       "empty": "Dies ist ein leeres Signaturfeld, keine digitale Signatur.",
       "certTime": "Das Zertifikat ist zum aktuellen Prüfzeitpunkt nicht gültig.",
       "trustUnavailable": "Zertifikatsvertrauen oder Sperrstatus konnten nicht bestätigt werden."
+    },
+    "archive": {
+      "root": "Archivinhalt",
+      "location": "Aktueller Ordner",
+      "view": "Archivansicht",
+      "list": "Liste",
+      "grid": "Miniaturansichten",
+      "folder": "Ordner",
+      "locked": "Passwort erforderlich"
+    },
+    "clipboard": {
+      "copied": "Kopiert",
+      "error": "Kopieren fehlgeschlagen. Verwenden Sie die Tastenkombination oder das Browsermenü."
     }
   }
 }

@@ -8,6 +8,7 @@ from pathlib import Path
 from asn1crypto import pem, x509, crl
 import certifi
 from pyhanko.pdf_utils.reader import PdfFileReader
+from pyhanko.pdf_utils.generic import pdf_string
 from pyhanko.sign.fields import enumerate_sig_fields
 from pyhanko.sign.validation import async_validate_pdf_signature
 from pyhanko.sign.validation.dss import DocumentSecurityStore, NoDSSFoundError
@@ -19,7 +20,22 @@ from public_network import certificate_session
 
 
 def text(value):
-    return str(value)[:2048] if value is not None else ''
+    # ByteStringObject must be decoded, not displayed as Python's b'...' repr.
+    if value is None:
+        return ''
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+        if raw.startswith((bytes.fromhex('feff'), bytes.fromhex('fffe'))):
+            value = raw.decode('utf-16', errors='replace')
+        else:
+            try:
+                value = raw.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                decoded = pdf_string(raw)
+                value = decoded if isinstance(decoded, str) else raw.decode('cp1252', errors='replace')
+    # Preserve real newlines; do not evaluate literal escapes or document HTML.
+    value = str(value).replace('\r\n', '\n').replace('\r', '\n')
+    return ''.join(c for c in value if c in '\n\t' or ord(c) >= 32 and ord(c) != 127)[:2048]
 
 
 def certificates(path):

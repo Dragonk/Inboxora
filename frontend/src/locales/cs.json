@@ -2762,7 +2762,9 @@
       "largeWarning": "Přílohy překračují {{size}} MiB. Někteří příjemci mohou tak velkou zprávu odmítnout. Můžete ji přesto odeslat, pokud to váš poskytovatel dovoluje.",
       "readError": "Soubor se nepodařilo načíst. Stávající přílohy zůstaly zachované.",
       "reading": "Načítání příloh… Před odesláním počkejte.",
-      "tooMany": "Zpráva může obsahovat nejvýše 100 příloh."
+      "tooMany": "Zpráva může obsahovat nejvýše 100 příloh.",
+      "preview": "Náhled {{filename}}",
+      "remove": "Odebrat {{filename}}"
     },
     "signatures": {
       "certificate": "Certifikát podepisujícího",
@@ -2817,6 +2819,19 @@
       "empty": "Toto je prázdné pole, nikoli digitální podpis.",
       "certTime": "Certifikát není platný v aktuálním čase ověření.",
       "trustUnavailable": "Důvěryhodnost certifikátu nebo stav odvolání se nepodařilo potvrdit."
+    },
+    "archive": {
+      "root": "Obsah archivu",
+      "location": "Aktuální složka",
+      "view": "Zobrazení archivu",
+      "list": "Seznam",
+      "grid": "Náhledy",
+      "folder": "Složka",
+      "locked": "Vyžadováno heslo"
+    },
+    "clipboard": {
+      "copied": "Zkopírováno",
+      "error": "Kopírování se nezdařilo. Použijte klávesovou zkratku nebo nabídku prohlížeče."
     }
   }
 }

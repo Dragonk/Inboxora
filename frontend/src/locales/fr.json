@@ -2762,7 +2762,9 @@
       "largeWarning": "Les pièces jointes dépassent {{size}} MiB. Certains destinataires peuvent refuser un message aussi volumineux. Vous pouvez néanmoins l’envoyer si votre fournisseur l’autorise.",
       "readError": "Impossible de lire le fichier. Les pièces jointes existantes sont conservées.",
       "reading": "Lecture des pièces jointes… Patientez avant d’envoyer.",
-      "tooMany": "Un message peut contenir au maximum 100 pièces jointes."
+      "tooMany": "Un message peut contenir au maximum 100 pièces jointes.",
+      "preview": "Aperçu de {{filename}}",
+      "remove": "Retirer {{filename}}"
     },
     "signatures": {
       "certificate": "Certificat du signataire",
@@ -2817,6 +2819,19 @@
       "empty": "Il s’agit d’un champ vide, pas d’une signature numérique.",
       "certTime": "Le certificat n’est pas valide à l’heure actuelle de vérification.",
       "trustUnavailable": "La confiance du certificat ou son statut de révocation n’a pas pu être confirmé."
+    },
+    "archive": {
+      "root": "Contenu de l’archive",
+      "location": "Dossier actuel",
+      "view": "Affichage de l’archive",
+      "list": "Liste",
+      "grid": "Miniatures",
+      "folder": "Dossier",
+      "locked": "Mot de passe requis"
+    },
+    "clipboard": {
+      "copied": "Copié",
+      "error": "Échec de la copie. Utilisez le raccourci clavier ou le menu du navigateur."
     }
   }
 }

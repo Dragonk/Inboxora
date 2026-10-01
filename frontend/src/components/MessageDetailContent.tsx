@@ -1,3 +1,5 @@
+import { writeClipboardText } from '../utils/clipboard.ts';
+import MessageBodyFind from './MessageBodyFind.tsx';
 import { sourceScanWarning } from '../utils/attachments/safety.ts';
 import { useStore } from '../store/index.ts';
 import AttachmentThumbnail from './attachments/AttachmentThumbnail.tsx';
@@ -138,12 +140,14 @@ export default function MessageDetailContent({
     downloadScope.current += 1;
     setDownloadFailed(false);
     setDownloadingPart(null);
-    setPendingDownload(null);
+    setPendingDownload(null); setContextMenu(null); setFindOpen(false); setContentActionError(false);
     return () => { downloadScope.current += 1; };
   }, [physicalCopyId, message.id, body]);
   const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [contentActionError, setContentActionError] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const attachments: MessageDetailAttachment[] = Array.isArray(body?.attachments) ? body.attachments : [];
   const downloadAllUrl = !hideDownloadAll && canAccessCopy && physicalCopyId ? `/api/mail/messages/${encodeURIComponent(physicalCopyId)}/attachments.zip` : undefined;
@@ -153,6 +157,23 @@ export default function MessageDetailContent({
   const blocked = Boolean(body?.hasBlockedRemoteImages ?? body?.has_blocked_remote_images);
   const listUnsubscribe = message?.list_unsubscribe ?? message?.listUnsubscribe;
   const unsubscribedAt = message?.unsubscribed_at ?? message?.unsubscribedAt;
+  const handleContentAction = (action: string, data?: unknown) => {
+    const selected = typeof data === 'string' ? data : contextMenu?.selectedText || '';
+    const scope = downloadScope.current; setContextMenu(null); setContentActionError(false);
+    if (action === 'copySelection') {
+      if (selected) void writeClipboardText(selected).catch(() => {
+        if (scope === downloadScope.current && useStore.getState().authEpoch === authEpoch) setContentActionError(true);
+      });
+      return;
+    }
+    if (action === 'selectAllContent') {
+      const doc = iframeRef.current?.contentDocument;
+      if (doc?.body) { const range = doc.createRange(); range.selectNodeContents(doc.body); const selection = doc.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); }
+      return;
+    }
+    if (action === 'findInContent') { setFindOpen(true); return; }
+    onContextAction?.(action, data, physicalCopyId);
+  };
   const openContextMenu = useCallback(({ x, y, selectedText = '' }: BodyContextMenuPosition) => {
     setContextMenu({ x, y, selectedText });
   }, []);
@@ -276,9 +297,11 @@ export default function MessageDetailContent({
     {status.unavailable && <div role="status" style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('conversation.noBody')}</div>}
     {!status.loading && !status.error && body && !html && !text && <div style={{ padding: 16, color: 'var(--text-tertiary)' }}>{t('message.noContent')}</div>}
     {!status.loading && !status.error && (html || text) && <div className="msg-card conversation-message-body-panel" data-message-detail-body="true" style={{ position: 'relative', padding: '14px 16px 12px', background: 'var(--message-body-bg)', borderRadius: mobile ? 0 : 10, border: mobile ? 'none' : '1px solid var(--border-subtle)', overflow: 'hidden', contain: 'layout' }}>
-      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
+      <MessageBodyRenderer html={html} text={text} remoteImages={remoteImages} iframeRef={iframeRef} title={t('message.emailFrameTitle')} showQuotedTextLabel={t('conversation.showQuotedText')} hideQuotedTextLabel={t('conversation.hideQuotedText')} onContextMenu={readOnly ? null : openContextMenu} onOpenLink={openExternalLink} onInitialLayoutReady={onInitialBodyLayout} style={{ width: '1px', minWidth: '100%', height: '300px' }} />
     </div>}
-    {!readOnly && contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={(action, data) => { setContextMenu(null); onContextAction?.(action, data, physicalCopyId); }} />}
+    {!readOnly && contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} message={message} variant="messagePane" selectedText={contextMenu.selectedText} onClose={() => setContextMenu(null)} onAction={handleContentAction} />}
+    {contentActionError && <p role="alert">{t('attachment.clipboard.error')}</p>}
+    {findOpen && <MessageBodyFind frame={iframeRef} onClose={() => setFindOpen(false)} />}
     {pendingDownload && <Dialog
       title={t('message.dangerousAttachment.title')}
       closeLabel={t('common.close')}

@@ -47,9 +47,9 @@ export async function loadImage(blob: Blob, signal: AbortSignal): Promise<HTMLIm
     return image;
   } finally { URL.revokeObjectURL(url); }
 }
-export async function imagePng(blob: Blob, signal: AbortSignal, thumbnail = false, rotation = 0): Promise<Blob> {
+export async function imagePng(blob: Blob, signal: AbortSignal, thumbnail: boolean | number = false, rotation = 0): Promise<Blob> {
   const image = await loadImage(blob, signal); const canvas = document.createElement('canvas');
-  const factor = thumbnail ? Math.min(1, 48 / Math.max(image.naturalWidth, image.naturalHeight)) : 1;
+  const factor = thumbnail ? Math.min(1, (typeof thumbnail === 'number' ? Math.max(16, Math.min(256, thumbnail)) : 48) / Math.max(image.naturalWidth, image.naturalHeight)) : 1;
   const width = Math.max(1, Math.round(image.naturalWidth * factor)); const height = Math.max(1, Math.round(image.naturalHeight * factor));
   const angle = ((rotation % 360) + 360) % 360;
   canvas.width = angle % 180 ? height : width; canvas.height = angle % 180 ? width : height;

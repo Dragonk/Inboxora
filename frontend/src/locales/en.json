@@ -2762,7 +2762,9 @@
       "largeWarning": "Attachments exceed {{size}} MiB. Some recipients may reject a message this large. You can still send it if your sending provider allows it.",
       "readError": "The file could not be read. Existing attachments have been kept.",
       "reading": "Reading attachments… Wait before sending.",
-      "tooMany": "A message can contain at most 100 attachments."
+      "tooMany": "A message can contain at most 100 attachments.",
+      "preview": "Preview {{filename}}",
+      "remove": "Remove {{filename}}"
     },
     "signatures": {
       "certificate": "Signing certificate",
@@ -2817,6 +2819,19 @@
       "empty": "This is an empty signature field, not a digital signature.",
       "certTime": "The certificate is not valid at the current validation time.",
       "trustUnavailable": "Certificate trust or revocation could not be confirmed."
+    },
+    "archive": {
+      "root": "Archive contents",
+      "location": "Current folder",
+      "view": "Archive view",
+      "list": "List",
+      "grid": "Thumbnails",
+      "folder": "Folder",
+      "locked": "Password required"
+    },
+    "clipboard": {
+      "copied": "Copied",
+      "error": "Could not copy. Use the keyboard shortcut or the browser menu."
     }
   }
 }

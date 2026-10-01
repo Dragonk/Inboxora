@@ -479,6 +479,9 @@ const dir = dirname(fileURLToPath(import.meta.url));
 type SameValueRule = 'any' | string[][];
 
 const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
+  // Shared dictionary spellings, not untranslated fallback strings.
+  'attachment.archive.folder': [['en', 'pl']],
+  'attachment.archive.list': [['de', 'fr'], ['es', 'pl']],
   // Established shared terms, reviewed only for these locale pairs.
   'attachment.signatures.email': [['cs', 'fr', 'it', 'pl']],
   'attachment.signatures.field': [['cs', 'pl']],

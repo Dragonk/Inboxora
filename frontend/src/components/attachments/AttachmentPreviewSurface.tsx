@@ -52,10 +52,11 @@ function PreviewContent({ file, onOpen, onDownload }: { file: PreviewFile; onOpe
   else content = <TextPreview file={file} kind={kind} />;
   return <PreviewBoundary key={`${file.filename}:${kind}`}><Suspense fallback={<PreviewStatus loading />}>{content}</Suspense></PreviewBoundary>;
 }
-export default function AttachmentPreviewSurface({ selection, onSelect, onDetach, onClose, onFullscreen, onMinimize, escapeRef }: {
+export default function AttachmentPreviewSurface({ selection, onSelect, onDetach, onClose, onFullscreen, onMinimize, escapeRef, localFiles }: {
   selection: AttachmentSelection; onSelect: (index: number) => void; onDetach?: () => void; onClose?: () => void;
   onFullscreen?: () => void; onMinimize?: () => void;
   escapeRef?: MutableRefObject<() => void>;
+  localFiles?: ReadonlyMap<string, () => Promise<Blob>>;
 }) {
   const { t } = useTranslation(); const epoch = useStore(state => state.authEpoch); const index = selection.index;
   const [stack, setStack] = useState<PreviewFile[]>([]); const [progress, setProgress] = useState({ loaded: 0, total: 0 });
@@ -70,11 +71,16 @@ export default function AttachmentPreviewSurface({ selection, onSelect, onDetach
     setStack([]); setProgress({ loaded: 0, total: 0 });
     if (!source || !isCurrentAuthEpoch(selection.authEpoch)) throw new DOMException('Preview cancelled', 'AbortError');
     if ((source.size || 0) > PREVIEW_LIMIT) throw new Error('LIMIT');
+    const local = localFiles?.get(source.path);
+    if (local) {
+      const blob = await local(); signal.throwIfAborted();
+      return { filename: source.filename, type: source.type, blob, budget: { expanded: 0 }, depth: 0 } satisfies PreviewFile;
+    }
     const lease = acquireAttachment(source.path, selection.authEpoch, (loaded, total) => { if (!signal.aborted) setProgress({ loaded, total }); });
     signal.addEventListener('abort', lease.release, { once: true });
     const blob = await lease.promise; signal.throwIfAborted();
     return { filename: source.filename, type: source.type, blob, budget: { expanded: 0 }, depth: 0 } satisfies PreviewFile;
-  }, [source?.path, source?.filename, source?.type, source?.size, selection.authEpoch]);
+  }, [source?.path, source?.filename, source?.type, source?.size, selection.authEpoch, localFiles]);
   const file = state.loading ? undefined : stack.at(-1) || state.value;
   const approval = usePreviewResource(async signal => file ? await ensurePreviewSafe(file.blob, signal) : false, [file?.blob]);
   const native = usePreviewResource(async signal => file && approval.value ? nativePreviewBlob(file, signal) : undefined, [file?.blob, approval.value]);
@@ -94,7 +100,8 @@ export default function AttachmentPreviewSurface({ selection, onSelect, onDetach
     if (!source || !isCurrentAuthEpoch(selection.authEpoch) || downloadRequest.current && !downloadRequest.current.signal.aborted) return;
     const controller = new AbortController(); downloadRequest.current = controller; setDownloading(true); setDownloadFailed(false);
     try {
-      const blob = await fetchOriginalAttachment(source.path, selection.authEpoch, controller.signal);
+      const local = localFiles?.get(source.path);
+      const blob = local ? await local() : await fetchOriginalAttachment(source.path, selection.authEpoch, controller.signal);
       controller.signal.throwIfAborted();
       if (isCurrentAuthEpoch(selection.authEpoch)) downloadBlob(blob, source.filename);
     } catch { if (!controller.signal.aborted && isCurrentAuthEpoch(selection.authEpoch)) setDownloadFailed(true); }
@@ -115,12 +122,12 @@ export default function AttachmentPreviewSurface({ selection, onSelect, onDetach
       {!!stack.length && <Button onClick={back}>{t('common.back')}</Button>}
       <span data-window-drag className="attachment-filename" title={file?.filename || source?.filename}>{file?.filename || source?.filename}</span>
       <span className="attachment-size">{t('attachment.preview.bytes', { size: file?.blob.size || source?.size || 0 })}</span>
-      <PreviewAction icon="download" disabled={downloading} label={t('attachment.preview.download')} tooltip={t('attachment.tips.download')} onClick={() => file ? download(file) : requestOriginal()} />
+      <PreviewAction icon="download" disabled={downloading || (!!file && approval.loading)} label={t('attachment.preview.download')} tooltip={t('attachment.tips.download')} onClick={() => file ? download(file) : requestOriginal()} />
       {selection.downloadAllPath && <PreviewAction icon="downloadAll" label={t('message.downloadAll')} tooltip={t('attachment.tips.downloadAll')} onClick={() => (blocked || selection.downloadAllDangerous || selection.attachments.some(item => sourceScanWarning(item.path))) ? setPending('all') : all()} />}
-      {onDetach && !stack.length && <PreviewAction icon="detached" label={t('attachment.preview.openWindow')} tooltip={t('attachment.tips.openWindow')} onClick={onDetach} />}
       {native.value && approval.value && <PreviewAction icon="external" label={t('attachment.preview.openNative')} tooltip={t('attachment.tips.openNative')} onClick={() => { if (native.value) openNativePreview(native.value, selection.authEpoch); }} />}
-      {onFullscreen && <PreviewAction icon="fullscreen" label={t('attachment.preview.fullscreen')} onClick={onFullscreen} />}
+      {onDetach && !stack.length && <PreviewAction icon="detached" label={t('attachment.preview.openWindow')} tooltip={t('attachment.tips.openWindow')} onClick={onDetach} />}
       {onMinimize && <PreviewAction icon="minimize" label={t('window.minimize')} onClick={onMinimize} />}
+      {onFullscreen && <PreviewAction icon="fullscreen" label={t('attachment.preview.fullscreen')} onClick={onFullscreen} />}
       {onClose && <PreviewAction icon="close" label={t('common.close')} onClick={onClose} />}
     </div>
     {gallery && <nav className="attachment-gallery" aria-label={t('attachment.preview.gallery')}>

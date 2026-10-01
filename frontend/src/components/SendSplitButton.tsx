@@ -49,7 +49,7 @@ export default function SendSplitButton({ onSend, onSchedule, onMerge, sendLabel
         if (event.key === 'ArrowUp') { event.preventDefault(); openMenu(true); } }}
       style={{ ...buttonStyle, padding: mobile ? '4px 5px' : '8px 9px', borderInlineStart: mobile ? '1px solid var(--border)' : '1px solid color-mix(in srgb, var(--accent-text) 35%, transparent)',
         borderRadius: mobile ? 0 : '0 7px 7px 0', opacity: menuDisabled ? 0.6 : 1, cursor: menuDisabled ? 'default' : 'pointer' }}>
-      <svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="m3 10 5-5 5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      <svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="none"><path d={mobile ? "m3 6 5 5 5-5" : "m3 10 5-5 5 5"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
     </button>
     {open && <div id={menuId} role="menu" aria-label={menuLabel} style={{ position: mobile ? 'fixed' : 'absolute',
       ...(mobile ? { top: 'calc(56px + env(safe-area-inset-top, 0px))', right: 'max(12px, env(safe-area-inset-right, 0px))' } : { bottom: 'calc(100% + 8px)', left: 0 }), zIndex: 13000,

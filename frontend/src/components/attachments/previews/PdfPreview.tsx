@@ -1,3 +1,5 @@
+import PdfZoom from '../pdf/PdfZoom.tsx';
+import { pdfTextIndex } from '../../../utils/attachments/pdfText.ts';
 import SignatureDetails from '../pdf/SignatureDetails.tsx';
 import PreviewAction from '../PreviewAction.tsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -28,7 +30,7 @@ export default function PdfPreview({ file }: { file: PreviewFile }) {
   const [outline, setOutline] = useState<OutlineItem[]>([]); const [panel, setPanel] = useState<'outline' | 'thumbs' | null>(null);
   const [signatures, setSignatures] = useState<Signature[]>([]); const [signatureFields, setSignatureFields] = useState(0);
   const [password, setPassword] = useState<{ submit: (value: string) => void; incorrect: boolean }>();
-  const [query, setQuery] = useState(''); const [matches, setMatches] = useState<Array<{ page: number; snippet: string }>>([]); const [match, setMatch] = useState(0); const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState(''); const [matches, setMatches] = useState<Array<{ page: number; snippet: string; start: number; end: number }>>([]); const [match, setMatch] = useState(0); const [searching, setSearching] = useState(false);
   const [printing, setPrinting] = useState(0); const [printError, setPrintError] = useState(false);
   const scroll = useRef<HTMLDivElement>(null); const searchInput = useRef<FindBarHandle>(null);
   const task = useRef<PDFDocumentLoadingTask>(); const printController = useRef<AbortController>(); const alive = useRef(true);
@@ -107,14 +109,14 @@ export default function PdfPreview({ file }: { file: PreviewFile }) {
     setSearching(true);
     const timer = setTimeout(() => {
       void (async () => {
-        const found: Array<{ page: number; snippet: string }> = []; let characters = 0;
+        const found: Array<{ page: number; snippet: string; start: number; end: number }> = []; let characters = 0;
         for (let number = 1; number <= pdf.numPages && active; number++) {
           const page = await pdf.getPage(number); if (!active) return;
           const content = await page.getTextContent(); if (!active) return;
-          const text = content.items.map(item => 'str' in item ? item.str + (item.hasEOL ? '\n' : ' ') : '').join(''); characters += text.length;
+          const { text } = pdfTextIndex(content.items.filter(item => 'str' in item)); characters += text.length;
           if (characters > 20 * 1024 * 1024) throw new Error('LIMIT');
           for (const hit of findMatches(text, query)) {
-            found.push({ page: number, snippet: text.slice(Math.max(0, hit.start - 35), Math.min(text.length, hit.end + 55)) });
+            found.push({ page: number, start: hit.start, end: hit.end, snippet: text.slice(Math.max(0, hit.start - 35), Math.min(text.length, hit.end + 55)) });
             if (found.length >= 10000) break;
           }
           if (number % 10 === 0) { setMatches([...found]); await new Promise(resolve => setTimeout(resolve, 0)); }
@@ -176,10 +178,7 @@ export default function PdfPreview({ file }: { file: PreviewFile }) {
       <Button aria-label={t('attachment.preview.previousPage')} disabled={current === 1} onClick={() => jump(current - 1)}>‹</Button>
       <label className="attachment-page-label">{t('attachment.preview.pageLabel')}<input data-pdf-page-input="true" type="number" min={1} max={pdf.numPages} value={pageInput} onChange={event => setPageInput(event.target.value)} onBlur={() => jump(Number(pageInput))} onKeyDown={event => { if (event.key === 'Enter') jump(Number(pageInput)); }} /></label><span>/ {pdf.numPages}</span>
       <Button aria-label={t('attachment.preview.nextPage')} disabled={current === pdf.numPages} onClick={() => jump(current + 1)}>›</Button>
-      <Button aria-label={t('attachment.preview.zoomOut')} onClick={() => scale(-.25)}>−</Button><select aria-label={t('attachment.preview.zoom')} value={zoom} onChange={event => { setFit(null); setZoom(Number(event.target.value)); }}>
-        {![.5, .75, 1, 1.25, 1.5, 2, 3, 4].includes(zoom) && <option value={zoom}>{Math.round(zoom * 100)}%</option>}
-        {[.5, .75, 1, 1.25, 1.5, 2, 3, 4].map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}
-      </select><Button aria-label={t('attachment.preview.zoomIn')} onClick={() => scale(.25)}>+</Button>
+      <PdfZoom value={zoom} onChange={value => { setFit(null); setZoom(value); }} />
       <PreviewAction onClick={() => setFit('width')} icon="fitWidth" label={t('attachment.preview.fitWidth')} tooltip={t('attachment.tips.fitWidth')} /><PreviewAction onClick={() => setFit('page')} icon="fitPage" label={t('attachment.preview.fitPage')} tooltip={t('attachment.tips.fitPage')} />
       <PreviewAction icon="rotateLeft" label={t('attachment.preview.rotateLeft')} onClick={() => setRotation(value => (value + 270) % 360)} /><PreviewAction icon="rotateRight" label={t('attachment.preview.rotateRight')} onClick={() => setRotation(value => (value + 90) % 360)} />
       {!!outline.length && <PreviewAction aria-pressed={panel === 'outline'} onClick={() => setPanel(value => value === 'outline' ? null : 'outline')} icon="outline" label={t('attachment.preview.outline')} tooltip={t('attachment.tips.outline')} />}
@@ -201,7 +200,7 @@ export default function PdfPreview({ file }: { file: PreviewFile }) {
           </button>)}
       </aside>}
       <div ref={scroll} tabIndex={-1} className="attachment-pdf-scroll" onScroll={updateCurrent}>
-        {Array.from({ length: pdf.numPages }, (_, index) => <PdfPage key={index} document={pdf} number={index + 1} scale={zoom} rotation={rotation} base={base} root={scroll} query={query} />)}
+        {Array.from({ length: pdf.numPages }, (_, index) => <PdfPage key={index} document={pdf} number={index + 1} scale={zoom} rotation={rotation} base={base} root={scroll} query={query} activeMatch={matches[match]?.page === index + 1 ? matches[match] : undefined} />)}
       </div>
     </div>
   </section>;

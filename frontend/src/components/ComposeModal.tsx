@@ -1,6 +1,7 @@
+import type { DraftPreviewSource } from '../utils/attachments/draftPreview.ts';
 import { attachmentBatchIssue } from '../utils/attachmentUpload.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
-import { useState, useRef, useEffect, useCallback, forwardRef } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef, lazy, Suspense } from 'react';
 import type { Editor } from '@tiptap/react';
 import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
 import type { ChangeEvent } from 'react';
@@ -35,6 +36,8 @@ import { normalizeMailbox, partitionRejectedRecipients } from '../utils/retryRec
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
 import { DefaultRecipients, type RecipientField } from '../utils/defaultRecipients.ts';
 import { initialComposeSender } from '../utils/composeSender.ts';
+
+const ComposeAttachmentPreview = lazy(() => import('./attachments/ComposeAttachmentPreview.tsx'));
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
@@ -475,6 +478,7 @@ export default function ComposeModal() {
   /** Fence asynchronous completions and mutations to the original unlocked compose session. */
   const currentCompose = () => composeAliveRef.current && useStore.getState().authEpoch === composeEpochRef.current
     && !useStore.getState().isLocked && useStore.getState().composing && useStore.getState().composeData === initialComposeDataRef.current;
+  const [draftPreview, setDraftPreview] = useState<{ files: DraftPreviewSource[]; index: number } | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -908,6 +912,21 @@ export default function ComposeModal() {
       try { reader.readAsDataURL(file); } catch { if (currentCompose()) setError(t('attachment.compose.readError')); finish(); }
     }
   };
+  const previewComposerAttachment = (index: number, forwarded = false) => {
+    if (!currentCompose() || sendingRef.current || frozenQueueRef.current) return;
+    const files: DraftPreviewSource[] = [];
+    for (const item of forwardedValues.current) {
+      if (!item.messageId || !item.part) { setError(t('attachment.compose.readError')); return; }
+      files.push({ filename: item.filename || t('attachment.preview.unnamed'), type: '', size: item.size ?? undefined,
+        path: `/api/mail/messages/${encodeURIComponent(item.messageId)}/attachments/${encodeURIComponent(item.part)}` });
+    }
+    for (const item of attachmentValues.current) files.push({
+      filename: String(item.name || t('attachment.preview.unnamed')), type: typeof item.type === 'string' ? item.type : '',
+      size: item.size, content: typeof item.data === 'string' ? item.data : '',
+    });
+    setDraftPreview({ files, index: index + (forwarded ? 0 : forwardedValues.current.length) });
+  };
+
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
     addAttachmentFiles(Array.from(event.target.files || [])); event.target.value = '';
   };
@@ -1276,6 +1295,7 @@ export default function ComposeModal() {
     style={{ flexShrink: 0, padding: '8px 14px', margin: 0, fontSize: 12 }}>{t('queue.editingNotice')}</div>;
 
   const scheduleControls = <>
+    {draftPreview && <Suspense fallback={null}><ComposeAttachmentPreview files={draftPreview.files} initialIndex={draftPreview.index} epoch={composeEpochRef.current} onClose={() => setDraftPreview(null)} /></Suspense>}
     {autosavePending && !savingDraft && <button type="button" data-testid="compose-autosave-retry" onClick={() => void doSaveDraft({ silent: true })}>{t('queue.retryEnqueue')}</button>}
     {(undoSendPreferencesStatus !== 'ready' || undoSendSecondsSaving) && <span role="status" data-testid="compose-preferences-loading">{t(undoSendPreferencesStatus === 'error' ? 'queue.preferencesError' : 'queue.preferencesLoading')}{undoSendPreferencesStatus === 'error' && <button type="button" onClick={() => void useStore.getState().loadPreferences()}>{t('queue.refresh')}</button>}</span>}
     {showMergeConfirm && <Dialog title={t('queue.startMailMerge')} closeLabel={t('common.close')}
@@ -2026,10 +2046,10 @@ export default function ComposeModal() {
           )}
 
           {fwdAttachments.length > 0 && (
-            <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
+            <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onPreview={i => previewComposerAttachment(i, true)} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
           )}
           {attachments.length > 0 && (
-            <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
+            <AttachmentChips attachments={attachments} onPreview={i => previewComposerAttachment(i)} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} mobile />
           )}
 
           {attachmentNotice}
@@ -2595,10 +2615,10 @@ export default function ComposeModal() {
         </div>
       )}
       {fwdAttachments.length > 0 && (
-        <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} />
+        <AttachmentChips attachments={fwdAttachments.map(a => ({ name: a.filename, size: a.size }))} onPreview={i => previewComposerAttachment(i, true)} onRemove={i => setFwdAttachments(prev => prev.filter((_, j) => j !== i))} />
       )}
       {attachments.length > 0 && (
-        <AttachmentChips attachments={attachments} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} />
+        <AttachmentChips attachments={attachments} onPreview={i => previewComposerAttachment(i)} onRemove={i => setAttachments(prev => prev.filter((_, j) => j !== i))} />
       )}
 
       {attachmentNotice}
@@ -3610,7 +3630,8 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${(n / 1048576).toFixed(1)}MB`;
 }
 
-function AttachmentChips({ attachments, onRemove, mobile = false }: { attachments: Array<{ filename?: string | null; name?: string | null; size?: number | null; [key: string]: unknown }>; onRemove: (index: number) => void; mobile?: boolean }) {
+function AttachmentChips({ attachments, onRemove, onPreview, mobile = false }: { attachments: Array<{ filename?: string | null; name?: string | null; size?: number | null; [key: string]: unknown }>; onRemove: (index: number) => void; onPreview: (index: number) => void; mobile?: boolean }) {
+  const { t } = useTranslation();
   return (
     <div style={{
       display: 'flex', flexWrap: 'wrap', gap: 6,
@@ -3625,12 +3646,15 @@ function AttachmentChips({ attachments, onRemove, mobile = false }: { attachment
           borderRadius: 6, padding: '3px 6px 3px 8px', fontSize: 11,
           color: 'var(--text-secondary)', maxWidth: 240,
         }}>
+          <button type="button" className="compose-attachment-preview" aria-label={t('attachment.compose.preview', { filename: a.name })} title={t('attachment.compose.preview', { filename: a.name })} onClick={() => onPreview(i)}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
           </svg>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{a.name}</span>
           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{formatBytes(a.size)}</span>
+          </button>
           <button
+            aria-label={t('attachment.compose.remove', { filename: a.name })}
             type="button"
             onClick={() => onRemove(i)}
             style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0 }}

@@ -2762,7 +2762,9 @@
       "largeWarning": "附件总大小超过 {{size}} MiB。部分收件人可能拒收这么大的邮件。如果发件服务商允许，您仍可发送。",
       "readError": "无法读取文件。现有附件已保留。",
       "reading": "正在读取附件… 请等待完成后再发送。",
-      "tooMany": "一封邮件最多可包含 100 个附件。"
+      "tooMany": "一封邮件最多可包含 100 个附件。",
+      "preview": "预览 {{filename}}",
+      "remove": "移除 {{filename}}"
     },
     "signatures": {
       "certificate": "签名证书",
@@ -2817,6 +2819,19 @@
       "empty": "这是空白签名字段，不是数字签名。",
       "certTime": "证书在当前验证时间无效。",
       "trustUnavailable": "无法确认证书信任或吊销状态。"
+    },
+    "archive": {
+      "root": "压缩包内容",
+      "location": "当前文件夹",
+      "view": "压缩包视图",
+      "list": "列表",
+      "grid": "缩略图",
+      "folder": "文件夹",
+      "locked": "需要密码"
+    },
+    "clipboard": {
+      "copied": "已复制",
+      "error": "无法复制。请使用键盘快捷键或浏览器菜单。"
     }
   }
 }

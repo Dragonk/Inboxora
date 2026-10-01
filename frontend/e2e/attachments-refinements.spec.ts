@@ -8,7 +8,7 @@ for (const theme of ['light', 'dark']) {
     await fixtureApi;
     await attachmentMessage(page, ['hundred-pages.pdf', 'notes.md', 'paged-background.docx', 'image.png'], { theme });
     let dialog = await preview(page, 'hundred-pages.pdf');
-    await expect(dialog.getByRole('combobox', { name: 'Zoom', exact: true })).toHaveValue('1');
+    await expect(dialog.getByRole('spinbutton', { name: 'Zoom', exact: true })).toHaveValue('100');
     const geometry = await dialog.evaluate(element => {
       const rect = element.getBoundingClientRect(); const header = element.querySelector('.attachment-main-toolbar')!;
       const filename = header.querySelector('.attachment-filename')!.getBoundingClientRect();
@@ -89,7 +89,8 @@ test('all native archive formats reuse the preview without filesystem extraction
   for (const name of names) {
     const dialog = await preview(page, name);
     await expect(dialog.locator('.attachment-archive li')).not.toHaveCount(0);
-    await dialog.locator('.attachment-archive li button:enabled').first().click();
+    const entry = name === 'single.txt.gz' ? 'single.txt' : name === 'sample-rar5.rar' ? 'helloworld.txt' : 'notes.md';
+    await dialog.getByRole('button', { name: entry, exact: true }).click();
     await expect(dialog.locator('.attachment-markdown,.attachment-code')).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Back', exact: true }).click();

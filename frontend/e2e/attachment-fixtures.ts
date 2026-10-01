@@ -74,7 +74,7 @@ export async function attachmentMessage(page: Page, names: string[], options: { 
   }
   await page.goto('/?list=0&reader=0');
   await expect(page.locator('[data-ce-reader-enabled]:visible').first()).toHaveAttribute('data-ce-reader-enabled', options.grouped ? 'true' : 'false');
-  await page.locator('[data-msgid="conversation-gmail-copy-1"]:visible').click();
+  await page.locator(`[data-msgid="conversation-gmail-copy-${options.grouped ? 5 : 1}"]:visible`).click();
   await expect(page.locator('[data-message-detail-attachment]').first()).toBeVisible();
 }
 

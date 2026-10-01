@@ -146,4 +146,16 @@ class CertificateNetwork(unittest.TestCase):
                 with self.assertRaises(OSError): await PublicResolver().resolve('attacker.example',80)
         asyncio.run(run())
 
+class SignatureText(unittest.TestCase):
+    def test_byte_metadata_is_decoded_without_python_representations(self):
+        from signatures import text
+        from pyhanko.pdf_utils.generic import ByteStringObject
+        value = 'Signed by: Fixture\nSMS signature\nZażółć gęślą jaźń'
+        for raw in (value.encode('utf-8'), value.encode('utf-16'), bytes.fromhex('feff') + value.encode('utf-16-be')):
+            self.assertEqual(text(ByteStringObject(raw)), value)
+        self.assertEqual(text(b'first\r\nsecond\rthird\x00'), 'first\nsecond\nthird')
+        self.assertEqual(text(b'literal\\ntext'), 'literal\\ntext')
+        self.assertEqual(text(None), '')
+        self.assertEqual(len(text(b'a' * 3000)), 2048)
+
 if __name__ == '__main__': unittest.main()

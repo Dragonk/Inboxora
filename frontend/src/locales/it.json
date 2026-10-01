@@ -2762,7 +2762,9 @@
       "largeWarning": "Gli allegati superano {{size}} MiB. Alcuni destinatari potrebbero rifiutare un messaggio così grande. Puoi comunque inviarlo se il tuo fornitore lo consente.",
       "readError": "Impossibile leggere il file. Gli allegati esistenti sono stati conservati.",
       "reading": "Lettura degli allegati… Attendi prima di inviare.",
-      "tooMany": "Un messaggio può contenere al massimo 100 allegati."
+      "tooMany": "Un messaggio può contenere al massimo 100 allegati.",
+      "preview": "Anteprima di {{filename}}",
+      "remove": "Rimuovi {{filename}}"
     },
     "signatures": {
       "certificate": "Certificato del firmatario",
@@ -2817,6 +2819,19 @@
       "empty": "Questo campo è vuoto: non è una firma digitale.",
       "certTime": "Il certificato non è valido al momento attuale della verifica.",
       "trustUnavailable": "Impossibile confermare l’attendibilità del certificato o il suo stato di revoca."
+    },
+    "archive": {
+      "root": "Contenuto dell’archivio",
+      "location": "Cartella attuale",
+      "view": "Vista dell’archivio",
+      "list": "Elenco",
+      "grid": "Miniature",
+      "folder": "Cartella",
+      "locked": "Password richiesta"
+    },
+    "clipboard": {
+      "copied": "Copiato",
+      "error": "Copia non riuscita. Usa la scorciatoia da tastiera o il menu del browser."
     }
   }
 }

@@ -158,6 +158,8 @@ test.describe('complete attachment preview', () => {
     await dialog.getByRole('button', { name: 'Back', exact: true }).click();
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     dialog = await preview(page, 'nested.zip');
+    await dialog.getByRole('button', { name: 'inner/', exact: true }).click();
+    await expect(dialog.locator('.attachment-archive-path')).toContainText('inner');
     await dialog.getByRole('button', { name: 'inner/archive.zip', exact: true }).click();
     await dialog.getByRole('button', { name: 'image.png', exact: true }).click();
     await expect(dialog.locator('.attachment-image img')).toBeVisible();

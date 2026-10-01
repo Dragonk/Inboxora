@@ -2762,7 +2762,9 @@
       "largeWarning": "Załączniki przekraczają {{size}} MiB. Niektórzy odbiorcy mogą odrzucić tak dużą wiadomość. Nadal możesz ją wysłać, jeśli pozwala na to dostawca Twojej poczty.",
       "readError": "Nie udało się odczytać pliku. Dotychczasowe załączniki zostały zachowane.",
       "reading": "Odczytywanie załączników… Poczekaj przed wysłaniem.",
-      "tooMany": "Wiadomość może zawierać najwyżej 100 załączników."
+      "tooMany": "Wiadomość może zawierać najwyżej 100 załączników.",
+      "preview": "Podgląd {{filename}}",
+      "remove": "Usuń {{filename}}"
     },
     "signatures": {
       "certificate": "Certyfikat podpisującego",
@@ -2817,6 +2819,19 @@
       "empty": "To puste pole podpisu, a nie podpis cyfrowy.",
       "certTime": "Certyfikat nie jest ważny w bieżącym czasie weryfikacji.",
       "trustUnavailable": "Nie udało się potwierdzić zaufania do certyfikatu lub statusu unieważnienia."
+    },
+    "archive": {
+      "root": "Zawartość archiwum",
+      "location": "Bieżący folder",
+      "view": "Widok archiwum",
+      "list": "Lista",
+      "grid": "Miniatury",
+      "folder": "Folder",
+      "locked": "Wymagane hasło"
+    },
+    "clipboard": {
+      "copied": "Skopiowano",
+      "error": "Nie udało się skopiować. Użyj skrótu klawiaturowego lub menu przeglądarki."
     }
   }
 }

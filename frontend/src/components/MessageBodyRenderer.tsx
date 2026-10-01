@@ -187,7 +187,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         // The same Inboxora menu is then available wherever the user right-clicks.
         event.preventDefault();
         const rect = iframe.getBoundingClientRect();
-        onContextMenu({ x: rect.left + event.clientX, y: rect.top + event.clientY, selectedText: selection });
+        onContextMenu({ x: rect.left + (Number.isFinite(event.clientX) ? event.clientX * rect.width / (iframe.offsetWidth || 1) : 0), y: rect.top + (Number.isFinite(event.clientY) ? event.clientY * rect.height / (iframe.offsetHeight || 1) : 0), selectedText: selection });
       };
       doc.addEventListener('click', onDocumentClick);
       doc.addEventListener('contextmenu', onDocumentContextMenu);

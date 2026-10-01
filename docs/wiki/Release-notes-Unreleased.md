@@ -68,6 +68,34 @@ the dialog discloses that limitation. Embedded certificates never become trust a
 because they arrived in the PDF. Encrypted PDFs can be read with a local password, but server
 signature verification remains unavailable when it cannot inspect the original encrypted file.
 
+### Reader and composer refinements
+
+PDF percentages can be typed (50–400%); buttons and keyboard arrows move by 25
+percentage points. Search paints translucent rectangles over the exact matching
+glyphs instead of hiding canvas text with opaque text-layer backgrounds. Signature
+metadata decodes PDF byte strings and preserves real line breaks without executing
+HTML or interpreting literal escape sequences. The current-time trust policy is unchanged.
+
+Archives offer folder navigation, a list and a thumbnail grid. The view choice lasts
+for the current login session. Only visible image entries are thumbnailed, with a
+2-MiB per-image and 20-MiB thumbnail-extraction budget inside the existing expansion budget.
+Thumbnail bytes pass the same scan and image safety gates before decoding.
+Extraction and browser thumbnail decoding are serialized to bound peak memory.
+
+Composer attachment chips now open a read-only preview of uploaded/draft bytes or
+the owned forwarded attachment. This does not edit, send or pause a message; closing
+the composer/session releases the preview. Known threats and unavailable scanners
+still block rendering, including local composer files. The mobile Send arrow points
+down from its header; the desktop footer arrow points up.
+
+Content-menu copying uses the selection captured in the displayed message frame,
+including sent messages and conversations. Select all and Find target that same frame;
+Print and physical-copy flag, category, snooze and block actions are wired consistently.
+Metadata copy no longer overwrites the requested subject/address/link with selected
+body text. Clipboard failures are reported, with a local-HTTP/WebView fallback where
+supported. Composer content retains the browser's native editing menu and shortcuts.
+Context menus escape reader clipping and remain within the viewport at larger UI scales.
+
 ## Composer attachments
 
 Dropping files on the message body adds attachments rather than inserting images into the editor.
