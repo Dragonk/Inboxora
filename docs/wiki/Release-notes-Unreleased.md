@@ -82,7 +82,7 @@ from its 25-MiB decoded attachment budget. Graph upload ceilings are not a promi
 mailbox policy. Missing SMTP SIZE uses the installation fallback. Per-user or recipient limits
 that a provider does not expose cannot be inferred reliably, and may still be refused by the provider.
 
-Appearance → Layout has a server-saved attachment warning threshold (default 20 MiB, 0 disables
+Appearance → Attachment warnings has a server-saved attachment warning threshold (default 20 MiB, 0 disables
 only the warning). It warns about the combined attachment size without changing provider or
 installation safety limits. All new controls and messages are translated in the nine catalogues.
 
@@ -196,6 +196,8 @@ correction and corrupted encrypted input, empty signature fields, formatting fal
 archive expansion limits, shared cache/session races, scheduled revisions, nested navigation,
 clipboard/print preparation, passive document rendering and floating-window state.
 Browser cases exercise desktop and mobile layouts, both themes and the production CSP.
+Queue previews assert the scan decision and unchanged revision/state, including blocked-file
+download warnings. The warning-threshold setting is tested across saving, cancellation and reload.
 A separate real-backend browser gate uses authenticated multipart processing and Redis,
 not mocked decryption. Native-image smoke checks run on both publication architectures.
 Synthetic PKI fixtures cover valid, revoked, expired, untrusted, wrong-purpose and tampered

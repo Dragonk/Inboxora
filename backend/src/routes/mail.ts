@@ -674,7 +674,6 @@ const ZIP_MAX_FILE_BYTES  =  50 * 1024 * 1024; //  50 MB per file
 // Download all attachments as a ZIP archive
 router.get('/messages/:id/attachments.zip', async (req, res) => {
   res.set('Cache-Control', 'private, no-store'); res.set('X-Content-Type-Options', 'nosniff');
-  res.set('Cache-Control', 'private, no-store'); res.set('X-Content-Type-Options', 'nosniff');
   const { id } = req.params;
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 

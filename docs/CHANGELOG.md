@@ -26,7 +26,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Bounded 7z, RAR4/RAR5, TAR, GZIP, BZIP2, XZ and Zstandard readers alongside ZIP.
 - Composer file drop, sender-size checks and a configurable large-attachment warning in Appearance.
 - In-app attachment previews with a shared full-screen reader, separate downloads, lazy image thumbnails, an image gallery, and desktop floating windows.
-- Interactive PDF reading with lazy pages, search, selection, page navigation, outline, thumbnails, zoom, rotation, complete-document printing, local password prompts and unverified signature metadata.
+- Interactive PDF reading with lazy pages, search, selection, page navigation, outline, thumbnails, zoom, rotation, complete-document printing, local password prompts and signature details.
 - DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
 
 ### Changed

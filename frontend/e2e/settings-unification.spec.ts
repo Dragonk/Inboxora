@@ -43,7 +43,7 @@ test('calendar defaults persist both Microsoft aliases and calendar display stay
     await expect(sender).toHaveValue(`${mailbox.id}:${alias.id}`);
   }
   await panel.getByTestId('admin-tab-appearance').click();
-  await expect(panel.locator('.admin-subtab')).toHaveText(['Theme','Layout','Calendar','Language & Font']);
+  await expect(panel.locator('.admin-subtab')).toHaveText(['Theme','Layout','Attachment warnings','Calendar','Language & Font']);
   await panel.locator('.admin-subtab').filter({hasText:/^Calendar$/}).click();
   const agenda=page.getByTestId('calendar-agenda-setting');
   await expect(agenda).toHaveAttribute('role','group');
@@ -177,4 +177,35 @@ test('a contact source settings link filters resources to that source',async({pa
   const manager=page.getByTestId('contacts-books-manager');await expect(manager).toBeVisible();
   await expect(manager.locator('[data-resource-id="remote-book"]')).toBeVisible();
   await expect(manager.locator('[data-resource-id="local-book"]')).toHaveCount(0);
+});
+
+test('attachment warning threshold persists without changing provider limits', async ({ page, fixtureApi }) => {
+  await fixtureApi; await setupV3(page); page.__languageOverride = 'en';
+  let preferences: Record<string, unknown> = { language: 'en', theme: 'light', attachmentWarningMiB: 20 };
+  const writes: Record<string, unknown>[] = [];
+  await page.route('**/api/auth/preferences**', route => {
+    if (route.request().method() === 'PATCH') {
+      const changes = route.request().postDataJSON(); writes.push(changes);
+      preferences = { ...preferences, ...changes }; return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: preferences });
+  });
+  const openWarnings = async () => {
+    await openEnglishSettings(page);
+    await page.getByTestId('admin-tab-appearance').click();
+    await page.locator('.admin-subtab').filter({ hasText: /^Attachment warnings$/ }).click();
+  };
+  await page.goto('/'); await openWarnings();
+  const section = page.locator('.account-ui-section').filter({ has: page.getByRole('heading', { name: 'Attachment warnings', exact: true }) });
+  const value = section.getByRole('spinbutton', { name: 'Warning threshold (MiB)', exact: true });
+  await expect(value).toHaveValue('20');
+  await value.fill('3'); await section.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => preferences.attachmentWarningMiB).toBe(3);
+  await value.fill('-1'); await expect(section.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await section.getByRole('button', { name: 'Cancel', exact: true }).click(); await expect(value).toHaveValue('3');
+  await page.reload(); await openWarnings(); await expect(value).toHaveValue('3');
+  await value.fill('0'); await section.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => preferences.attachmentWarningMiB).toBe(0);
+  expect(writes.filter(write => 'attachmentWarningMiB' in write)).toEqual([{ attachmentWarningMiB: 3 }, { attachmentWarningMiB: 0 }]);
+  await noHorizontalOverflow(page);
 });
