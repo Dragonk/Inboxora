@@ -61,6 +61,14 @@ reviews:
     - "!backend/package-lock.json"
     - "!backend/preview/requirements.txt"
     - "!frontend/e2e/**/*-snapshots/*.png"
+    # Keep the English/Polish source copy and all i18n assertions in the review.
+    # Parallel translations are checked by the nine-catalogue completeness and
+    # interpolation gates; release/deployment documentation stays in review too.
+    - "!frontend/src/locales/{cs,de,es,fr,it,ru,zhCN}.json"
+    - "!backend/fixtures/attachments/LICENSE-libarchive.txt"
+    - "!backend/fixtures/attachments/README.md"
+    - "!docs/design/attachment-preview.md"
+    - "!.gitignore"
   path_instructions:
     - path: "backend/src/**"
       instructions: >
