@@ -63,9 +63,11 @@ revocation and timestamp results are shown separately. Signer-declared time is n
 
 Validation uses pyHanko 0.37.0 with required revocation checking and incremental-change analysis.
 It is **current-time validation**, not qualified-signature/eIDAS certification or historical
-PAdES-LTV validation. Without configured anchors, the bundled public TLS roots are used and
-the dialog discloses that limitation. Embedded certificates never become trust anchors merely
-because they arrived in the PDF. Encrypted PDFs can be read with a local password, but server
+PAdES-LTV validation. The default anchors come from authenticated EU Trusted Lists;
+additional non-EU or private document-signing anchors require an administrator-approved bundle
+(see [Signature trust policy](#signature-trust-policy)). The public TLS root store is not used
+as document-signing trust. Embedded certificates never become trust anchors merely because
+they arrived in the PDF. Encrypted PDFs can be read with a local password, but server
 signature verification remains unavailable when it cannot inspect the original encrypted file.
 
 ### Reader and composer refinements
