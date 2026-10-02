@@ -9,11 +9,11 @@ describe('backfillRichContactFields', () => {
         .mockResolvedValueOnce({ rowCount: 1 }),
     };
 
-    await expect(backfillRichContactFields(client)).resolves.toBe(1);
+    await expect(backfillRichContactFields(client as any)).resolves.toBe(1);
     expect(client.query.mock.calls[0][0]).toContain('rich_fields_backfilled_at IS NULL');
     expect(client.query.mock.calls[1][0]).toContain('rich_fields_backfilled_at = NOW()');
     expect(client.query).toHaveBeenLastCalledWith(expect.stringContaining('UPDATE contacts SET'), [
-      'Director', null, null, JSON.stringify([{ value: 'https://example.test', type: 'other' }]), JSON.stringify([]), JSON.stringify([]), JSON.stringify([]), 'contact-1',
+      ['contact-1'], ['Director'], [null], [null], [JSON.stringify([{ value: 'https://example.test', type: 'other' }])], [JSON.stringify([])], [JSON.stringify([])], [JSON.stringify([])],
     ]);
   });
 });

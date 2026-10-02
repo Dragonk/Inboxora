@@ -117,19 +117,29 @@ async function movePhysicalRowsWithProvider(client: DbClient, rows: Conversation
 }
 
 async function archiveRows(client: DbClient, rows: ConversationRow[], userId: string, imapManager: ConversationImapManager | null = null): Promise<{ rows: ActionRow[]; rowCount: number }> {
-  const destinations = new Map();
+  const accountIds = [...new Set(rows.map(row => row.account_id))];
   const accountMappings = new Map();
-  for (const row of rows) {
-    if (!accountMappings.has(row.account_id)) {
-      const account = await client.query(
-        'SELECT folder_mappings FROM email_accounts WHERE id = $1 AND user_id = $2',
-        [row.account_id, userId],
-      );
-      accountMappings.set(row.account_id, account.rows[0]?.folder_mappings || {});
+  const accountDestinations = new Map();
+
+  if (accountIds.length > 0) {
+    const accounts = await client.query(
+      'SELECT id, folder_mappings FROM email_accounts WHERE id = ANY($1::uuid[]) AND user_id = $2',
+      [accountIds, userId],
+    );
+    for (const row of accounts.rows) {
+      accountMappings.set(row.id, row.folder_mappings || {});
     }
-    const destination = await resolveArchiveDestination(client, row.account_id, accountMappings.get(row.account_id));
+  }
+
+  for (const accountId of accountIds) {
+    const destination = await resolveArchiveDestination(client, accountId, accountMappings.get(accountId));
     if (!destination) throw Object.assign(new Error('No archive folder configured for account'), { statusCode: 409 });
-    destinations.set(row.id, destination);
+    accountDestinations.set(accountId, destination);
+  }
+
+  const destinations = new Map();
+  for (const row of rows) {
+    destinations.set(row.id, accountDestinations.get(row.account_id));
   }
   const providerResult = await movePhysicalRowsWithProvider(client, rows, destinations, imapManager);
   const changed: ActionRow[] = [];
