@@ -15,7 +15,7 @@ import { oauthProvider } from './oauth.js';
 import { allowedOrigins, issuerUrl, mcpEnabled, publicOrigin, resourceUrl } from './config.js';
 import { liveGrant, McpError, SCOPES, type Grant } from './policy.js';
 import type { RegisteredTool } from './registry.js';
-import { GUIDE, tools as catalog } from './catalog.js';
+import { GUIDE } from './guide.js';
 
 function limiter(limit: number, key: (req: Request) => string): RequestHandler {
   const buckets = new Map<string, { count: number; until: number }>();
@@ -30,7 +30,7 @@ function limiter(limit: number, key: (req: Request) => string): RequestHandler {
     next();
   };
 }
-export function createProtocolServer(grant: Grant, tools: RegisteredTool[] = catalog, version = 'dev'): Server {
+export function createProtocolServer(grant: Grant, tools: RegisteredTool[], version = 'dev'): Server {
   const server = new Server({ name: 'inboxora', version }, { capabilities: { tools: {}, resources: {}, prompts: {} }, instructions: GUIDE });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const active = await liveGrant(grant.id, grant.user_id, grant.scopes);
@@ -67,7 +67,7 @@ export function createProtocolServer(grant: Grant, tools: RegisteredTool[] = cat
 }
 
 /** Mount before browser CORS/session middleware. Remote MCP is bearer-only. */
-export function createMcpRouter(version = 'dev', tools: RegisteredTool[] = catalog) {
+export function createMcpRouter(version = 'dev', tools?: RegisteredTool[]) {
   const router = express.Router();
   if (!mcpEnabled()) {
     router.all('/mcp', (_req, res) => { res.status(404).json({ error: 'MCP is disabled by the administrator.' }); });
@@ -107,9 +107,12 @@ export function createMcpRouter(version = 'dev', tools: RegisteredTool[] = catal
     const auth = req.auth;
     if (!auth || typeof auth.extra?.grantId !== 'string' || typeof auth.extra?.userId !== 'string') { res.status(401).end(); return; }
     const grant = await liveGrant(auth.extra.grantId, auth.extra.userId, auth.scopes);
+    const availableTools = tools ?? (await import('./catalog.js')).tools;
     if ((active.get(grant.user_id) ?? 0) >= 4) { res.setHeader('Retry-After', '2'); res.status(429).json({ error: 'Too many concurrent MCP operations.' }); return; }
     active.set(grant.user_id, (active.get(grant.user_id) ?? 0) + 1);
-    const server = createProtocolServer(grant, tools, version);
+    // Avoid importing provider routes during application initialization or when
+    // MCP is disabled. In particular, do not re-enter the index/worker graph.
+    const server = createProtocolServer(grant, availableTools, version);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true,
       enableDnsRebindingProtection: true, allowedHosts: [new URL(origin).host], allowedOrigins: origins });
     try { await server.connect(transport); await transport.handleRequest(req, res, req.body); }
