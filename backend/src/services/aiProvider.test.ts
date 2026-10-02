@@ -230,7 +230,6 @@ describe('API-key provider regression', () => {
       messages: [{ role: 'user', content: 'Hi' }],
       max_tokens: 12,
       stream: false,
-      think: false,
     });
   });
 
