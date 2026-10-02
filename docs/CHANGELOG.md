@@ -37,6 +37,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Support OAuth HTTP Basic client credentials as well as public and form-post clients, rejecting mixed credentials and mismatched registered methods.
 - Search cached and provider-held email across Gmail, Microsoft Graph and IMAP; handle literal phrases, recipients, dates and Gmail label scopes, and show incomplete coverage rather than false empty results.
 - Preserve attachment bytes, priority and reply identity when creating or replacing drafts through MCP.
 - Bound remote search waiting across all accounts to eight seconds and report partial coverage.

@@ -344,3 +344,5 @@ MCP follow-up checks also cover empty move receipts, manual unsubscribe links, m
 Remote search waiting now shares an eight-second budget across accounts. Slow providers return an explicit partial-results warning without making the local result wait for every account deadline. Already-started reads stay bounded and may populate the cache for the next search.
 
 Research `fetch` now uses character-based `textOffset`/`maxCharacters` with a reusable continuation offset. Event searches match actual field values rather than JSON keys. Forwarded MIME types are normalized before approval, and failed MCP initialization releases its concurrency slot. Regression tests cover these cases.
+
+OAuth token exchange and revocation support public clients (`none`), HTTP Basic (`client_secret_basic`) and form-post client secrets (`client_secret_post`). Inboxora enforces the registered method and rejects conflicting header/body credentials. All three flows are covered by the PostgreSQL HTTP integration suite.

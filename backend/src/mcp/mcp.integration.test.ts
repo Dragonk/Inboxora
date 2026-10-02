@@ -24,7 +24,7 @@ import { secretToken, digest } from './config.js';
 import { readOperation } from './operations.js';
 
 const record = (value: unknown) => z.record(z.string(), z.unknown()).parse(value);
-const oauthClient = z.object({ client_id: z.string(), redirect_uris: z.array(z.string()).min(1) });
+const oauthClient = z.object({ client_id: z.string(), client_secret: z.string().optional(), redirect_uris: z.array(z.string()).min(1) });
 const tokenPair = z.object({ access_token: z.string(), refresh_token: z.string() });
 const enabled = process.env.REQUIRE_MCP_POSTGRES === '1';
 describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
@@ -222,8 +222,8 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     expect((await readOperation(await liveGrant(grant.id,userId),String(other.operationId))).state).toBe('uncertain');
     expect(calls).toBe(before);
   });
-  it('runs OAuth with S256, exact redirect/resource binding, rotation and replay revocation', async () => {
-    const registration = await fetch(`${origin}/oauth/mcp/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'SDK OAuth test',redirect_uris:['http://127.0.0.1:34567/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code']})});
+  it.each(['none','client_secret_basic','client_secret_post'] as const)('runs OAuth %s with S256, redirect/resource binding, rotation and replay revocation', async method => {
+    const registration = await fetch(`${origin}/oauth/mcp/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'SDK OAuth test',redirect_uris:['http://127.0.0.1:34567/callback'],token_endpoint_auth_method:method,grant_types:['authorization_code','refresh_token'],response_types:['code']})});
     expect(registration.status).toBe(201); const client = oauthClient.parse(await registration.json()); registeredClientIds.push(client.client_id);
     const verifier = secretToken(); const challenge = createHash('sha256').update(verifier).digest('base64url');
     const parameters = new URLSearchParams({response_type:'code',client_id:client.client_id,redirect_uri:client.redirect_uris[0],scope:'mail.read mail.send',code_challenge:challenge,code_challenge_method:'S256',state:'opaque-client-state',resource:`${origin}/mcp`});
@@ -234,7 +234,17 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     expect(approval.status).toBe(200); const redirect = new URL(z.object({redirectUrl:z.string()}).parse(await approval.json()).redirectUrl);
     expect(redirect.searchParams.get('state')).toBe('opaque-client-state'); expect(redirect.searchParams.get('iss')).toBe(`${origin}/`);
     const code = redirect.searchParams.get('code')!;
-    const exchange = (values: Record<string,string>) => fetch(`${origin}/oauth/mcp/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:client.client_id,...values})});
+    const credentials: Record<string,string> = method === 'client_secret_post' ? {client_secret:client.client_secret!} : {};
+    const headers: Record<string,string> = {'content-type':'application/x-www-form-urlencoded'};
+    if (method === 'client_secret_basic') headers.authorization = 'Basic '+Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64');
+    const exchange = (values: Record<string,string>) => fetch(`${origin}/oauth/mcp/token`,{method:'POST',headers,body:new URLSearchParams({client_id:client.client_id,...credentials,...values})});
+    const wrongHeaders: Record<string,string> = {'content-type':'application/x-www-form-urlencoded'};
+    const wrongFields: Record<string,string> = {client_id:client.client_id,grant_type:'refresh_token',refresh_token:'invalid-fixture-token'};
+    if (method === 'client_secret_post') wrongHeaders.authorization='Basic '+Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64');
+    else wrongFields.client_secret=client.client_secret ?? 'not-a-public-client-secret';
+    const wrongMethod = await fetch(`${origin}/oauth/mcp/token`,{method:'POST',headers:wrongHeaders,body:new URLSearchParams(wrongFields)});
+    expect(wrongMethod.status).toBe(401);
+    expect(await wrongMethod.json()).toMatchObject({error:'invalid_client'});
     const fields = {grant_type:'authorization_code',code,code_verifier:verifier,redirect_uri:client.redirect_uris[0],resource:`${origin}/mcp`};
     expect((await exchange({...fields,code_verifier:secretToken()})).status).toBe(400);
     expect((await exchange({...fields,redirect_uri:'http://127.0.0.1:34567/other'})).status).toBe(400);
@@ -252,5 +262,7 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     const revokedRefresh = await exchange({grant_type:'refresh_token',refresh_token:next.refresh_token});
     expect(revokedRefresh.status).toBe(400);
     expect(await revokedRefresh.json()).toMatchObject({error:'invalid_grant'});
+    const revoke = await fetch(`${origin}/oauth/mcp/revoke`,{method:'POST',headers,body:new URLSearchParams({client_id:client.client_id,...credentials,token:pair.access_token})});
+    expect(revoke.status).toBe(200);
   });
 });

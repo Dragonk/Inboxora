@@ -1,3 +1,4 @@
+import { mcpClientAuthentication } from './clientAuthentication.js';
 import express from 'express';
 import type { Request, RequestHandler } from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -100,6 +101,8 @@ export function createMcpRouter(version = 'dev', tools?: RegisteredTool[], serve
     authorization_response_iss_parameter_supported: true,
   }, resourceServerUrl: new URL(endpoint), scopesSupported: [...SCOPES], resourceName: 'Inboxora' }));
   router.use('/oauth/mcp/authorize', authorizationHandler({ provider: oauthProvider }));
+  router.use(['/oauth/mcp/token','/oauth/mcp/revoke'], limiter(60, req => req.ip || 'unknown'),
+    express.urlencoded({extended:false,limit:'16kb',parameterLimit:20}), mcpClientAuthentication(oauthProvider.clientsStore));
   router.use('/oauth/mcp/token', tokenHandler({ provider: oauthProvider }));
   router.use('/oauth/mcp/register', clientRegistrationHandler({ clientsStore: oauthProvider.clientsStore }));
   router.use('/oauth/mcp/revoke', revocationHandler({ provider: oauthProvider }));
