@@ -26,7 +26,8 @@ export function readTool<S extends z.ZodRawShape>(name: string, description: str
 const requestId = z.string().min(1).max(128).describe('Stable unique ID for this exact intended operation, reused for approval and retries. Never change it to retry an uncertain result.');
 export function writeTool<S extends z.ZodRawShape>(name: string, description: string, scope: Scope, shape: S,
   authorize: (grant: Grant, args: z.output<z.ZodObject<S & { requestId: typeof requestId }>>) => Promise<void>,
-  execute: (grant: Grant, args: z.output<z.ZodObject<S & { requestId: typeof requestId }>>, operationId: string) => Promise<DomainResult>): RegisteredTool {
+  execute: (grant: Grant, args: z.output<z.ZodObject<S & { requestId: typeof requestId }>>, operationId: string, prepared: Record<string, unknown>) => Promise<DomainResult>,
+  prepare?: (grant: Grant, args: z.output<z.ZodObject<S & { requestId: typeof requestId }>>) => Promise<Record<string, unknown>>): RegisteredTool {
   const schema = z.object({ ...shape, requestId }).strict();
   return {
     scope,
@@ -35,8 +36,10 @@ export function writeTool<S extends z.ZodRawShape>(name: string, description: st
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true } },
     async invoke(grant, input) {
       const args = schema.parse(input);
+      requireScope(grant, scope);
       return runOperation(grant, name, args, async current => { requireScope(current, scope); await authorize(current, args); },
-        operationId => execute(grant, args, operationId));
+        (operationId, prepared) => execute(grant, args, operationId, prepared),
+        prepare ? () => prepare(grant, args) : undefined);
     },
   };
 }

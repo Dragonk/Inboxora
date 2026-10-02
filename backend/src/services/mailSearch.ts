@@ -1,8 +1,10 @@
+import { mapConcurrent } from '../utils/mapConcurrent.js';
+import { remoteSearchFolders, searchRemoteAccount } from './mailSearchRemote.js';
+import { searchDate } from './mailSearchRemoteQuery.js';
+import { searchFolderCondition, searchFolderAccessCondition, type MailSearchAccess } from './mailSearchAccess.js';
 import { parseSearchQuery, escapeSearchLike, type SearchFilter } from './mailSearchQuery.js';
 import { query } from './db.js';
 import { resolveAccountScope, type UnifiedInboxAccount } from './unifiedInbox.js';
-import { providerIntegrationsEnabled } from './providerSwitches.js';
-import { ingestGraphMailSearch } from './providers/microsoft/graphMailSearch.js';
 import { toAppError } from '../utils/errors.js';
 import { queryInt, queryString } from '../utils/query.js';
 
@@ -50,7 +52,8 @@ export function trashFolderExclusionCondition() {
         SELECT 1
         FROM folders f
         WHERE f.account_id = m.account_id
-          AND f.path = m.folder
+          AND ((COALESCE(a.mail_transport,'') <> 'gmail_api' AND f.path = m.folder) OR
+            (a.mail_transport='gmail_api' AND EXISTS(SELECT 1 FROM message_labels tl WHERE tl.message_id=m.id AND tl.account_id=m.account_id AND tl.folder_path=f.path)))
           AND (f.special_use = '\\Trash'
                OR lower(f.name) LIKE '%trash%'
                OR lower(f.name) LIKE '%deleted%')
@@ -67,7 +70,8 @@ export const FTS_BODY_CHAR_CAP = 600000;
 // Builds the per-term free-text OR-condition: a term matches if it appears in
 // the sender, the subject, the stored search_vector, or the length-capped body.
 // Extracted so the body cap is a single, testable source of truth.
-export function freeTextTermCondition(likeIdx: number, ftsIdx: number) {
+export function freeTextTermCondition(likeIdx: number, ftsIdx: number, phrase = false) {
+  const tsQuery = phrase ? 'phraseto_tsquery' : 'plainto_tsquery';
   return `(
         m.from_name ILIKE $${likeIdx}
         OR m.from_email ILIKE $${likeIdx}
@@ -77,12 +81,12 @@ export function freeTextTermCondition(likeIdx: number, ftsIdx: number) {
         OR m.snippet ILIKE $${likeIdx}
         OR m.body_text ILIKE $${likeIdx}
         OR regexp_replace(LEFT(coalesce(m.body_html,''), ${FTS_BODY_CHAR_CAP}), '<[^>]*>', ' ', 'g') ILIKE $${likeIdx}
-        OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
+        OR m.search_vector @@ ${tsQuery}('english', $${ftsIdx})
+        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ ${tsQuery}('english', $${ftsIdx})
       )`;
 }
 
-export async function searchMail(userId: string, input: Record<string, unknown>) {
+export async function searchMail(userId: string, input: Record<string, unknown>, access?: MailSearchAccess) {
   const q = queryString(input.q) ?? '';
   const accountId = queryString(input.accountId);
   const limit = queryInt(input.limit, 50);
@@ -95,62 +99,20 @@ export async function searchMail(userId: string, input: Record<string, unknown>)
     'SELECT id, user_id, include_in_unified_inbox, mail_transport, provider_connection_id FROM email_accounts WHERE user_id = $1 AND enabled = true',
     [userId]
   );
-  const accounts = accountsResult.rows;
-  const { accountIds: targetIds, resolvedAccountId } = resolveAccountScope(accounts, accountId);
+  const accounts = accountsResult.rows.filter(account => !access?.accounts || access.accounts.includes(account.id));
+  const { accountIds: targetIds } = resolveAccountScope(access?.allAccounts ? accounts.map(account => ({ ...account, include_in_unified_inbox: true })) : accounts, accountId);
   if (!targetIds.length) return ({ messages: [] });
 
-  // Provider-side search. The local rows are only what the delta cursor has pulled, so a
-  // native Microsoft account's mailbox holds mail this search could never see. The branch
-  // is decided by the account's **transport** (`mail_transport`) and never by `source`,
-  // and an installation with the provider layer switched off makes no outbound call.
-  const nativeGraphAccounts = accounts.filter(
-    (account): account is SearchAccount & { mail_transport: 'microsoft_graph'; provider_connection_id: string } =>
-      targetIds.includes(account.id)
-      && account.mail_transport === 'microsoft_graph'
-      && typeof account.provider_connection_id === 'string'
-      && account.provider_connection_id.length > 0,
-  );
   const providerErrors: ProviderSearchError[] = [];
-  const searchedAccounts = new Set<string>();
-
-  /**
-   * Ingest this search's provider hits for the native accounts in scope. Returns true
-   * when at least one provider search ran, so the caller knows a re-read is worthwhile.
-   * A provider failure is recorded, never thrown: it must not fail the local search.
-   */
-  const ingestProviderHits = async (): Promise<boolean> => {
-    if (!providerIntegrationsEnabled()) return false;
-    let ran = false;
-    for (const account of nativeGraphAccounts) {
-      if (searchedAccounts.has(account.id)) continue;
-      searchedAccounts.add(account.id);
-      ran = true;
-      try {
-        await ingestGraphMailSearch({
-          userId: account.user_id,
-          connectionId: account.provider_connection_id,
-          accountId: account.id,
-          query: trimmed,
-        });
-      } catch (caught) {
-        const error = toAppError(caught);
-        providerErrors.push({
-          accountId: account.id,
-          ...(error.code ? { code: error.code } : {}),
-          error: error.message,
-        });
-        console.warn(`Provider search failed for account ${account.id}: ${error.message}`);
-      }
-    }
-    return ran;
-  };
-
+  const remoteIds: string[] = [];
+  let partial = false;
   const cap = Math.max(1, Math.min(limit, 200));
   const { filters, terms } = parseSearchQuery(trimmed);
 
   const conditions: string[] = [];
   const params: unknown[] = [targetIds];
   let p = 2;
+  const textConditions: string[] = [];
 
   // Folder scope. `in:` in the query wins; otherwise the client-supplied `folder`
   // param (the folder the user is currently viewing) applies. `undefined` means
@@ -165,7 +127,7 @@ export async function searchMail(userId: string, input: Record<string, unknown>)
     if (f.key === 'in') {
       if (f.negate && f.value !== 'all') {
         params.push(escapeSearchLike(f.value), `%/${escapeSearchLike(f.value)}`);
-        conditions.push(negateCond(`(m.folder ILIKE $${p} OR m.folder ILIKE $${p + 1})`));
+        conditions.push(negateCond(searchFolderCondition(p, true, p + 1)));
         p += 2;
       }
       continue;
@@ -192,10 +154,10 @@ export async function searchMail(userId: string, input: Record<string, unknown>)
       else if (f.value === 'read')    cond = `m.is_read = true`;
       else if (f.value === 'starred') cond = `m.is_starred = true`;
     } else if (f.key === 'after') {
-      const d = new Date(f.value);
+      const d = searchDate(f.value);
       if (!Number.isNaN(d.getTime())) { params.push(d.toISOString()); cond = `m.date >= $${p++}`; }
     } else if (f.key === 'before') {
-      const d = new Date(f.value);
+      const d = searchDate(f.value);
       if (!Number.isNaN(d.getTime())) { params.push(d.toISOString()); cond = `m.date < $${p++}`; }
     }
 
@@ -216,13 +178,13 @@ export async function searchMail(userId: string, input: Record<string, unknown>)
     params.push(term.value); // raw term for plainto_tsquery
     const ftsIdx = p++;
 
-    const cond = freeTextTermCondition(likeIdx, ftsIdx);
-    conditions.push(term.negate ? negateCond(cond) : cond);
+    const cond = freeTextTermCondition(likeIdx, ftsIdx, /\s/.test(term.value));
+    textConditions.push(term.negate ? `(${negateCond(cond)} AND (m.body_text IS NOT NULL OR m.body_html IS NOT NULL))` : cond);
   }
 
   // Require at least one real search condition before applying folder scope, so a
   // bare `in:inbox` (or a lone folder param) never dumps an entire folder.
-  if (!conditions.length) return ({ messages: [], query: q });
+  if (!conditions.length && !textConditions.length) return ({ messages: [], query: q });
 
   // Resolve folder scope: in: operator wins; otherwise use the param.
   const { folderScope, folderFuzzy } = resolveSearchFolderScope(filters, queryString(input.folder) ?? '');
@@ -233,11 +195,11 @@ export async function searchMail(userId: string, input: Record<string, unknown>)
       // A multi-word leaf like "[Gmail]/Sent Mail" needs the quoted form in:"sent mail".
       params.push(escapeSearchLike(folderScope));
       params.push(`%/${escapeSearchLike(folderScope)}`);
-      conditions.push(`(m.folder ILIKE $${p} OR m.folder ILIKE $${p + 1})`);
+      conditions.push(searchFolderCondition(p, true, p + 1));
       p += 2;
     } else {
       params.push(folderScope);
-      conditions.push(`m.folder = $${p++}`);
+      conditions.push(searchFolderCondition(p++));
     }
   } else if (shouldExcludeTrashFromSearch(folderScope)) {
     // Deleting moves mail into Trash, where it remains searchable by explicit
@@ -246,8 +208,18 @@ export async function searchMail(userId: string, input: Record<string, unknown>)
     conditions.push(trashFolderExclusionCondition());
   }
 
+  if (access?.folders !== undefined && access.folders !== null) {
+    params.push(JSON.stringify(access.folders));
+    conditions.push(searchFolderAccessCondition(p++));
+  }
+  if (textConditions.length) {
+    // A provider confirms the whole parsed text expression. Its metadata-only
+    // hits must not fail again just because their body is not cached locally.
+    params.push(remoteIds);
+    conditions.push(`((${textConditions.join(' AND ')}) OR m.id=ANY($${p++}::uuid[]))`);
+  }
   const off = Math.max(0, offset);
-  params.push(cap);
+  params.push(cap + 1);
   params.push(off);
 
   const runLocalSearch = () => query(`
@@ -265,20 +237,28 @@ export async function searchMail(userId: string, input: Record<string, unknown>)
     `, params);
 
   try {
-    // Scoped to one account: that mailbox is the authority, so ask the provider before
-    // answering and then answer from the local model as before. Over all accounts the
-    // provider is consulted only when the local rows run short of the requested page —
-    // a full local page needs no ingest, and a hit found now would be on a later page.
-    if (resolvedAccountId) {
-      await ingestProviderHits();
-    }
-    let result = await runLocalSearch();
-    if (!resolvedAccountId && result.rows.length < cap) {
-      if (await ingestProviderHits()) result = await runLocalSearch();
-    }
-
+    // A full cached page cannot prove coverage: newer server matches or a
+    // different account may be entirely absent from the local sync window.
+    await mapConcurrent(accounts.filter(account => targetIds.includes(account.id)), 3, async account => {
+      try {
+        const folders = await remoteSearchFolders(account.id, folderScope, folderFuzzy, access?.folders);
+        const result = await searchRemoteAccount(account, { query: trimmed, folders, maxResults: Math.min(1000, Math.max(200, off + cap + 1)) });
+        remoteIds.push(...result.rowIds);
+        partial ||= result.truncated;
+        if (result.errors?.length) providerErrors.push({ accountId: account.id, code: 'SEARCH_INCOMPLETE', error: result.errors.join(' ') });
+      } catch (caught) {
+        const error = toAppError(caught); partial = true;
+        providerErrors.push({ accountId: account.id, code: error.code || 'PROVIDER_SEARCH_FAILED',
+          error: 'The mail server could not complete this search. Locally synchronized matches are shown; check the account connection and retry.' });
+        console.warn(`Provider search failed for account ${account.id}: ${error.code || 'unavailable'}`);
+      }
+    });
+    const result = await runLocalSearch();
     return ({
-      messages: result.rows,
+      messages: result.rows.slice(0, cap),
+      nextOffset: result.rows.length > cap ? off + cap : null,
+      partial,
+      coverage: partial ? 'partial' : 'provider_and_local',
       query: q,
       ...(providerErrors.length ? { providerErrors } : {}),
     });

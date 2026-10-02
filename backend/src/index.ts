@@ -1,3 +1,6 @@
+import { registerImapMailSearch } from './services/mailSearchRemote.js';
+import { createMcpRouter } from './mcp/server.js';
+import mcpApiRouter from './mcp/api.js';
 import { startSignatureTrustRefresh } from './services/attachments/signatureTrust.js';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
@@ -148,6 +151,8 @@ const sessionMiddleware = session({
   }
 });
 
+app.use(createMcpRouter(APP_VERSION));
+
 app.use(createBrowserCors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
@@ -243,6 +248,7 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 
 // Make imap manager available globally
 export const imapManager = new ImapManager(wss);
+registerImapMailSearch(input => imapManager.searchAccountMessages(input));
 app.set('imapManager', imapManager);
 // Hand the mail engine to the plugin platform so plugin-api capabilities (labels, archive,
 // broadcast) can be bound to it without any plugin importing the mail engine or this entry file.
@@ -252,6 +258,7 @@ setMailEngine(imapManager);
 // Secret calendar feeds intentionally sit outside the authenticated API mount;
 // their anonymous GET is protected by the high-entropy bearer token.
 app.use('/', calendarFeedRouter);
+app.use('/api/mcp', mcpApiRouter);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/oidc', oidcApiRouter);
 app.use('/auth/oidc', oidcBrowserRouter);

@@ -41,14 +41,16 @@ import type { FetchLike } from '../../providerAuthService.js';
  * The same ceiling the local route applies to a query before it reaches here. Bound
  * again at this boundary so the escaping rule has one place that cannot be bypassed.
  */
-export const GRAPH_SEARCH_MAX_QUERY_LENGTH = 500;
+export const GRAPH_SEARCH_MAX_QUERY_LENGTH = 8000;
 
 /** One page of hits, the size the message sync asks for. */
 export const GRAPH_SEARCH_PAGE_SIZE = MESSAGE_PAGE_SIZE;
 
 /** Trim and bound a user query. */
 export function boundGraphSearchQuery(raw: string): string {
-  return raw.trim().slice(0, GRAPH_SEARCH_MAX_QUERY_LENGTH);
+  const value = raw.trim();
+  if (value.length > GRAPH_SEARCH_MAX_QUERY_LENGTH) throw new Error('The compiled Graph search is too long.');
+  return value;
 }
 
 /**
@@ -67,8 +69,8 @@ export function escapeGraphSearchQuery(raw: string): string {
  * The one-page search URL: the message sync's projection fields, the query as a quoted
  * KQL literal, and an explicit `$top` rather than Graph's default page size.
  */
-export function graphMailSearchUrl(query: string, options: { top?: number } = {}): string {
-  return graphUrl('/me/messages', {
+export function graphMailSearchUrl(query: string, options: { top?: number; folderId?: string } = {}): string {
+  return graphUrl(options.folderId ? `/me/mailFolders/${encodeURIComponent(options.folderId)}/messages` : '/me/messages', {
     $search: `"${escapeGraphSearchQuery(boundGraphSearchQuery(query))}"`,
     $select: GRAPH_MESSAGE_SELECT,
     $top: options.top ?? GRAPH_SEARCH_PAGE_SIZE,
@@ -90,12 +92,12 @@ export interface GraphMailSearchPage {
  */
 export async function searchGraphMessagesPage(
   api: GraphApiOptions,
-  input: { query: string; nextLink?: string | null; top?: number },
+  input: { query: string; nextLink?: string | null; top?: number; folderId?: string },
 ): Promise<GraphMailSearchPage> {
   const query = boundGraphSearchQuery(input.query);
   if (!query) return { messages: [], nextLink: null };
 
-  const url = input.nextLink ?? graphMailSearchUrl(query, { top: input.top });
+  const url = input.nextLink ?? graphMailSearchUrl(query, { top: input.top, folderId: input.folderId });
   const page = await graphGet<GraphMessagePage>(api, url);
   return {
     messages: page.value ?? [],
@@ -113,6 +115,8 @@ export interface GraphMailSearchIngestResult {
   skipped: number;
   /** Distinct provider folder ids the skipped hits pointed at. */
   unresolvedFolders: number;
+  rowIds: string[];
+  truncated: boolean;
 }
 
 /** Discover this account's folder tree through the existing folder sync. */
@@ -146,11 +150,13 @@ export async function ingestGraphMailSearch(input: {
   connectionId: string;
   accountId: string;
   query: string;
+  maxResults?: number;
+  folders?: string[] | null;
   config?: GraphApiOptions['config'];
   fetchImpl?: FetchLike;
 }): Promise<GraphMailSearchIngestResult> {
   const empty: GraphMailSearchIngestResult = {
-    accountId: input.accountId, hits: 0, created: 0, updated: 0, skipped: 0, unresolvedFolders: 0,
+    accountId: input.accountId, hits: 0, created: 0, updated: 0, skipped: 0, unresolvedFolders: 0, rowIds: [], truncated: false,
   };
   const searchQuery = boundGraphSearchQuery(input.query);
   if (!searchQuery) return empty;
@@ -159,6 +165,7 @@ export async function ingestGraphMailSearch(input: {
     userId: input.userId,
     connectionId: input.connectionId,
     owner: `graph-mail-search:${input.accountId}`,
+    signal: AbortSignal.timeout(35000),
     ...(input.config ? { config: input.config } : {}),
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
@@ -170,7 +177,23 @@ export async function ingestGraphMailSearch(input: {
   }
   const folderPathByRemoteId = new Map(targets.map(target => [target.remoteId, target.folderPath]));
 
-  const page = await searchGraphMessagesPage(api, { query: searchQuery });
+  const maximum = Math.min(1000, Math.max(1, input.maxResults ?? 200));
+  const selected = input.folders == null ? [undefined] : targets.filter(target => input.folders?.includes(target.folderPath)).map(target => target.remoteId);
+  const messages: GraphMessage[] = []; let truncated = false;
+  for (let folderIndex = 0; folderIndex < selected.length; folderIndex++) {
+    let nextLink: string | null = null;
+    const links = new Set<string>();
+    do {
+      const page = await searchGraphMessagesPage(api, { query: searchQuery, folderId: selected[folderIndex], nextLink, top: Math.min(100, maximum - messages.length) });
+      messages.push(...page.messages.slice(0, maximum - messages.length));
+      nextLink = page.nextLink;
+      if (nextLink && links.has(nextLink)) { truncated = true; break; }
+      if (nextLink) links.add(nextLink);
+      if (messages.length >= maximum) { truncated = true; break; }
+    } while (nextLink);
+    if (messages.length >= maximum) break;
+  }
+  const page = { messages };
 
   const byFolder = new Map<string, GraphMessage[]>();
   const unresolved = new Set<string>();
@@ -231,5 +254,6 @@ export async function ingestGraphMailSearch(input: {
     updated: applied.updated,
     skipped: skipped + applied.skipped,
     unresolvedFolders: unresolved.size,
+    rowIds: applied.rowIds, truncated: truncated || skipped > 0 || applied.skipped > 0,
   };
 }

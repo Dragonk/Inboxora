@@ -16,7 +16,7 @@ export async function permittedCalendars(grant: Grant): Promise<Record<string, u
       source: typeof calendar.source === 'string' ? calendar.source : null,
       source_access: typeof calendar.source_access === 'string' ? calendar.source_access : null,
       user_access: typeof calendar.user_access === 'string' ? calendar.user_access : null,
-    }, 'calendar') }));
+    }, 'calendars') }));
 }
 async function requireEvent(grant: Grant, eventId: string, expectedEtag?: string) {
   const result = await query<{ calendar_id: string; etag: string; attendees: unknown; invite_account_id: string | null }>(
@@ -37,7 +37,7 @@ async function calendarRange(grant: Grant, args: z.infer<z.ZodObject<typeof rang
   if (!ids.length) return { events: [] as Record<string, unknown>[], truncated: false, incompleteSeries: [] as unknown[], calendarIds: ids };
   const response = await domainRead(grant.user_id, queryPath('/calendar/events', { from: args.from, to: args.to, calendarIds: ids.join(',') }));
   return { events: records(response.events).filter(event => ids.includes(String(event.calendar_id))).map(event => selectedFields(event, eventFields)),
-    truncated: response.truncated === true, incompleteSeries: Array.isArray(response.incompleteSeries) ? response.incompleteSeries : [], calendarIds: ids };
+    truncated: response.truncated === true || (Array.isArray(response.incompleteSeries) && response.incompleteSeries.length > 0), incompleteSeries: Array.isArray(response.incompleteSeries) ? response.incompleteSeries : [], calendarIds: ids };
 }
 export function mergeBusyIntervals(events: Record<string, unknown>[], from: string, to: string) {
   const start = new Date(from).getTime(); const end = new Date(to).getTime();
@@ -58,8 +58,8 @@ const eventShape = { calendarId: id, summary: z.string().max(1000), startsAt: in
   description: z.string().max(100000).nullable(), location: z.string().max(2000).nullable(), url: z.url().max(2048).nullable(),
   organizer: z.string().max(320).nullable(), allDay: z.boolean(), timezone: z.string().min(1).max(100).nullable(),
   attendees: z.array(z.email()).max(100), sendInvites: z.boolean(), inviteAccountId: id.optional(), inviteAliasId: id.optional(), recurrence };
-const eventSchema = z.object(eventShape);
-type EventInput = z.output<typeof eventSchema>;
+const _eventSchema = z.object(eventShape);
+type EventInput = z.output<typeof _eventSchema>;
 async function authorizeEventWrite(grant: Grant, args: EventInput): Promise<void> {
   await requireCalendar(grant, args.calendarId);
   if (new Date(args.endsAt) <= new Date(args.startsAt)) throw new McpError('INVALID_RANGE', 'The event must end after it starts.', 400);

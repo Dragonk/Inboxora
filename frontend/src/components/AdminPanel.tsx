@@ -1,3 +1,4 @@
+import McpSettings from './mcp/McpSettings.tsx';
 import AttachmentDisplaySettings from './AttachmentDisplaySettings.tsx';
 import { Switch as SettingSwitch, IconButton as AccountIconButton } from './accountUi/AccountUi.tsx';
 import { DavAccountsList, DavAccountEditor, type DavAccount } from './accountUi/DavAccounts.tsx';
@@ -9293,7 +9294,7 @@ export default function AdminPanel() {
       {adminTab === 'dav-credentials' && <DavCredentialsTab />}
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
-      {adminTab === 'ai' && <AISection />}
+      {adminTab === 'ai' && <><AISection /><McpSettings key={useStore.getState().authEpoch}/></>}
       {adminTab === 'ai-actions' && <AiActionsTab />}
       {adminTab === 'plugins' && <PluginsSection onNavigate={navigateTo} />}
       {adminTab === 'about' && <AboutTab />}

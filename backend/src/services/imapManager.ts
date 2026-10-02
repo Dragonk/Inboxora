@@ -1,3 +1,5 @@
+import { imapSearchQuery } from './mailSearchRemoteQuery.js';
+import type { RemoteSearchInput, RemoteSearchResult } from './mailSearchRemote.js';
 import { readImapAttachment, AttachmentReadLimitError, AttachmentByteBudget, ATTACHMENT_READ_BYTES, ATTACHMENT_BATCH_BYTES } from './attachmentRead.js';
 import { assertImapAccount, assertCurrentImapAccount, isImapAccount, isImapAccountChanged, readCurrentImapAccount, IMAP_TRANSPORT_GUARD } from './imapTransportGuard.js';
 import { prefetchVisibleBodies, readNativePrefetchBody } from './mailBodyPrefetch.js';
@@ -5042,7 +5044,7 @@ export class ImapManager {
     });
   }
 
-  async fetchAttachment(account: EmailAccountRow, uid: number | string, folder: string, partNum: string) {
+  async fetchAttachment(account: EmailAccountRow, uid: number | string, folder: string, partNum: string, maxBytes?: number) {
     return withFreshClient(account, async client => {
       const lock = await client.getMailboxLock(folder);
       try {
@@ -5050,7 +5052,7 @@ export class ImapManager {
           const structure: { textParts: BodyPartRef[]; attachments: AttachmentRef[] } = { textParts: [], attachments: [] };
           if (message.bodyStructure) walkStructure(message.bodyStructure, structure);
           return attachmentTransferEncoding(structure, partNum);
-        });
+        }, maxBytes === undefined ? {} : { maxBytes });
       } finally { lock.release(); }
     });
   }
@@ -6140,6 +6142,56 @@ export class ImapManager {
       const have = new Set(existing.rows.map(r => Number(r.uid)));
       return serverUids.filter(uid => !have.has(Number(uid)));
     });
+  }
+
+  /** Read server-side search hits without advancing sync cursors, classifying spam,
+   * marking mail read or issuing another command inside an IMAP FETCH iterator. */
+  async searchAccountMessages(input: RemoteSearchInput): Promise<RemoteSearchResult> {
+    const found = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2 AND enabled=true', [input.accountId, input.userId]);
+    const account = found.rows[0];
+    if (!account) throw new Error('Search account is unavailable.');
+    assertImapAccount(account);
+    const folders = (await query<{ path: string }>("SELECT path FROM folders WHERE account_id=$1 ORDER BY CASE WHEN path='INBOX' THEN 0 ELSE 1 END,path", [account.id])).rows
+      .filter(folder => input.folders === null || input.folders.includes(folder.path));
+    const selected = folders.slice(0, 50);
+    const maximum = Math.min(1000, Math.max(1, input.maxResults));
+    const rowIds: string[] = []; const errors: string[] = []; let truncated = folders.length > selected.length;
+    const expires = Date.now() + 35000;
+    await withFreshClient(account, async client => {
+      const timer = setTimeout(() => client.close(), Math.max(1, expires - Date.now())); timer.unref();
+      try {
+        for (let folderIndex = 0; folderIndex < selected.length; folderIndex++) {
+          if (Date.now() >= expires) { truncated = true; break; }
+          const folder = selected[folderIndex].path;
+          try {
+            const lock = await client.getMailboxLock(folder);
+            const fetched: RawMessageInput[] = [];
+            try {
+              if (Date.now() >= expires) throw new Error('Search deadline exceeded.');
+              const hits = (await searchUids(client, imapSearchQuery(input.query))).sort((a,b) => b-a);
+              const uids = hits.slice(0, maximum - rowIds.length);
+              truncated ||= hits.length > uids.length;
+              if (uids.length) for await (const message of client.fetch(uids.join(','), providerFetchQuery(account, {
+                uid: true, flags: true, envelope: true, bodyStructure: true, internalDate: true, size: true, headers: true,
+              }, providerCapabilitiesFromClient(client)), { uid: true })) fetched.push(message);
+            } finally { lock.release(); }
+            for (const message of fetched) {
+              const parsed = await parseMessage(message);
+              enrichParsedMetadata(parsed, { accountEmail: account.email_address, accountName: account.name,
+                senderName: account.sender_name, folderPath: folder, sentFolderPath: account.folder_mappings?.sent ?? undefined });
+              if (!parsed.uid) { truncated = true; continue; }
+              const result = await this.upsertIngestedMessage(account, folder, parsed, { sanitizeHtml: null, textBody: null, attachments: [] });
+              const id = result.rows[0]?.id;
+              if (!id) { truncated = true; continue; }
+              rowIds.push(id);
+              await persistConversationCopyForRow(id, account, message);
+            }
+          } catch { errors.push(`Search could not finish folder ${folder}.`); truncated = true; }
+          if (rowIds.length >= maximum) { truncated ||= folderIndex < selected.length - 1; break; }
+        }
+      } finally { clearTimeout(timer); }
+    });
+    return { rowIds, truncated, ...(errors.length ? { errors } : {}) };
   }
 
   // Shared INSERT/UPSERT for one fetched message. Extracted so the normal

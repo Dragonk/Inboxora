@@ -5,7 +5,6 @@ export { parseSearchQuery } from '../services/mailSearchQuery.js';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { resolveAccountScope } from '../services/unifiedInbox.js';
 import { toAppError } from '../utils/errors.js';
 import { queryString } from '../utils/query.js';
 import type { Request, Response, NextFunction } from 'express';
@@ -13,14 +12,14 @@ import type { Request, Response, NextFunction } from 'express';
 const router = Router();
 router.use(requireAuth);
 
-// Simple in-memory rate limiter: 20 searches per minute per user.
+// Simple in-memory rate limiter: 120 searches per minute per user.
 const searchBuckets = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [k, b] of searchBuckets) {
     if (now > b.resetAt) searchBuckets.delete(k);
   }
-}, 60_000);
+}, 60_000).unref();
 
 function searchLimiter(req: Request, res: Response, next: NextFunction) {
   const key = sessionUserId(req);
@@ -30,7 +29,7 @@ function searchLimiter(req: Request, res: Response, next: NextFunction) {
     searchBuckets.set(key, { count: 1, resetAt: now + 60_000 });
     return next();
   }
-  if (b.count >= 20) {
+  if (b.count >= 120) {
     res.setHeader('Retry-After', Math.ceil((b.resetAt - now) / 1000));
     return res.status(429).json({ error: 'Too many search requests. Try again shortly.' });
   }

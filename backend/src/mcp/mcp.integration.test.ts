@@ -1,0 +1,161 @@
+import 'express-async-errors';
+import { createHash, randomUUID } from 'node:crypto';
+import { createServer, type Server as HttpServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import express from 'express';
+import session from 'express-session';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { z } from 'zod';
+
+// Do not boot the production worker, connect to personal mailboxes or send mail.
+vi.mock('../index.js', () => ({ imapManager: {} }));
+import { pool, query } from '../services/db.js';
+import { createMcpRouter } from './server.js';
+import apiRouter from './api.js';
+import { createPersonalToken, oauthProvider } from './oauth.js';
+import { grantSchema, liveGrant, requireAccount } from './policy.js';
+import { readTool, writeTool } from './registry.js';
+import { tools as domainTools } from './catalog.js';
+import { secretToken, digest } from './config.js';
+import { readOperation } from './operations.js';
+
+const record = (value: unknown) => z.record(z.string(), z.unknown()).parse(value);
+const oauthClient = z.object({ client_id: z.string(), redirect_uris: z.array(z.string()).min(1) });
+const tokenPair = z.object({ access_token: z.string(), refresh_token: z.string() });
+const enabled = process.env.REQUIRE_MCP_POSTGRES === '1';
+describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
+  const userId = randomUUID(); const foreignUserId = randomUUID(); const accountId = randomUUID(); const foreignAccountId = randomUUID();
+  let server: HttpServer; let origin: string; let cookie: string; let foreignCookie: string; let calls = 0;
+  const clients: Client[] = []; const registeredClientIds: string[] = [];
+  const priorUrl = process.env.APP_URL; const priorEnabled = process.env.MCP_ENABLED;
+  async function browser(path: string, body?: unknown, browserCookie = cookie, method = body === undefined ? 'GET' : 'POST') {
+    return fetch(`${origin}/api/mcp${path}`, { method, headers: { cookie: browserCookie, 'content-type': 'application/json', 'x-requested-with': 'MailFlow' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  }
+  async function connect(token: string) {
+    const client = new Client({ name: 'test-client', version: '1.0.0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+    clients.push(client); return client;
+  }
+  async function token(name: string, options: Record<string, unknown> = {}) {
+    return createPersonalToken(userId, grantSchema.parse({ name, scopes: ['mail.read','mail.send'], restrictions: { accounts: [accountId] }, ...options }));
+  }
+  beforeAll(async () => {
+    await query('SELECT id FROM mcp_grants LIMIT 0');
+    await query('INSERT INTO users(id,username) VALUES($1,$2),($3,$4)', [userId, `mcp-${userId}`, foreignUserId, `mcp-${foreignUserId}`]);
+    await query(`INSERT INTO email_accounts(id,user_id,name,email_address) VALUES($1,$2,'Mine','owner@example.test'),($3,$4,'Foreign','foreign@example.test')`, [accountId,userId,foreignAccountId,foreignUserId]);
+    process.env.MCP_ENABLED = 'true';
+    const app = express(); server = createServer(app);
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`; process.env.APP_URL = origin;
+    const fixtureTools = [
+      readTool('test_read', 'Synthetic read', 'mail.read', { accountId: z.uuid() }, async (grant, args) => { await requireAccount(grant, args.accountId); return { owner: grant.user_id }; }),
+      writeTool('test_write', 'Synthetic external write', 'mail.send', { accountId: z.uuid(), subject: z.string() },
+        async (grant, args) => requireAccount(grant, args.accountId), async (_grant, args) => { calls++; await new Promise(resolve => setTimeout(resolve, 40)); return { status: 200, body: { subject: args.subject } }; }),
+      ...domainTools,
+    ];
+    app.use(createMcpRouter('integration-test', fixtureTools));
+    app.use(express.json()); app.use(session({ secret: 'synthetic-mcp-test-session', resave: false, saveUninitialized: false }));
+    // This route exists only in a loopback, in-process test app, never in production.
+    app.post('/fixture/login/:who', (req,res) => { req.session.userId = req.params.who === 'foreign' ? foreignUserId : userId; res.json({ ok: true }); });
+    app.use('/api/mcp', apiRouter);
+    cookie = (await fetch(`${origin}/fixture/login/owner`, { method: 'POST' })).headers.get('set-cookie')!.split(';')[0];
+    foreignCookie = (await fetch(`${origin}/fixture/login/foreign`, { method: 'POST' })).headers.get('set-cookie')!.split(';')[0];
+  });
+  afterAll(async () => {
+    for (const client of clients) await client.close();
+    if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+    await query('DELETE FROM users WHERE id=ANY($1::uuid[])', [[userId,foreignUserId]]);
+    if (registeredClientIds.length) await query('DELETE FROM mcp_clients WHERE id=ANY($1::text[])', [registeredClientIds]);
+    await pool.end();
+    if (priorUrl === undefined) delete process.env.APP_URL; else process.env.APP_URL = priorUrl;
+    if (priorEnabled === undefined) delete process.env.MCP_ENABLED; else process.env.MCP_ENABLED = priorEnabled;
+  });
+  it('advertises the exact protected resource and requires bearer authentication', async () => {
+    const unauthenticated = await fetch(`${origin}/mcp`, { method:'POST', headers:{'content-type':'application/json'}, body:'{}' });
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get('www-authenticate')).toContain(`${origin}/.well-known/oauth-protected-resource/mcp`);
+    const resource = record(await (await fetch(`${origin}/.well-known/oauth-protected-resource/mcp`)).json());
+    expect(resource.resource).toBe(`${origin}/mcp`); expect(resource.authorization_servers).toEqual([`${origin}/`]);
+    const metadata = record(await (await fetch(`${origin}/.well-known/oauth-authorization-server`)).json());
+    expect(metadata.code_challenge_methods_supported).toEqual(['S256']); expect(metadata.registration_endpoint).toBe(`${origin}/oauth/mcp/register`);
+  });
+  it('rejects browser origins and forged identities before returning mail data', async () => {
+    const grant = await token('origin test');
+    const response = await fetch(`${origin}/mcp`, { method:'POST', headers:{'content-type':'application/json',authorization:`Bearer ${grant.token}`,origin:'https://attacker.example','x-user-id':userId}, body:'{}' });
+    expect(response.status).toBe(403);
+    const forged = await fetch(`${origin}/api/mcp/grants`, { headers:{ 'x-user-id':userId,authorization:`Bearer ${grant.token}` } });
+    expect(forged.status).toBe(401);
+  });
+  it('initializes the official SDK, filters tools and enforces ownership on invocation', async () => {
+    const grant = await token('read-only', { scopes:['mail.read'] }); const client = await connect(grant.token);
+    const listed = await client.listTools();
+    expect(listed.tools.some(tool => tool.name==='test_read')).toBe(true);
+    expect(listed.tools.some(tool => tool.name==='send_email')).toBe(false);
+    expect((await client.callTool({ name:'test_read',arguments:{accountId} })).structuredContent).toEqual({ owner:userId });
+    expect((await client.callTool({ name:'test_read',arguments:{accountId:foreignAccountId} })).isError).toBe(true);
+    expect((await client.callTool({ name:'test_write',arguments:{accountId,subject:'not permitted',requestId:randomUUID()} })).isError).toBe(true);
+    expect((await client.readResource({ uri:'inboxora://guide' })).contents[0]).toMatchObject({ mimeType:'text/plain' });
+  });
+  it('stores hashes and ciphertext, not personal tokens, and rejects foreign resource grants', async () => {
+    const grant = await token('stored token');
+    const row = (await query<{ token_hash:string }>('SELECT token_hash FROM mcp_tokens WHERE grant_id=$1', [grant.id])).rows[0];
+    expect(row.token_hash).toBe(digest(grant.token)); expect(row.token_hash).not.toBe(grant.token);
+    await expect(token('foreign scope', { restrictions:{accounts:[foreignAccountId]} })).rejects.toThrow(/unavailable/);
+  });
+  it('requires browser approval, binds exact arguments and dispatches concurrent retries once', async () => {
+    const grant = await token('approval test'); const client = await connect(grant.token);
+    const args = { accountId,subject:'One intended delivery',requestId:randomUUID() }; const before = calls;
+    const first = await client.callTool({ name:'test_write',arguments:args }); const operationId = String(record(first.structuredContent).operationId);
+    expect(record(first.structuredContent).state).toBe('pending'); expect(calls).toBe(before);
+    expect((await client.callTool({ name:'test_write',arguments:{...args,subject:'Changed recipient or content'} })).isError).toBe(true);
+    expect((await browser(`/operations/${operationId}/decision`,{approve:true},foreignCookie)).status).toBe(409);
+    const bearerApproval = await fetch(`${origin}/api/mcp/operations/${operationId}/decision`, { method:'POST',headers:{authorization:`Bearer ${grant.token}`,'content-type':'application/json','x-requested-with':'MailFlow'},body:'{"approve":true}' });
+    expect(bearerApproval.status).toBe(401);
+    expect((await browser(`/operations/${operationId}/decision`,{approve:true})).status).toBe(200);
+    await Promise.all([client.callTool({name:'test_write',arguments:args}),client.callTool({name:'test_write',arguments:args})]);
+    const receipt = await readOperation(await liveGrant(grant.id,userId),operationId);
+    expect(receipt.state).toBe('succeeded'); expect(calls).toBe(before+1);
+    expect(record((await client.callTool({name:'test_write',arguments:args})).structuredContent).state).toBe('succeeded'); expect(calls).toBe(before+1);
+    const row = (await query<{ arguments_encrypted:string; execution_encrypted:string|null }>('SELECT arguments_encrypted,execution_encrypted FROM mcp_operations WHERE id=$1',[operationId])).rows[0];
+    expect(row.arguments_encrypted).not.toContain(args.subject); expect(row.execution_encrypted).toBeNull();
+  });
+  it('revokes already issued tokens and pending approvals immediately', async () => {
+    const grant = await token('revoked'); const client = await connect(grant.token);
+    const args = {accountId,subject:'Never dispatch',requestId:randomUUID()}; const result = await client.callTool({name:'test_write',arguments:args});
+    const operationId = String(record(result.structuredContent).operationId);
+    expect((await browser(`/grants/${grant.id}`,undefined,cookie,'DELETE')).status).toBe(200);
+    await expect(oauthProvider.verifyAccessToken(grant.token)).rejects.toThrow(/revoked|expired/);
+    expect((await browser(`/operations/${operationId}/decision`,{approve:true})).status).toBe(409);
+    expect((await query<{state:string}>('SELECT state FROM mcp_operations WHERE id=$1',[operationId])).rows[0].state).toBe('denied');
+  });
+  it('runs OAuth with S256, exact redirect/resource binding, rotation and replay revocation', async () => {
+    const registration = await fetch(`${origin}/oauth/mcp/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'SDK OAuth test',redirect_uris:['http://127.0.0.1:34567/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code']})});
+    expect(registration.status).toBe(201); const client = oauthClient.parse(await registration.json()); registeredClientIds.push(client.client_id);
+    const verifier = secretToken(); const challenge = createHash('sha256').update(verifier).digest('base64url');
+    const parameters = new URLSearchParams({response_type:'code',client_id:client.client_id,redirect_uri:client.redirect_uris[0],scope:'mail.read mail.send',code_challenge:challenge,code_challenge_method:'S256',state:'opaque-client-state',resource:`${origin}/mcp`});
+    const authorization = await fetch(`${origin}/oauth/mcp/authorize?${parameters}`, {redirect:'manual'});
+    expect(authorization.status).toBe(302);
+    const pending = new URL(authorization.headers.get('location')!).searchParams.get('request')!;
+    const approval = await browser(`/authorizations/${pending}`,{approve:true,grant:{name:'OAuth consent',scopes:['mail.read','mail.send'],restrictions:{accounts:[accountId]}}});
+    expect(approval.status).toBe(200); const redirect = new URL(z.object({redirectUrl:z.string()}).parse(await approval.json()).redirectUrl);
+    expect(redirect.searchParams.get('state')).toBe('opaque-client-state'); expect(redirect.searchParams.get('iss')).toBe(`${origin}/`);
+    const code = redirect.searchParams.get('code')!;
+    const exchange = (values: Record<string,string>) => fetch(`${origin}/oauth/mcp/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:client.client_id,...values})});
+    const fields = {grant_type:'authorization_code',code,code_verifier:verifier,redirect_uri:client.redirect_uris[0],resource:`${origin}/mcp`};
+    expect((await exchange({...fields,code_verifier:secretToken()})).status).toBe(400);
+    expect((await exchange({...fields,redirect_uri:'http://127.0.0.1:34567/other'})).status).toBe(400);
+    expect((await exchange({...fields,resource:'https://other.example/mcp'})).status).toBe(400);
+    const response = await exchange(fields); expect(response.status).toBe(200); const pair = tokenPair.parse(await response.json());
+    expect((await exchange(fields)).status).toBe(400);
+    expect((await oauthProvider.verifyAccessToken(pair.access_token)).scopes).toEqual(['mail.read','mail.send']);
+    expect((await exchange({grant_type:'refresh_token',refresh_token:pair.refresh_token,scope:'contacts.write'})).status).toBe(400);
+    const narrowed = await exchange({grant_type:'refresh_token',refresh_token:pair.refresh_token,scope:'mail.read'});
+    expect(narrowed.status).toBe(200); const next = tokenPair.parse(await narrowed.json());
+    expect((await oauthProvider.verifyAccessToken(next.access_token)).scopes).toEqual(['mail.read']);
+    expect((await exchange({grant_type:'refresh_token',refresh_token:pair.refresh_token})).status).toBe(400);
+    await expect(oauthProvider.verifyAccessToken(next.access_token)).rejects.toThrow(/revoked|expired/);
+    await expect(oauthProvider.verifyAccessToken(pair.access_token)).rejects.toThrow(/revoked|expired/);
+  });
+});

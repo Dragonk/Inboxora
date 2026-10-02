@@ -13,7 +13,7 @@ export type BridgeMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 export interface DomainResult { status: number; body: Record<string, unknown>; }
 /** Ordinary provider-backed routes, without a listener or a browser session. */
 const domain = express();
-domain.use(express.json({ limit: '1mb' }));
+domain.use(express.json({ limit: '8mb' }));
 domain.use('/mail', mailRoutes, draftRoutes);
 domain.use('/calendar', calendarRoutes);
 domain.use('/contacts', contactRoutes);

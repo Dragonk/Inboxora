@@ -20,6 +20,7 @@ vi.mock('../services/providers/microsoft/graphMailSearch.js', () => ({ ingestGra
 
 import express from 'express';
 import searchRoutes from './search.js';
+import { graphSearchQuery } from '../services/mailSearchRemoteQuery.js';
 import { query as __mock_query } from '../services/db.js';
 
 const query = vi.mocked(__mock_query);
@@ -52,9 +53,11 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(searchTestClock += 60000);
   searchQueries = 0;
   ingestMock.mockReset();
-  ingestMock.mockResolvedValue({ accountId: 'a1', hits: 0, created: 0, updated: 0, skipped: 0, unresolvedFolders: 0 });
+  ingestMock.mockResolvedValue({ accountId: 'a1', hits: 0, created: 0, updated: 0, skipped: 0, unresolvedFolders: 0, rowIds: [], truncated: false });
   query.mockReset();
   query.mockImplementation(async (sql: string) => {
     if (sql.includes('FROM email_accounts')) return { rows: accounts };
@@ -70,6 +73,9 @@ afterEach(() => {
 
 const getSearch = (queryStringValue: string) => fetch(`${base}/api/search?${queryStringValue}`);
 
+let searchTestClock = Date.now();
+afterEach(() => vi.useRealTimers());
+
 describe('GET /api/search provider-side search', () => {
   it('ingests from a native Microsoft account before answering from the local model', async () => {
     accounts = [GRAPH_ACCOUNT];
@@ -81,7 +87,7 @@ describe('GET /api/search provider-side search', () => {
     expect(await response.json()).toMatchObject({ messages: [{ id: 'm1' }], query: 'invoice' });
     expect(ingestMock).toHaveBeenCalledOnce();
     expect(ingestMock).toHaveBeenCalledWith({
-      userId: 'user-1', connectionId: 'connection-1', accountId: 'a1', query: 'invoice',
+      userId: 'user-1', connectionId: 'connection-1', accountId: 'a1', query: graphSearchQuery('invoice'), folders: null, maxResults: 200,
     });
   });
 
@@ -96,7 +102,7 @@ describe('GET /api/search provider-side search', () => {
     expect(response.status).toBe(200);
     const body = await response.json() as JsonBody;
     expect(body.messages).toEqual([{ id: 'm1' }]);
-    expect(body.providerErrors).toEqual([{ accountId: 'a1', code: 'RATE_LIMITED', error: 'graph refused' }]);
+    expect(body.providerErrors).toEqual([{ accountId: 'a1', code: 'RATE_LIMITED', error: expect.stringContaining('mail server could not complete') }]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('Provider search failed for account a1'));
     warn.mockRestore();
   });
@@ -122,26 +128,26 @@ describe('GET /api/search provider-side search', () => {
     expect(ingestMock).not.toHaveBeenCalled();
   });
 
-  it('ingests over all accounts only when the local page came up short, then re-reads', async () => {
+  it('queries remote accounts before reading their updated local projection', async () => {
     accounts = [GRAPH_ACCOUNT];
-    localPages = [[{ id: 'local-1' }], [{ id: 'local-1' }, { id: 'ingested-1' }]];
+    localPages = [[{ id: 'local-1' }, { id: 'ingested-1' }]];
 
     const response = await getSearch('q=invoice');
 
     expect(response.status).toBe(200);
     expect(ingestMock).toHaveBeenCalledOnce();
-    expect(searchQueries).toBe(2);
+    expect(searchQueries).toBe(1);
     expect((await response.json() as JsonBody).messages).toEqual([{ id: 'local-1' }, { id: 'ingested-1' }]);
   });
 
-  it('does not call the provider when the local page is already full', async () => {
+  it('also checks remote coverage when the local page is full', async () => {
     accounts = [GRAPH_ACCOUNT];
     localPages = [Array.from({ length: 50 }, (_, index) => ({ id: `local-${index}` }))];
 
     const response = await getSearch('q=invoice');
 
     expect(response.status).toBe(200);
-    expect(ingestMock).not.toHaveBeenCalled();
+    expect(ingestMock).toHaveBeenCalledOnce();
     expect(searchQueries).toBe(1);
   });
 });

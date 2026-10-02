@@ -277,6 +277,7 @@ export default function MessageList() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: StoreMessageRow; defaultMoveView?: boolean } | null>(null); // { x, y, message, defaultMoveView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchStatus, setSearchStatus] = useState<'partial' | 'failed' | null>(null);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const searchFetchedOffsetRef = useRef(0);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -683,6 +684,7 @@ export default function MessageList() {
   useEffect(() => {
     clearTimeout(searchTimer.current);
     setSearchLoadingMore(false);
+    setSearchStatus(null);
     if (!searchQuery.trim()) {
       setIsSearching(false);
       setSearchResults([]);
@@ -691,6 +693,7 @@ export default function MessageList() {
       return;
     }
     setIsSearching(true);
+    setSearchResults([]);
     setSearchHasMore(false);
     const seq = ++searchSeq.current;
     searchTimer.current = setTimeout(async () => {
@@ -700,9 +703,10 @@ export default function MessageList() {
         noteMailListLoaded();
         searchFetchedOffsetRef.current = data.messages.length;
         setSearchResults(applyReadGuard(data.messages));
-        setSearchHasMore(data.messages.length === searchPageSize);
+        setSearchStatus(data.partial || data.providerErrors?.length ? 'partial' : null);
+        setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
       } catch (err) {
-        if (searchSeq.current === seq && isCurrentListScope()) console.error('Search failed:', err);
+        if (searchSeq.current === seq && isCurrentListScope()) { setSearchStatus('failed'); console.error('Search failed:', err); }
       } finally {
         if (searchSeq.current === seq && isCurrentListScope()) setIsSearching(false);
       }
@@ -736,9 +740,12 @@ export default function MessageList() {
       if (useStore.getState().searchQuery !== qSnapshot || !isCurrentListScope()) return;
       searchFetchedOffsetRef.current = offset + data.messages.length;
       const current = useStore.getState().searchResults;
-      useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages)] });
-      setSearchHasMore(data.messages.length === searchPageSize);
+      const known = new Set(current.map(message => message.id));
+      useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages).filter(message => !known.has(message.id))] });
+      if (data.partial || data.providerErrors?.length) setSearchStatus('partial');
+      setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
     } catch (err) {
+      if (useStore.getState().searchQuery === qSnapshot && isCurrentListScope()) setSearchStatus('failed');
       console.error('Search load more failed:', err);
     } finally {
       if (isCurrentListScope()) setSearchLoadingMore(false);
@@ -754,7 +761,7 @@ export default function MessageList() {
       searchFetchedOffsetRef.current = Math.max(searchFetchedOffsetRef.current, offset + data.messages.length);
       const additions = applyReadGuard(data.messages);
       if (!additions.length) {
-        setSearchHasMore(data.messages.length === searchPageSize);
+        setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
         return;
       }
       useStore.setState(state => {
@@ -762,7 +769,7 @@ export default function MessageList() {
         const missing = additions.filter(m => m && !existing.has(m.id));
         return missing.length ? { searchResults: [...state.searchResults, ...missing] } : {};
       });
-      setSearchHasMore(data.messages.length === searchPageSize);
+      setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
     } catch (err) {
       console.error('Search prefetch after delete failed:', err);
     }
@@ -3243,6 +3250,11 @@ export default function MessageList() {
           </div>
         </div>
       )}
+
+      {searchQuery.trim() && searchStatus && <div role="status" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border)', fontSize: 12, lineHeight: 1.5 }}>
+        {t(searchStatus === 'failed' ? 'mcp.searchFailed' : 'mcp.searchPartial')}
+        <button type="button" className="ui-button" style={{ marginLeft: 8 }} onClick={() => setSearchReloadToken(value => value + 1)}>{t('mcp.refresh')}</button>
+      </div>}
 
       {/* Category + GTD tabs — shown in INBOX when categorization and/or GTD is active */}
       {(categorizationActive || gtdActive) && selectedFolder === 'INBOX' && !searchQuery.trim() && (
