@@ -66,7 +66,7 @@ export default function McpPage() {
         const receipt = await mcpRequest<{ operationId: string; state: string; result?: unknown; executionDeferred?: boolean }>('POST', `/operations/${id}/decision`, { approve });
         if (mounted.current && isCurrentAuthEpoch(epoch)) {
           if (operation) setOperation({ ...operation, state: receipt.state, result: receipt.result ?? operation.result });
-          if (approve && receipt.state === 'succeeded') {
+          if ((approve && receipt.state === 'succeeded') || (!approve && receipt.state === 'denied')) {
             setClosing(true);
             window.setTimeout(returnFromMcpApproval, 120);
           } else setReload(value => value + 1);
@@ -88,8 +88,8 @@ export default function McpPage() {
       <div className="mcp-operation-meta"><code>{operation.tool}</code><span>{t(MCP_STATE_KEYS[operation.state] ?? 'mcp.states.uncertain')}</span>
         {operation.expiresAt && <span>{t('mcp.expiresAt', { date: new Date(operation.expiresAt).toLocaleString() })}</span>}</div>
       {operation.review && isMailReview(operation.review) ? editingMail && pending
-        ? <McpMailEditor review={operation.review} busy={busy} onCancel={() => setEditingMail(false)} onSave={saveMailEdit}/>
-        : <><McpMailReview review={operation.review}/>{pending && <div className="mcp-actions"><Button disabled={busy} onClick={() => setEditingMail(true)}>{t('mcp.editMessage')}</Button></div>}</>
+        ? <McpMailEditor operationId={id!} review={operation.review} busy={busy} onCancel={() => setEditingMail(false)} onSave={saveMailEdit}/>
+        : <><McpMailReview operationId={id!} review={operation.review}/>{pending && <div className="mcp-actions"><Button disabled={busy} onClick={() => setEditingMail(true)}>{t('mcp.editMessage')}</Button></div>}</>
         : operation.review && <><h3>{t('mcp.exactMessage')}</h3><pre className="mcp-code">{JSON.stringify(operation.review, null, 2)}</pre></>}
       <details className="mcp-technical" open={!operation.review}><summary>{t('mcp.exactArguments')}</summary><pre className="mcp-code">{JSON.stringify(operation.arguments, null, 2)}</pre></details>
       {operation.result != null && <details className="mcp-technical"><summary>{t('mcp.operationResult')}</summary><pre className="mcp-code">{JSON.stringify(operation.result, null, 2)}</pre></details>}

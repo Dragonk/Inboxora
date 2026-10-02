@@ -1,99 +1,82 @@
 import { useTranslation } from 'react-i18next';
-import MessageBodyRenderer from '../MessageBodyRenderer.tsx';
-import { MailRowAvatar, MailRowSender } from '../MailListPresentation.tsx';
+import MessageHeaderCard from '../MessageHeaderCard.tsx';
+import MessageDetailContent from '../MessageDetailContent.tsx';
+import AttachmentPreviewModal from '../attachments/AttachmentPreviewModal.tsx';
+import { useStore } from '../../store/index.ts';
+import { downloadBlob, fetchOriginalAttachment } from '../../utils/attachments/fetchAttachment.ts';
 
 type Review = Record<string, unknown>;
+type ReviewAttachment = { index:number; filename:string; bytes:number; contentType:string };
 
 function text(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function strings(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
-function formatBytes(value: unknown): string {
-  const bytes = typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+function number(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : 0; }
+function attachments(value:unknown):ReviewAttachment[] {
+  if(!Array.isArray(value))return [];
+  return value.flatMap((item,index)=>{
+    if(!item||typeof item!=='object'||Array.isArray(item))return [];
+    const row=item as Record<string,unknown>;
+    return [{index:Number.isInteger(row.index)?Number(row.index):index,filename:text(row.filename)||'attachment',bytes:number(row.bytes),contentType:text(row.contentType)||'application/octet-stream'}];
+  });
 }
-function recipients(value: unknown, label: string) {
-  const items = strings(value);
-  if (!items.length) return null;
-  return <div className="mcp-mail-recipient-row"><span>{label}</span><div>{items.map(address => <span key={address} className="mcp-mail-recipient">{address}</span>)}</div></div>;
+function plainToHtml(value:string):string {
+  return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+function renderedBody(review:Review):{html:string;text:string} {
+  const bodyHtml=text(review.bodyHtml); const bodyText=text(review.bodyText);
+  const signatureHtml=text(review.signatureHtml); const signatureText=text(review.signatureText);
+  const quotedHtml=text(review.quotedHtml); const quotedText=text(review.quotedText);
+  const hasHtml=Boolean(bodyHtml||signatureHtml||quotedHtml);
+  if(!hasHtml) return {html:'',text:[bodyText,signatureText,quotedText].filter(Boolean).join('\n\n')};
+  const body=bodyHtml||plainToHtml(bodyText);
+  const signature=signatureHtml||plainToHtml(signatureText);
+  const quote=quotedHtml||plainToHtml(quotedText);
+  return {html:[
+    body,
+    signature ? '<div><br></div>'+signature : '',
+    quote ? '<blockquote style="border-left:2px solid #ccc;margin:12px 0 0;padding-left:10px">'+quote+'</blockquote>' : '',
+  ].join(''),text:''};
 }
 
 export function isMailReview(review: Review | null | undefined): boolean {
   return review?.kind === 'mail' && typeof review.senderEmail === 'string';
 }
 
-export default function McpMailReview({ review }: { review: Review }) {
-  const { t } = useTranslation();
-  const senderEmail = text(review.senderEmail);
-  const senderName = text(review.senderName) || senderEmail;
-  const subject = text(review.subject);
-  const bodyHtml = text(review.bodyHtml);
-  const bodyText = text(review.bodyText);
-  const signatureHtml = text(review.signatureHtml);
-  const signatureText = text(review.signatureText);
-  const signatureMode = text(review.signatureMode);
-  const attachments = Array.isArray(review.attachments)
-    ? review.attachments.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
-    : [];
-
-  const signatureLabel = signatureMode === 'override' ? t('mcp.signatureOverride')
-    : signatureMode === 'none' ? t('mcp.signatureNone')
-      : t('mcp.signatureConfigured');
-
-  return <section className="mcp-mail-preview" aria-label={t('mcp.mailPreview')}>
-    <div className="mcp-mail-preview-top">
-      <MailRowAvatar email={senderEmail} name={senderName} />
-      <div className="mcp-mail-sender">
-        <MailRowSender unread style={{ display: 'block' }}>{senderName}</MailRowSender>
-        <span>{senderEmail}</span>
-      </div>
-      {review.priority === 'high' && <span className="mcp-mail-priority">{t('mcp.priorityHigh')}</span>}
-      {review.priority === 'low' && <span className="mcp-mail-priority">{t('mcp.priorityLow')}</span>}
-    </div>
-
-    <div className="mcp-mail-envelope">
-      {recipients(review.to, t('compose.to'))}
-      {recipients(review.cc, t('compose.cc'))}
-      {recipients(review.bcc, t('compose.bcc'))}
-    </div>
-
-    <div className="mcp-mail-subject">{subject || t('message.noSubject')}</div>
-
-    <div className="mcp-mail-body">
-      <MessageBodyRenderer
-        html={bodyHtml}
-        text={bodyText}
-        remoteImages={false}
-        blockAllNetwork
-        quoteFolding={false}
-        title={t('message.emailFrameTitle')}
-        style={{ width: '1px', minWidth: '100%', height: '180px', border: 0 }}
-      />
-      <div className="mcp-mail-signature-label">{signatureLabel}</div>
-      {(signatureHtml || signatureText) ? <MessageBodyRenderer
-        html={signatureHtml}
-        text={signatureText}
-        remoteImages={false}
-        blockAllNetwork
-        quoteFolding={false}
-        title={t('admin.accounts.signatureSection')}
-        style={{ width: '1px', minWidth: '100%', height: '100px', border: 0 }}
-      /> : <div className="mcp-mail-empty-signature">{t('mcp.signatureEmpty')}</div>}
-    </div>
-
-    {attachments.length > 0 && <div className="mcp-mail-attachments">
-      <div className="mcp-mail-section-label">{t('mcp.attachments')}</div>
-      <div className="mcp-mail-attachment-list">
-        {attachments.map((attachment, index) => {
-          const filename = text(attachment.filename) || t('mcp.attachmentUnnamed');
-          return <span className="mcp-mail-attachment" key={`${filename}-${index}`}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
-            </svg>
-            <span>{filename}</span><small>{formatBytes(attachment.bytes)}</small>
-          </span>;
-        })}
-      </div>
-    </div>}
+export default function McpMailReview({ operationId, review }: { operationId:string; review: Review }) {
+  const { t }=useTranslation();
+  const authEpoch=useStore(state=>state.authEpoch);
+  const senderEmail=text(review.senderEmail);
+  const senderName=text(review.senderName)||senderEmail;
+  const files=attachments(review.attachments);
+  const bcc=strings(review.bcc);
+  const accountId=text(review.accountId)||'mcp-review';
+  const pathFor=(part:string|undefined)=>part===undefined?'':'/api/mcp/operations/'+encodeURIComponent(operationId)+'/attachments/'+encodeURIComponent(part);
+  const body=renderedBody(review);
+  const download=async(part:string|undefined,filename:string|undefined)=>{
+    const path=pathFor(part); if(!path)return;
+    const controller=new AbortController();
+    const blob=await fetchOriginalAttachment(path,authEpoch,controller.signal);
+    downloadBlob(blob,filename||t('attachment.preview.unnamed'));
+  };
+  return <section className="mcp-mail-reader" aria-label={t('mcp.mailPreview')}>
+    <MessageHeaderCard
+      message={{subject:text(review.subject),from_email:senderEmail,from_name:senderName,account_email:senderEmail}}
+      subject={text(review.subject)}
+      toList={strings(review.to).map(email=>({email}))}
+      ccList={strings(review.cc).map(email=>({email}))}
+      recipientExtras={bcc.length?<div className="mcp-reader-bcc"><span>{t('compose.bcc')} </span><span>{bcc.join(', ')}</span></div>:undefined}
+      date={review.priority==='high'?<span className="mcp-mail-priority">{t('mcp.priorityHigh')}</span>:review.priority==='low'?<span className="mcp-mail-priority">{t('mcp.priorityLow')}</span>:null}
+    />
+    <MessageDetailContent
+      message={{id:operationId,account_id:accountId,from_email:senderEmail,from_name:senderName}}
+      body={{html:body.html,text:body.text,attachments:files.map(file=>({part:String(file.index),filename:file.filename,type:file.contentType,size:file.bytes}))}}
+      readOnly
+      hideDownloadAll
+      getAttachmentPath={part=>pathFor(part)}
+      onDownloadAttachment={download}
+      downloadErrorLabel={t('attachment.preview.failed')}
+      className="mcp-mail-reader-content"
+    />
+    <AttachmentPreviewModal/>
   </section>;
 }

@@ -6227,7 +6227,7 @@ export class ImapManager {
         }
       } finally { clearTimeout(timer); }
     });
-    return { rowIds, truncated, ...(retryable ? { retryable: true } : {}), ...(errors.length ? { errors } : {}) };
+    return { rowIds, truncated, coverageIncomplete: retryable || errors.length > 0 || folders.length > selected.length, ...(retryable ? { retryable: true } : {}), ...(errors.length ? { errors } : {}) };
   }
 
   // Shared INSERT/UPSERT for one fetched message. Extracted so the normal

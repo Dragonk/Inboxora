@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -11,7 +11,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { useTranslation } from 'react-i18next';
-import { RichToolbar } from './ComposeModal.tsx';
+import { resizeImageToDataUrl, RichToolbar } from './ComposeModal.tsx';
 
 const FontSize = Extension.create({
   name: 'fontSize',
@@ -42,11 +42,14 @@ interface Props {
   disabled?: boolean;
   minHeight?: number;
   testId?: string;
+  onAttach?: () => void;
+  allowInlineImages?: boolean;
 }
 
 /** Shared compose-mail body surface used by normal compose and MCP human approval edits. */
-export default function ComposeBodyField({ value, onChange, disabled = false, minHeight = 180, testId = 'compose-body-field' }: Props) {
+export default function ComposeBodyField({ value, onChange, disabled = false, minHeight = 180, testId = 'compose-body-field', onAttach, allowInlineImages = false }: Props) {
   const { t } = useTranslation();
+  const imageInput = useRef<HTMLInputElement | null>(null);
   const [htmlMode, setHtmlMode] = useState(false);
   const [htmlSource, setHtmlSource] = useState(value);
   const editor = useEditor({
@@ -90,8 +93,14 @@ export default function ComposeBodyField({ value, onChange, disabled = false, mi
     setHtmlMode(false);
   };
 
+  const insertImage = async (file: File | undefined) => {
+    if (!file || !editor || !file.type.startsWith('image/')) return;
+    try { const src = await resizeImageToDataUrl(file); editor.chain().focus().setImage({ src }).run(); } catch { /* preserve the authored body on image errors */ }
+  };
+
   return <div className="tiptap-compose" data-testid={testId} aria-disabled={disabled || undefined} style={{ minHeight }}>
-    {editor && !disabled && <RichToolbar editor={editor} htmlMode={htmlMode} onToggleHtml={toggleHtml} />}
+    {allowInlineImages && <input ref={imageInput} type="file" accept="image/*" style={{display:'none'}} onChange={event=>{void insertImage(event.target.files?.[0]);event.target.value='';}}/>}
+    {editor && !disabled && <RichToolbar editor={editor} onAttach={onAttach} onInsertImage={allowInlineImages ? ()=>imageInput.current?.click() : undefined} htmlMode={htmlMode} onToggleHtml={toggleHtml} />}
     {htmlMode ? <textarea
       value={htmlSource}
       disabled={disabled}

@@ -2940,12 +2940,6 @@
       "expired": "已过期"
     },
     "mailPreview": "邮件预览",
-    "signatureConfigured": "已配置的发件人签名",
-    "signatureOverride": "此邮件使用了覆盖签名",
-    "signatureNone": "此邮件已禁用签名",
-    "signatureEmpty": "不会添加签名。",
-    "attachments": "附件",
-    "attachmentUnnamed": "附件",
     "priorityHigh": "高优先级",
     "priorityLow": "低优先级",
     "operationResult": "操作结果",

@@ -2940,12 +2940,6 @@
       "expired": "Истекла"
     },
     "mailPreview": "Предпросмотр сообщения",
-    "signatureConfigured": "Настроенная подпись отправителя",
-    "signatureOverride": "Подпись переопределена для этого сообщения",
-    "signatureNone": "Подпись отключена для этого сообщения",
-    "signatureEmpty": "Подпись не будет добавлена.",
-    "attachments": "Вложения",
-    "attachmentUnnamed": "Вложение",
     "priorityHigh": "Высокий приоритет",
     "priorityLow": "Низкий приоритет",
     "operationResult": "Результат операции",

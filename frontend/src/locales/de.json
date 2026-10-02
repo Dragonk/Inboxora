@@ -2940,12 +2940,6 @@
       "expired": "Abgelaufen"
     },
     "mailPreview": "Nachrichtenvorschau",
-    "signatureConfigured": "Konfigurierte Absendersignatur",
-    "signatureOverride": "Signatur für diese Nachricht überschrieben",
-    "signatureNone": "Signatur für diese Nachricht deaktiviert",
-    "signatureEmpty": "Es wird keine Signatur hinzugefügt.",
-    "attachments": "Anhänge",
-    "attachmentUnnamed": "Anhang",
     "priorityHigh": "Hohe Priorität",
     "priorityLow": "Niedrige Priorität",
     "operationResult": "Vorgangsergebnis",

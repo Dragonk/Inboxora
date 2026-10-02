@@ -33,6 +33,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
 
 ### Changed
+- MCP mail approval now reuses the normal composer attachment chips/preview, rich-text toolbar, inline images and signature surface; users can add/remove/preview files before Approve or Deny, and either final action returns to the previous tab.
 - Group AI settings under a new **AI Features** tab with horizontal **AI Assistant**, **AI Actions** and **External AI integrations (MCP)** subtabs; MCP uses the same settings hierarchy and spacing as the rest of Inboxora.
 - Existing MCP connections expose their live scope/resource checkboxes for review and editing. Permission changes apply immediately and cancel pending approvals prepared under the previous permissions.
 - MCP mail approval now reuses the composer recipient chips and signature surface, keeps the signature inline below the message body, and no longer requires a redundant “reviewed” checkbox before Approve/Reject.
@@ -40,6 +41,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Distinguish ordinary provider search pagination from genuine coverage failures so a normal next page does not trigger the incomplete-results banner.
 - Use the RFC dynamic-client default (`client_secret_basic`) when an MCP client omits `token_endpoint_auth_method`.
 - Skip IMAP `\Noselect` containers during server-side search and preserve quoted search tokens as literal phrases instead of parsing them as operators/exclusions.
 - Reuse locally synchronized Gmail search hits and hydrate only missing provider messages, reducing default remote search work from roughly 200 hits to the requested page plus one.

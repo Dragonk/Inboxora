@@ -2940,12 +2940,6 @@
       "expired": "Scaduta"
     },
     "mailPreview": "Anteprima del messaggio",
-    "signatureConfigured": "Firma configurata del mittente",
-    "signatureOverride": "Firma sostituita per questo messaggio",
-    "signatureNone": "Firma disattivata per questo messaggio",
-    "signatureEmpty": "Non verrà aggiunta alcuna firma.",
-    "attachments": "Allegati",
-    "attachmentUnnamed": "Allegato",
     "priorityHigh": "Priorità alta",
     "priorityLow": "Priorità bassa",
     "operationResult": "Risultato dell’operazione",

@@ -2940,12 +2940,6 @@
       "denied": "Denied",
       "expired": "Expired"
     },
-    "signatureConfigured": "Configured sender signature",
-    "signatureOverride": "Signature overridden for this message",
-    "signatureNone": "Signature disabled for this message",
-    "signatureEmpty": "No signature will be added.",
-    "attachments": "Attachments",
-    "attachmentUnnamed": "Attachment",
     "priorityHigh": "High priority",
     "priorityLow": "Low priority",
     "operationResult": "Operation result",

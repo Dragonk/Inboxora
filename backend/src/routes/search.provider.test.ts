@@ -95,6 +95,31 @@ describe('GET /api/search provider-side search', () => {
     });
   });
 
+  it('does not call normal provider pagination an incomplete search', async () => {
+    accounts = [GRAPH_ACCOUNT];
+    localPages = [[{ id: 'm1', subject: 'Invoice' }]];
+    ingestMock.mockResolvedValue({ accountId:'a1', hits:51, created:0, updated:0, skipped:0, unresolvedFolders:0, rowIds:['m1'], truncated:true });
+
+    const response = await getSearch('q=invoice&accountId=a1');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ messages:[{id:'m1'}], partial:false, coverage:'provider_and_local' });
+  });
+
+  it('does not show incomplete coverage just because Gmail has another result page', async () => {
+    accounts = [{ id:'g1', user_id:'user-1', include_in_unified_inbox:true, mail_transport:'gmail_api', provider_connection_id:'google-1' }];
+    localPages = [[{ id:'m1', subject:'Invoice' }]];
+    gmailMock.mockResolvedValue({ rowIds:['m1'], truncated:true, coverageIncomplete:false });
+
+    const response = await getSearch('q=invoice&accountId=g1');
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as JsonBody;
+    expect(body.messages).toEqual([{ id:'m1', subject:'Invoice' }]);
+    expect(body.partial).toBe(false);
+    expect(body.providerErrors).toBeUndefined();
+  });
+
   it('reports a provider failure beside the local results instead of failing the search', async () => {
     accounts = [GRAPH_ACCOUNT];
     localPages = [[{ id: 'm1' }]];

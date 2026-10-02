@@ -59,5 +59,5 @@ export async function ingestGmailMailSearch(input: {
     } while (pageToken);
     if (providerIds.size >= maximum) break;
   }
-  return { rowIds: [...rowIds], truncated: truncated || errors.length > 0, ...(errors.length ? { errors: [...new Set(errors)] } : {}) };
+  return { rowIds: [...rowIds], truncated: truncated || errors.length > 0, coverageIncomplete: errors.length > 0, ...(errors.length ? { errors: [...new Set(errors)] } : {}) };
 }

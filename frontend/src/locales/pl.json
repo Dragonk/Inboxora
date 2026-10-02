@@ -2940,12 +2940,6 @@
       "expired": "Wygasła"
     },
     "mailPreview": "Podgląd wiadomości",
-    "signatureConfigured": "Podpis skonfigurowany dla nadawcy",
-    "signatureOverride": "Podpis nadpisany dla tej wiadomości",
-    "signatureNone": "Podpis wyłączony dla tej wiadomości",
-    "signatureEmpty": "Do wiadomości nie zostanie dodany podpis.",
-    "attachments": "Załączniki",
-    "attachmentUnnamed": "Załącznik",
     "priorityHigh": "Wysoki priorytet",
     "priorityLow": "Niski priorytet",
     "operationResult": "Wynik operacji",

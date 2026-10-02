@@ -2940,12 +2940,6 @@
       "expired": "Vypršelo"
     },
     "mailPreview": "Náhled zprávy",
-    "signatureConfigured": "Nakonfigurovaný podpis odesílatele",
-    "signatureOverride": "Podpis pro tuto zprávu byl přepsán",
-    "signatureNone": "Podpis pro tuto zprávu byl vypnut",
-    "signatureEmpty": "Ke zprávě nebude přidán podpis.",
-    "attachments": "Přílohy",
-    "attachmentUnnamed": "Příloha",
     "priorityHigh": "Vysoká priorita",
     "priorityLow": "Nízká priorita",
     "operationResult": "Výsledek operace",

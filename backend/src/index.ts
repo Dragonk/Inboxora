@@ -191,6 +191,8 @@ app.use('/api/mail/send', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/scheduled', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/merge', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
+// Human MCP mail approval can add the same attachment payloads as the normal composer.
+app.use(/^\/api\/mcp\/operations\/[0-9a-f-]+\/edit$/i, express.json({ limit: sendHttpBodyWindowBytes() }));
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
 app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));

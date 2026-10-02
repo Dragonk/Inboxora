@@ -8,7 +8,7 @@ const entries = new Map<string, Entry>();
 const MAX_BYTES = 100 * 1024 * 1024;
 /** Only application attachment paths, including immutable queue revisions. */
 export function attachmentPath(path: string): string {
-  if (!/^\/api\/mail\/(?:messages|scheduled)\/[^/?#]+\/(?:attachments\/[^/?#]+(?:\?revision=\d+)?|attachments\.zip)$/.test(path)) throw new Error('Invalid attachment path');
+  if (!/^(?:\/api\/mail\/(?:messages|scheduled)\/[^/?#]+\/(?:attachments\/[^/?#]+(?:\?revision=\d+)?|attachments\.zip)|\/api\/mcp\/operations\/[0-9a-f-]+\/attachments\/\d+)$/.test(path)) throw new Error('Invalid attachment path');
   return path;
 }
 async function readBlob(path: string, signal: AbortSignal, progress?: (loaded: number, total: number) => void, preview = true): Promise<Blob> {

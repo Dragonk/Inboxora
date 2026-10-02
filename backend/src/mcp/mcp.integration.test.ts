@@ -1,5 +1,5 @@
 import { maintainMcpData } from './maintenance.js';
-import { decrypt } from '../services/encryption.js';
+import { decrypt, encrypt } from '../services/encryption.js';
 import 'express-async-errors';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type Server as HttpServer } from 'node:http';
@@ -168,6 +168,22 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     const row = (await query<{ arguments_encrypted:string; execution_encrypted:string|null }>('SELECT arguments_encrypted,execution_encrypted FROM mcp_operations WHERE id=$1',[operationId])).rows[0];
     expect(row.arguments_encrypted).not.toContain(args.subject); expect(row.execution_encrypted).toBeNull();
   });
+  it('serves exact pending attachment bytes only to the signed-in operation owner', async () => {
+    const grant = await token('attachment preview'); const client = await connect(grant.token);
+    const args = { accountId, subject:'Attachment preview', requestId:randomUUID() };
+    const pending = record((await client.callTool({name:'test_write',arguments:args})).structuredContent);
+    const operationId = String(pending.operationId);
+    const content = Buffer.from('synthetic attachment bytes').toString('base64');
+    const prepared = { senderEmail:'sender@example.test', payload:{accountId,attachments:[{filename:'fixture.txt',content,contentType:'text/plain'}]}, review:{kind:'mail'} };
+    await query('UPDATE mcp_operations SET execution_encrypted=$2 WHERE id=$1',[operationId,encrypt(JSON.stringify(prepared))]);
+
+    const owned = await browser(`/operations/${operationId}/attachments/0`);
+    expect(owned.status).toBe(200);
+    expect(owned.headers.get('content-type')).toContain('text/plain');
+    expect(await owned.text()).toBe('synthetic attachment bytes');
+    expect((await browser(`/operations/${operationId}/attachments/0`,undefined,foreignCookie)).status).toBe(404);
+  });
+
   it('revokes already issued tokens and pending approvals immediately', async () => {
     const grant = await token('revoked'); const client = await connect(grant.token);
     const args = {accountId,subject:'Never dispatch',requestId:randomUUID()}; const result = await client.callTool({name:'test_write',arguments:args});

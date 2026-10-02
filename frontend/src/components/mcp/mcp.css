@@ -93,3 +93,23 @@
 .mcp-compose-body { padding:10px 14px 12px; }
 .mcp-compose-signature { padding:0 2px 4px; }
 .mcp-compose-signature-label { margin:8px 0 6px; font-size:11px; color:var(--text-tertiary); user-select:none; }
+
+/* Human-approved mail deliberately reuses the normal composer primitives. */
+.mcp-mail-subject-read { border-top:0; border-bottom:0; padding:18px 18px 8px; font-size:20px; line-height:1.3; }
+.mcp-mail-body-read { border-top:1px solid var(--border-subtle); padding-top:14px; }
+.mcp-compose-row { grid-template-columns:52px minmax(0,1fr); min-height:36px; padding:0 12px; }
+.mcp-compose-row > span { font-family:var(--font-mono,ui-monospace,monospace); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-tertiary); }
+.mcp-compose-from { grid-template-columns:52px auto minmax(0,1fr); gap:8px; }
+.mcp-compose-from strong { color:var(--text-primary); font-size:13px; font-weight:500; }
+.mcp-compose-from small { color:var(--text-tertiary); font-size:11px; overflow-wrap:anywhere; }
+.mcp-compose-subject { padding:0 12px; }
+.mcp-compose-subject input { padding:8px 4px; }
+.mcp-compose-body { padding:0; }
+.mcp-compose-body > .tiptap-compose { border-bottom:1px solid var(--border-subtle); }
+.mcp-compose-signature { padding:8px 14px 12px; }
+.mcp-compose-signature-label { margin:0 0 6px; }
+.mcp-compose-attachment-error,.mcp-compose-editor .compose-attachment-notice { margin:0; padding:8px 14px; border-bottom:1px solid var(--border-subtle); }
+
+.mcp-compose-to-row{position:relative}.mcp-compose-to-row .mcp-compose-row{padding-right:72px}.mcp-compose-ccbcc-quickadd{position:absolute;right:14px;top:0;bottom:0;display:flex;align-items:center;gap:7px}.mcp-compose-ccbcc-quickadd button{background:none;border:0;color:var(--text-tertiary);font-size:11px;cursor:pointer;padding:5px 0}.mcp-compose-from strong{font-size:13px;color:var(--text-primary);font-weight:500}.mcp-compose-from small{font-size:11px;color:var(--text-tertiary);overflow-wrap:anywhere}.mcp-compose-footer{display:flex;align-items:center;gap:12px;padding:0 14px 10px;border-top:1px solid var(--border-subtle)}.mcp-compose-footer .mcp-actions{margin:10px 0 0}.mcp-compose-footer select{margin-left:auto;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:4px;font-size:11px;padding:3px 5px;color:var(--text-secondary);outline:none}.mcp-compose-attachment-error{padding:8px 14px;margin:0;border-bottom:1px solid var(--border-subtle)}@media(max-width:600px){.mcp-compose-footer{align-items:flex-end}.mcp-compose-to-row .mcp-compose-row{padding-right:64px}}
+
+.mcp-mail-reader{margin:14px 0 18px}.mcp-mail-reader .mail-header-card{margin-bottom:12px!important}.mcp-mail-reader-content{padding:0 2px}.mcp-reader-bcc{font-size:12px;color:var(--text-tertiary);margin-top:3px;overflow-wrap:anywhere}.mcp-reader-bcc span:last-child{color:var(--text-secondary)}

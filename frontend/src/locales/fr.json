@@ -2940,12 +2940,6 @@
       "expired": "Expirée"
     },
     "mailPreview": "Aperçu du message",
-    "signatureConfigured": "Signature configurée de l’expéditeur",
-    "signatureOverride": "Signature remplacée pour ce message",
-    "signatureNone": "Signature désactivée pour ce message",
-    "signatureEmpty": "Aucune signature ne sera ajoutée.",
-    "attachments": "Pièces jointes",
-    "attachmentUnnamed": "Pièce jointe",
     "priorityHigh": "Priorité élevée",
     "priorityLow": "Priorité faible",
     "operationResult": "Résultat de l’opération",

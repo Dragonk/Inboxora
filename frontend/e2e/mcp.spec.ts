@@ -29,15 +29,21 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   await page.context().route('**/api/auth/me',route=>route.fulfill({json:{user:{id:'e2e-user',username:'e2e@example.test',isAdmin:true}}}));
   await page.context().route('**/api/auth/preferences**',route=>route.fulfill({json:{language:'en',theme:'light',threadedView:false,conversation_list_view_enabled:false,conversation_reader_view_enabled:false,block_remote_images:true}}));
   let approved=false; let postCount=0; let editCount=0;
-  let review:Record<string,unknown>={kind:'mail',senderName:'Inboxora Sender',senderEmail:'owner@example.test',to:['recipient@example.test'],cc:[],bcc:['private@example.test'],
+  let review:Record<string,unknown>={kind:'mail',senderName:'Inboxora Sender',senderEmail:'owner@example.test',accountId,aliasId:null,to:['recipient@example.test'],cc:[],bcc:['private@example.test'],
     subject:'Synthetic subject',priority:'normal',bodyText:'Synthetic message body',bodyHtml:'',signatureMode:'configured',signatureText:'Synthetic signature',signatureHtml:'',
-    attachments:[{filename:'invoice.pdf',bytes:2048,contentType:'application/pdf'}]};
+    attachments:[{index:0,filename:'ai.txt',bytes:13,contentType:'text/plain'}]};
   await page.context().route('**/api/mcp/operations/**',async route=>{
     const path=new URL(route.request().url()).pathname;
+    if(route.request().method()==='GET' && /\/attachments\/\d+$/.test(path)) {
+      return route.fulfill({status:200,contentType:'text/plain',body:'AI attachment'});
+    }
     if(route.request().method()==='POST' && path.endsWith('/edit')) {
       const body=route.request().postDataJSON(); editCount+=1;
-      expect(body).toMatchObject({to:['edited@example.test'],cc:[],bcc:['private@example.test'],subject:'Edited subject',bodyChanged:true,signatureChanged:true});
-      review={...review,to:body.to,cc:body.cc,bcc:body.bcc,subject:body.subject,bodyText:'Edited body',bodyHtml:'<p>Edited body</p>',signatureMode:'override',signatureText:'Edited signature',signatureHtml:'<p>Edited signature</p>'};
+      expect(body).toMatchObject({to:['edited@example.test'],cc:[],bcc:['private@example.test'],subject:'Edited subject',bodyChanged:true,signatureChanged:true,
+        keepAttachmentIndexes:[0],newAttachments:[{filename:'user.txt',content:Buffer.from('user attachment').toString('base64'),contentType:'text/plain'}]});
+      review={...review,to:body.to,cc:body.cc,bcc:body.bcc,subject:body.subject,bodyText:'Edited body',bodyHtml:'<p>Edited body</p>',
+        signatureMode:'override',signatureText:'Edited signature',signatureHtml:'<p>Edited signature</p>',
+        attachments:[{index:0,filename:'ai.txt',bytes:13,contentType:'text/plain'},{index:1,filename:'user.txt',bytes:15,contentType:'text/plain'}]};
       return route.fulfill({json:{id:operationId,review}});
     }
     if(route.request().method()==='POST') {
@@ -55,10 +61,17 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   await expect(popup.getByRole('heading',{name:'Review an AI operation'})).toBeVisible();
   await expect(popup.getByText('Inboxora Sender',{exact:true})).toBeVisible();
   await expect(popup.getByText('private@example.test',{exact:true})).toBeVisible();
-  await expect(popup.getByText('Configured sender signature',{exact:true})).toBeVisible();
-  await expect(popup.getByText('invoice.pdf',{exact:true})).toBeVisible();
+  await expect(popup.getByText('ai.txt',{exact:true})).toBeVisible();
+  await popup.locator("[data-message-detail-attachment='0']").click();
+  await expect(popup.getByTestId('attachment-preview-dialog')).toBeVisible();
+  await popup.keyboard.press('Escape');
+  await expect(popup.getByTestId('attachment-preview-dialog')).toHaveCount(0);
 
   await popup.getByRole('button',{name:'Edit message',exact:true}).click();
+  await expect(popup.getByTitle('Attach file')).toBeVisible();
+  await popup.locator('.mcp-compose-editor > input[type=file]').setInputFiles({name:'user.txt',mimeType:'text/plain',buffer:Buffer.from('user attachment')});
+  await expect(popup.getByText('user.txt',{exact:true})).toBeVisible();
+  await expect(popup.getByRole('button',{name:'Remove ai.txt'})).toBeVisible();
   await popup.getByText('recipient@example.test',{exact:true}).dblclick();
   await popup.getByLabel('To').fill('edited@example.test');
   await popup.getByLabel('Subject').fill('Edited subject');
@@ -67,7 +80,8 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   await popup.getByRole('button',{name:'Save changes',exact:true}).click();
   await expect(popup.getByText('edited@example.test',{exact:true})).toBeVisible();
   await expect(popup.getByText('Edited subject',{exact:true})).toBeVisible();
-  await expect(popup.getByText('Signature overridden for this message',{exact:true})).toBeVisible();
+  await expect(popup.getByText('user.txt',{exact:true})).toBeVisible();
+  await expect(popup.getByText('ai.txt',{exact:true})).toBeVisible();
   expect(editCount).toBe(1);
 
   const approve=popup.getByRole('button',{name:'Approve this operation',exact:true});
@@ -77,6 +91,30 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   expect(postCount).toBe(1);
   expect(approved).toBe(true);
   await expect(page.getByTestId('message-list-scroll')).toBeVisible();
+});
+
+test('rejecting an MCP mail closes the approval tab and performs no send',async({page,fixtureApi})=>{
+  await fixtureApi; page.__languageOverride='en';
+  await page.context().route('**/api/auth/me',route=>route.fulfill({json:{user:{id:'e2e-user',username:'e2e@example.test',isAdmin:true}}}));
+  await page.context().route('**/api/auth/preferences**',route=>route.fulfill({json:{language:'en',theme:'light'}}));
+  let denied=0;
+  await page.context().route('**/api/mcp/operations/**',route=>{
+    if(route.request().method()==='POST'){
+      expect(route.request().postDataJSON()).toEqual({approve:false}); denied+=1;
+      return route.fulfill({json:{operationId,state:'denied'}});
+    }
+    return route.fulfill({json:{id:operationId,tool:'send_email',integrationName:'Test client',state:'pending',expiresAt:'2099-01-01T00:00:00Z',
+      arguments:{requestId:'reject-me'},review:{kind:'mail',senderEmail:'owner@example.test',senderName:'Owner',accountId,to:['recipient@example.test'],cc:[],bcc:[],
+      subject:'Reject this',bodyText:'Nothing should be sent',bodyHtml:'',signatureText:'',signatureHtml:'',attachments:[]}}});
+  });
+  await page.goto('/');
+  const popupPromise=page.waitForEvent('popup');
+  await page.evaluate(url=>window.open(url,'_blank'),'/ai/mcp/confirm/'+operationId);
+  const popup=await popupPromise;
+  await expect(popup.getByRole('button',{name:'Deny',exact:true})).toBeVisible();
+  await popup.getByRole('button',{name:'Deny',exact:true}).click();
+  await expect.poll(()=>popup.isClosed()).toBe(true);
+  expect(denied).toBe(1);
 });
 
 test('AI Features groups assistant, actions and MCP; a regular user can edit MCP permissions and create a token',async({page,fixtureApi})=>{

@@ -109,3 +109,9 @@ A shared eight-second request budget returns locally available matches without b
 For a 401, verify the token's expiry, revocation, correct `/mcp` resource and preserved Authorization header. For 403, check the scope, exact resource selection and Origin/Host policy. For a tool error, inspect its code and the source's read-only or provider status. For a pending mutation, follow the approval flow instead of issuing a new request ID. When disabled, `/mcp` returns 404 intentionally.
 
 OAuth token exchange and revocation support public clients (`none`), HTTP Basic (`client_secret_basic`) and form-post client secrets (`client_secret_post`). Inboxora enforces the registered method and rejects conflicting header/body credentials. All three flows are covered by the PostgreSQL HTTP integration suite.
+
+### Approval attachments and search coverage
+
+Outgoing-mail approval reuses Inboxora's normal message-reader and composer attachment workflow. Prepared AI attachments can be opened in the same full preview surface used by Compose. In Edit mode the user can add files, remove prepared files, use the rich-text toolbar and inline-image action, and edit the inline signature. Saving re-prepares the complete message against the selected sender and provider limits; only the refreshed encrypted snapshot can be dispatched. Deny sends nothing. After either a confirmed send or a denial, the approval tab/window closes and focuses its opener when the browser permits it.
+
+Remote search now separates pagination from incomplete coverage. A Gmail, Graph or IMAP provider returning another normal page does not by itself set the result to partial. The incomplete-results state is reserved for provider/deadline failures, IMAP folders that could not be searched, or provider hits that cannot be projected into the user's permitted mailbox model.

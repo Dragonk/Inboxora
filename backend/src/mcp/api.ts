@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { query, withTransaction } from '../services/db.js';
 import { encrypt } from '../services/encryption.js';
+import { attachmentDisposition } from '../utils/contentDisposition.js';
 import { requireAuth } from '../middleware/auth.js';
 import { sessionUserId } from '../utils/query.js';
 import { authorizationInfo, approveAuthorization, createPersonalToken } from './oauth.js';
@@ -128,7 +129,33 @@ const mailEdit = z.object({
   signature: z.string().max(100000),
   signatureIsHtml: z.boolean(),
   signatureChanged: z.boolean(),
+  priority: z.enum(['high','normal','low']).optional(),
+  keepAttachmentIndexes: z.array(z.number().int().min(0).max(999)).max(100).optional(),
+  newAttachments: z.array(z.object({
+    filename: z.string().trim().min(1).max(255),
+    content: z.string().min(1).max(220 * 1024 * 1024),
+    contentType: z.string().max(120).optional(),
+  }).strict()).max(100).optional(),
 }).strict();
+router.get('/operations/:id/attachments/:index', async (req, res) => {
+  const id = uuid.parse(req.params.id); const userId = sessionUserId(req);
+  const index = Number(req.params.index);
+  if (!Number.isInteger(index) || index < 0 || index > 999) { res.status(400).json({ code:'INVALID_ATTACHMENT', error:'Invalid attachment index.' }); return; }
+  const found = await query<Operation>(`SELECT * FROM mcp_operations WHERE id=$1 AND user_id=$2 AND state='pending' AND expires_at>NOW()`, [id,userId]);
+  const row = found.rows[0];
+  if (!row?.execution_encrypted) { res.status(404).json({ code:'ATTACHMENT_UNAVAILABLE', error:'Attachment not found.' }); return; }
+  const current = decodeOperationData(row.execution_encrypted) as { payload?: { attachments?: Array<{ filename?: string; content?: string; contentType?: string }> } };
+  const attachment = current.payload?.attachments?.[index];
+  if (!attachment || typeof attachment.content !== 'string') { res.status(404).json({ code:'ATTACHMENT_UNAVAILABLE', error:'Attachment not found.' }); return; }
+  const bytes = Buffer.from(attachment.content, 'base64');
+  if (bytes.toString('base64') !== attachment.content) { res.status(409).json({ code:'ATTACHMENT_UNAVAILABLE', error:'Attachment data is invalid.' }); return; }
+  const contentType = typeof attachment.contentType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(attachment.contentType)
+    ? attachment.contentType : 'application/octet-stream';
+  res.setHeader('Cache-Control','no-store');
+  res.setHeader('Content-Type',contentType);
+  res.setHeader('Content-Disposition', attachmentDisposition(attachment.filename || 'attachment'));
+  res.end(bytes);
+});
 router.post('/operations/:id/edit', async (req, res) => {
   const id = uuid.parse(req.params.id); const userId = sessionUserId(req); const edit = mailEdit.parse(req.body);
   const found = await query<Operation>(`SELECT * FROM mcp_operations WHERE id=$1 AND user_id=$2 AND state='pending' AND expires_at>NOW()`, [id,userId]);

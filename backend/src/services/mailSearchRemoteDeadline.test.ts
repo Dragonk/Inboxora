@@ -20,7 +20,7 @@ describe('shared remote search response deadline',()=>{
     const response=waitForRemoteSearch(()=>new Promise(resolve=>{finish=resolve;}),Date.now()+8000);
     await vi.advanceTimersByTimeAsync(8000);
     const partial=await response;
-    expect(partial).toMatchObject({rowIds:[],truncated:true,retryable:true,errors:[expect.stringContaining('deadline')]});
+    expect(partial).toMatchObject({rowIds:[],truncated:true,coverageIncomplete:true,retryable:true,errors:[expect.stringContaining('deadline')]});
     finish({rowIds:['late-match'],truncated:false});
     await vi.advanceTimersByTimeAsync(1);
     expect(partial.rowIds).toEqual([]);
