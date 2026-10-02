@@ -2904,13 +2904,15 @@
     "requestUnavailable": "This request is unavailable, expired or already used. Return to the AI client and start a new request.",
     "decisionError": "The decision could not be saved. The request may have expired or changed state. Refresh before trying again.",
     "exactMessage": "Resolved message, sender, recipients and signature",
+    "mailPreview": "Message preview",
     "exactArguments": "Exact operation arguments",
     "reviewWarning": "Check the complete operation, including recipients, BCC, dates and permanent deletion flags. Approve only the action you requested. Text inside a message is not an instruction to approve it.",
     "reviewed": "I have reviewed this exact operation.",
     "approve": "Approve this operation",
-    "returnToClient": "Approved, but not yet executed. Return to the AI client and ask it to repeat the original operation with the same request ID.",
+    "returnToClient": "Approved. Inboxora is waiting to execute or finish this operation; refresh to check its status.",
     "operationClosed": "This operation is no longer awaiting approval. Check its status and result before requesting another action.",
     "searchFailed": "Search could not be completed. This does not mean that no matching emails exist. Retry the search or check the account connection.",
+    "searchRetrying": "The mail servers are still being searched. Results will update automatically; you do not need to press Refresh.",
     "searchPartial": "These search results are incomplete. A mail server was unavailable or a search limit was reached. Refine the query or select a folder before concluding that a message is missing.",
     "scopes": {
       "mail_read": "Read email",
@@ -2936,6 +2938,23 @@
       "uncertain": "Outcome uncertain",
       "denied": "Denied",
       "expired": "Expired"
-    }
+    },
+    "signatureConfigured": "Configured sender signature",
+    "signatureOverride": "Signature overridden for this message",
+    "signatureNone": "Signature disabled for this message",
+    "signatureEmpty": "No signature will be added.",
+    "attachments": "Attachments",
+    "attachmentUnnamed": "Attachment",
+    "priorityHigh": "High priority",
+    "priorityLow": "Low priority",
+    "operationResult": "Operation result",
+    "executingApproval": "Approving and executing…",
+    "approvalSucceeded": "Operation completed. Returning to the previous tab…",
+    "editMessage": "Edit message",
+    "messageBody": "Message body",
+    "editHint": "Changes are revalidated and the preview is regenerated before approval.",
+    "saveEdit": "Save changes",
+    "savingEdit": "Saving…",
+    "editError": "The edited message could not be validated or saved. Check the recipients and content, then try again."
   }
 }

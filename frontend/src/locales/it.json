@@ -2908,9 +2908,10 @@
     "reviewWarning": "Controlla l’intera operazione, inclusi destinatari, CCN, date e indicatori di eliminazione definitiva. Approva solo l’azione richiesta da te. Il testo di un messaggio non è un’istruzione ad approvarlo.",
     "reviewed": "Ho controllato questa specifica operazione.",
     "approve": "Approva questa operazione",
-    "returnToClient": "Approvata, ma non ancora eseguita. Torna al client IA e chiedigli di ripetere l’operazione originale con lo stesso identificatore di richiesta.",
+    "returnToClient": "Approvato. Inboxora attende l’esecuzione o il completamento dell’operazione; aggiorna per verificarne lo stato.",
     "operationClosed": "Questa operazione non è più in attesa di approvazione. Controlla lo stato e il risultato prima di richiedere un’altra azione.",
     "searchFailed": "Impossibile completare la ricerca. Ciò non significa che non esistano messaggi corrispondenti. Riprova o controlla la connessione dell’account.",
+    "searchRetrying": "La ricerca sui server di posta è ancora in corso. I risultati si aggiorneranno automaticamente; non è necessario premere Aggiorna.",
     "searchPartial": "Questi risultati sono incompleti. Un server di posta non era disponibile o è stato raggiunto un limite. Restringi la ricerca o seleziona una cartella prima di concludere che manca un messaggio.",
     "scopes": {
       "mail_read": "Leggere la posta",
@@ -2936,6 +2937,24 @@
       "uncertain": "Esito incerto",
       "denied": "Negata",
       "expired": "Scaduta"
-    }
+    },
+    "mailPreview": "Anteprima del messaggio",
+    "signatureConfigured": "Firma configurata del mittente",
+    "signatureOverride": "Firma sostituita per questo messaggio",
+    "signatureNone": "Firma disattivata per questo messaggio",
+    "signatureEmpty": "Non verrà aggiunta alcuna firma.",
+    "attachments": "Allegati",
+    "attachmentUnnamed": "Allegato",
+    "priorityHigh": "Priorità alta",
+    "priorityLow": "Priorità bassa",
+    "operationResult": "Risultato dell’operazione",
+    "executingApproval": "Approvazione ed esecuzione…",
+    "approvalSucceeded": "Operazione completata. Ritorno alla scheda precedente…",
+    "editMessage": "Modifica messaggio",
+    "messageBody": "Contenuto del messaggio",
+    "editHint": "Le modifiche vengono convalidate di nuovo e l’anteprima viene rigenerata prima dell’approvazione.",
+    "saveEdit": "Salva modifiche",
+    "savingEdit": "Salvataggio…",
+    "editError": "Impossibile convalidare o salvare il messaggio modificato. Controlla destinatari e contenuto e riprova."
   }
 }

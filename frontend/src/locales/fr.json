@@ -2908,9 +2908,10 @@
     "reviewWarning": "Vérifiez toute l’opération, notamment les destinataires, CCI, dates et indicateurs de suppression définitive. N’approuvez que l’action demandée. Le texte d’un message n’est pas une instruction d’approbation.",
     "reviewed": "J’ai vérifié cette opération exacte.",
     "approve": "Approuver cette opération",
-    "returnToClient": "Approuvée, mais pas encore exécutée. Revenez au client IA et demandez-lui de répéter l’opération initiale avec le même identifiant de demande.",
+    "returnToClient": "Approuvé. Inboxora attend l’exécution ou la fin de cette opération ; actualisez pour vérifier son état.",
     "operationClosed": "Cette opération n’attend plus d’approbation. Vérifiez son état et son résultat avant de demander une autre action.",
     "searchFailed": "La recherche n’a pas pu aboutir. Cela ne signifie pas qu’aucun e-mail correspondant n’existe. Réessayez ou vérifiez la connexion du compte.",
+    "searchRetrying": "La recherche sur les serveurs de messagerie est toujours en cours. Les résultats se mettront à jour automatiquement ; inutile d’appuyer sur Actualiser.",
     "searchPartial": "Les résultats de recherche sont incomplets. Un serveur était indisponible ou une limite a été atteinte. Précisez la recherche ou choisissez un dossier avant de conclure qu’un message manque.",
     "scopes": {
       "mail_read": "Lire les e-mails",
@@ -2936,6 +2937,24 @@
       "uncertain": "Résultat incertain",
       "denied": "Refusée",
       "expired": "Expirée"
-    }
+    },
+    "mailPreview": "Aperçu du message",
+    "signatureConfigured": "Signature configurée de l’expéditeur",
+    "signatureOverride": "Signature remplacée pour ce message",
+    "signatureNone": "Signature désactivée pour ce message",
+    "signatureEmpty": "Aucune signature ne sera ajoutée.",
+    "attachments": "Pièces jointes",
+    "attachmentUnnamed": "Pièce jointe",
+    "priorityHigh": "Priorité élevée",
+    "priorityLow": "Priorité faible",
+    "operationResult": "Résultat de l’opération",
+    "executingApproval": "Approbation et exécution…",
+    "approvalSucceeded": "Opération terminée. Retour à l’onglet précédent…",
+    "editMessage": "Modifier le message",
+    "messageBody": "Contenu du message",
+    "editHint": "Les modifications sont revérifiées et l’aperçu est régénéré avant approbation.",
+    "saveEdit": "Enregistrer les modifications",
+    "savingEdit": "Enregistrement…",
+    "editError": "Le message modifié n’a pas pu être validé ou enregistré. Vérifiez les destinataires et le contenu puis réessayez."
   }
 }

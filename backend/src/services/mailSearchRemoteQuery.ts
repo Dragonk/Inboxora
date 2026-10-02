@@ -29,7 +29,7 @@ export function gmailSearchQuery(raw: string): string {
 }
 export function graphSearchQuery(raw: string): string {
   const { filters, terms } = parseSearchQuery(raw);
-  const pieces = terms.map(term => `${term.negate ? 'NOT ' : ''}(${['from','subject','body','to','cc'].map(field => `${field}:${quoted(term.value)}`).join(' OR ')})`);
+  const pieces = terms.map(term => `${term.negate ? 'NOT ' : ''}(${['participants','subject','body'].map(field => `${field}:${quoted(term.value)}`).join(' OR ')})`);
   for (const filter of filters) {
     let value: string | undefined;
     if (filter.key === 'from' || filter.key === 'subject') value = `${filter.key}:${quoted(filter.value)}`;

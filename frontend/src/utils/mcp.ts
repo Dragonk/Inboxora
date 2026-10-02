@@ -72,3 +72,16 @@ export const MCP_STATE_KEYS: Record<string, string> = {
   denied: 'mcp.states.denied',
   expired: 'mcp.states.expired',
 };
+
+
+export function returnFromMcpApproval(): void {
+  try {
+    if (window.opener && !window.opener.closed) window.opener.focus();
+  } catch { /* cross-origin opener focus can be refused */ }
+  try { window.close(); } catch { /* browser may disallow closing a regular tab */ }
+  window.setTimeout(() => {
+    if (document.visibilityState === 'hidden') return;
+    if (window.history.length > 1) window.history.back();
+    else window.location.replace('/');
+  }, 250);
+}

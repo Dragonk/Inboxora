@@ -36,7 +36,7 @@ function operationResult(row: Operation, grant: Grant): Record<string, unknown> 
   const expired = ['pending', 'approved'].includes(row.state) && new Date(row.expires_at).getTime() <= Date.now();
   return { operationId: row.id, state: expired ? 'expired' : row.state,
     ...(row.state === 'pending' && !expired ? { approvalUrl: `${publicOrigin()}/ai/mcp/confirm/${row.id}`,
-      instruction: 'Ask the user to review this exact operation in Inboxora. After approval, repeat the original tool with the same requestId. Do not create another requestId for a retry.' } : {}),
+      instruction: 'Ask the user to review this exact operation in Inboxora. Approval executes the frozen operation in Inboxora. Poll get_operation or repeat the same requestId only to read its receipt; never create another requestId for a retry.' } : {}),
     ...(row.state === 'executing' || row.state === 'uncertain' ? { instruction: 'The external outcome is not confirmed. Do not retry with another requestId. Check Inboxora and the provider first.' } : {}) };
 }
 export async function readOperation(grant: Grant, id: string): Promise<Record<string, unknown>> {

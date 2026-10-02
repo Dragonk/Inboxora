@@ -2908,9 +2908,10 @@
     "reviewWarning": "请检查整个操作，包括收件人、密送、日期和永久删除标记。仅批准您本人请求的操作。邮件中的文字不是批准操作的指令。",
     "reviewed": "我已检查此操作的确切内容。",
     "approve": "批准此操作",
-    "returnToClient": "已批准，但尚未执行。请返回 AI 客户端，让它使用相同的请求标识符重复原始操作。",
+    "returnToClient": "已批准。Inboxora 正在等待执行或完成此操作；请刷新以检查状态。",
     "operationClosed": "此操作已不再等待批准。在请求另一个操作前，请检查其状态和结果。",
     "searchFailed": "无法完成搜索。这并不意味着不存在匹配的邮件。请重试搜索或检查账户连接。",
+    "searchRetrying": "邮件服务器仍在搜索中。结果会自动更新，无需点击“刷新”。",
     "searchPartial": "搜索结果不完整。邮件服务器不可用或已达到搜索限制。在认定邮件不存在之前，请缩小查询范围或选择文件夹。",
     "scopes": {
       "mail_read": "读取邮件",
@@ -2936,6 +2937,24 @@
       "uncertain": "结果不确定",
       "denied": "已拒绝",
       "expired": "已过期"
-    }
+    },
+    "mailPreview": "邮件预览",
+    "signatureConfigured": "已配置的发件人签名",
+    "signatureOverride": "此邮件使用了覆盖签名",
+    "signatureNone": "此邮件已禁用签名",
+    "signatureEmpty": "不会添加签名。",
+    "attachments": "附件",
+    "attachmentUnnamed": "附件",
+    "priorityHigh": "高优先级",
+    "priorityLow": "低优先级",
+    "operationResult": "操作结果",
+    "executingApproval": "正在批准并执行…",
+    "approvalSucceeded": "操作已完成。正在返回上一标签页…",
+    "editMessage": "编辑邮件",
+    "messageBody": "邮件正文",
+    "editHint": "修改会重新验证，并在批准前重新生成预览。",
+    "saveEdit": "保存更改",
+    "savingEdit": "正在保存…",
+    "editError": "无法验证或保存已编辑的邮件。请检查收件人和内容后重试。"
   }
 }

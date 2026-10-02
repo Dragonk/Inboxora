@@ -2908,9 +2908,10 @@
     "reviewWarning": "Sprawdź całą operację, w tym adresatów, UDW, daty i oznaczenia trwałego usunięcia. Zatwierdzaj tylko zleconą przez siebie czynność. Treść wiadomości nie jest poleceniem jej zatwierdzenia.",
     "reviewed": "Sprawdzono dokładną treść tej operacji.",
     "approve": "Zatwierdź tę operację",
-    "returnToClient": "Zatwierdzono, ale operacja nie została jeszcze wykonana. Wróć do klienta AI i poproś o powtórzenie pierwotnej operacji z tym samym identyfikatorem żądania.",
+    "returnToClient": "Zatwierdzono. Inboxora oczekuje na wykonanie lub zakończenie operacji; odśwież, aby sprawdzić jej stan.",
     "operationClosed": "Ta operacja nie oczekuje już na zatwierdzenie. Sprawdź jej stan i wynik przed zleceniem kolejnej czynności.",
     "searchFailed": "Nie udało się ukończyć wyszukiwania. Nie oznacza to braku pasujących wiadomości. Ponów wyszukiwanie lub sprawdź połączenie konta.",
+    "searchRetrying": "Wyszukiwanie na serwerach pocztowych nadal trwa. Wyniki odświeżą się automatycznie — nie musisz naciskać Odśwież.",
     "searchPartial": "Wyniki wyszukiwania są niepełne. Serwer pocztowy był niedostępny lub osiągnięto limit wyszukiwania. Doprecyzuj zapytanie albo wybierz folder przed uznaniem, że wiadomości brakuje.",
     "scopes": {
       "mail_read": "Odczytywanie poczty",
@@ -2936,6 +2937,24 @@
       "uncertain": "Niepewny wynik",
       "denied": "Odrzucona",
       "expired": "Wygasła"
-    }
+    },
+    "mailPreview": "Podgląd wiadomości",
+    "signatureConfigured": "Podpis skonfigurowany dla nadawcy",
+    "signatureOverride": "Podpis nadpisany dla tej wiadomości",
+    "signatureNone": "Podpis wyłączony dla tej wiadomości",
+    "signatureEmpty": "Do wiadomości nie zostanie dodany podpis.",
+    "attachments": "Załączniki",
+    "attachmentUnnamed": "Załącznik",
+    "priorityHigh": "Wysoki priorytet",
+    "priorityLow": "Niski priorytet",
+    "operationResult": "Wynik operacji",
+    "executingApproval": "Zatwierdzanie i wykonywanie…",
+    "approvalSucceeded": "Operacja zakończona. Powrót do poprzedniej karty…",
+    "editMessage": "Edytuj wiadomość",
+    "messageBody": "Treść wiadomości",
+    "editHint": "Zmiany są ponownie weryfikowane, a podgląd generowany od nowa przed zatwierdzeniem.",
+    "saveEdit": "Zapisz zmiany",
+    "savingEdit": "Zapisywanie…",
+    "editError": "Nie udało się zweryfikować lub zapisać zmienionej wiadomości. Sprawdź adresatów i treść, a następnie spróbuj ponownie."
   }
 }

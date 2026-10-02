@@ -6144,6 +6144,32 @@ export class ImapManager {
     });
   }
 
+  /**
+   * Search broad provider folders before narrow label folders. A real \\All
+   * mailbox is the fastest complete corpus on Gmail-like IMAP servers;
+   * otherwise Inbox, Sent and Archive get the request budget first.
+   */
+  static planSearchFolders(rows: Array<{ path: string; special_use?: string | null }>): Array<{ path: string; special_use?: string | null }> {
+    const score = (row: { path: string; special_use?: string | null }) => {
+      const special = String(row.special_use || '').toLowerCase();
+      if (special === '\\all') return 0;
+      if (special === '\\inbox' || row.path.toUpperCase() === 'INBOX') return 1;
+      if (special === '\\sent') return 2;
+      if (special === '\\archive') return 3;
+      if (special === '\\junk') return 4;
+      if (special === '\\drafts') return 5;
+      if (special === '\\trash') return 99;
+      return 10;
+    };
+    const sorted = [...rows].sort((left, right) => score(left) - score(right) || left.path.localeCompare(right.path));
+    const all = sorted.find(row => String(row.special_use || '').toLowerCase() === '\\all');
+    if (!all) return sorted;
+    // \\All already covers ordinary mail. Keep Junk as the only additional corpus;
+    // Trash is deliberately excluded by ordinary Inboxora search semantics.
+    const junk = sorted.find(row => String(row.special_use || '').toLowerCase() === '\\junk');
+    return junk ? [all, junk] : [all];
+  }
+
   /** Read server-side search hits without advancing sync cursors, classifying spam,
    * marking mail read or issuing another command inside an IMAP FETCH iterator. */
   async searchAccountMessages(input: RemoteSearchInput): Promise<RemoteSearchResult> {
@@ -6151,23 +6177,25 @@ export class ImapManager {
     const account = found.rows[0];
     if (!account) throw new Error('Search account is unavailable.');
     assertImapAccount(account);
-    const folders = (await query<{ path: string }>("SELECT path FROM folders WHERE account_id=$1 ORDER BY CASE WHEN path='INBOX' THEN 0 ELSE 1 END,path", [account.id])).rows
+    const folderRows = (await query<{ path: string; special_use: string | null }>(
+      "SELECT path,special_use FROM folders WHERE account_id=$1", [account.id])).rows
       .filter(folder => input.folders === null || input.folders.includes(folder.path));
+    const folders = ImapManager.planSearchFolders(folderRows);
     const selected = folders.slice(0, 50);
     const maximum = Math.min(1000, Math.max(1, input.maxResults));
-    const rowIds: string[] = []; const errors: string[] = []; let truncated = folders.length > selected.length;
+    const rowIds: string[] = []; const errors: string[] = []; let truncated = folders.length > selected.length; let retryable = false;
     const expires = Date.now() + 35000;
     await withFreshClient(account, async client => {
       const timer = setTimeout(() => client.close(), Math.max(1, expires - Date.now())); timer.unref();
       try {
         for (let folderIndex = 0; folderIndex < selected.length; folderIndex++) {
-          if (Date.now() >= expires) { truncated = true; break; }
+          if (Date.now() >= expires) { truncated = true; retryable = true; break; }
           const folder = selected[folderIndex].path;
           try {
             const lock = await client.getMailboxLock(folder);
             const fetched: RawMessageInput[] = [];
             try {
-              if (Date.now() >= expires) throw new Error('Search deadline exceeded.');
+              if (Date.now() >= expires) { retryable = true; throw new Error('Search deadline exceeded.'); }
               const hits = (await searchUids(client, imapSearchQuery(input.query))).sort((a,b) => b-a);
               const uids = hits.slice(0, maximum - rowIds.length);
               truncated ||= hits.length > uids.length;
@@ -6190,12 +6218,13 @@ export class ImapManager {
             const error = toAppError(caught);
             console.warn('IMAP search folder failed:', JSON.stringify({accountId:account.id,folder,code:error.code ?? error.name}));
             errors.push(`Search could not finish folder ${folder}.`); truncated = true;
+            if (Date.now() >= expires || error.name === 'TimeoutError' || error.name === 'AbortError') retryable = true;
           }
           if (rowIds.length >= maximum) { truncated ||= folderIndex < selected.length - 1; break; }
         }
       } finally { clearTimeout(timer); }
     });
-    return { rowIds, truncated, ...(errors.length ? { errors } : {}) };
+    return { rowIds, truncated, ...(retryable ? { retryable: true } : {}), ...(errors.length ? { errors } : {}) };
   }
 
   // Shared INSERT/UPSERT for one fetched message. Extracted so the normal

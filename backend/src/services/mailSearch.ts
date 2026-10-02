@@ -106,6 +106,7 @@ export async function searchMail(userId: string, input: Record<string, unknown>,
   const providerErrors: ProviderSearchError[] = [];
   const remoteIds: string[] = [];
   let partial = false;
+  let retryablePartial = false;
   const cap = Math.max(1, Math.min(limit, 200));
   const { filters, terms } = parseSearchQuery(trimmed);
 
@@ -246,9 +247,11 @@ export async function searchMail(userId: string, input: Record<string, unknown>,
         const result = await waitForRemoteSearch(() => searchRemoteAccount(account, { query: trimmed, folders, maxResults: Math.min(1000, Math.max(200, off + cap + 1)) }), remoteDeadline);
         remoteIds.push(...result.rowIds);
         partial ||= result.truncated;
+        retryablePartial ||= result.retryable === true;
         if (result.errors?.length) providerErrors.push({ accountId: account.id, code: 'SEARCH_INCOMPLETE', error: result.errors.join(' ') });
       } catch (caught) {
         const error = toAppError(caught); partial = true;
+        retryablePartial ||= error.name === 'TimeoutError' || error.name === 'AbortError' || (error as typeof error & { retryable?: boolean }).retryable === true;
         providerErrors.push({ accountId: account.id, code: error.code || 'PROVIDER_SEARCH_FAILED',
           error: 'The mail server could not complete this search. Locally synchronized matches are shown; check the account connection and retry.' });
         console.warn(`Provider search failed for account ${account.id}: ${error.code || 'unavailable'}`);
@@ -259,6 +262,7 @@ export async function searchMail(userId: string, input: Record<string, unknown>,
       messages: result.rows.slice(0, cap),
       nextOffset: result.rows.length > cap ? off + cap : null,
       partial,
+      retryablePartial,
       coverage: partial ? 'partial' : 'provider_and_local',
       query: q,
       ...(providerErrors.length ? { providerErrors } : {}),

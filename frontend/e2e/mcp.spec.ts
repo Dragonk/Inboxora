@@ -24,23 +24,58 @@ for (const theme of ['light','dark']) {
   });
 }
 
-test('MCP write approval is disabled until the exact operation is reviewed',async({page,fixtureApi})=>{
+test('MCP mail approval can be edited, executes once and closes the approval tab',async({page,fixtureApi})=>{
   await fixtureApi; page.__languageOverride='en';
-  let approved=false;
-  await page.route('**/api/mcp/operations/**',async route=>{
-    if(route.request().method()==='POST') { expect(route.request().postDataJSON()).toEqual({approve:true});approved=true;return route.fulfill({json:{ok:true}}); }
-    return route.fulfill({json:{id:operationId,tool:'send_email',integrationName:'Test client',state:approved?'approved':'pending',expiresAt:'2099-01-01T00:00:00Z',
-      arguments:{requestId:'exact-request',to:['recipient@example.test'],subject:'<script>untrusted text</script>'},
-      review:{senderEmail:'owner@example.test',to:['recipient@example.test'],bcc:['private@example.test'],body:'Synthetic message'}}});
+  await page.context().route('**/api/auth/me',route=>route.fulfill({json:{user:{id:'e2e-user',username:'e2e@example.test',isAdmin:true}}}));
+  await page.context().route('**/api/auth/preferences**',route=>route.fulfill({json:{language:'en',theme:'light',threadedView:false,conversation_list_view_enabled:false,conversation_reader_view_enabled:false,block_remote_images:true}}));
+  let approved=false; let postCount=0; let editCount=0;
+  let review:Record<string,unknown>={kind:'mail',senderName:'Inboxora Sender',senderEmail:'owner@example.test',to:['recipient@example.test'],cc:[],bcc:['private@example.test'],
+    subject:'Synthetic subject',priority:'normal',bodyText:'Synthetic message body',bodyHtml:'',signatureMode:'configured',signatureText:'Synthetic signature',signatureHtml:'',
+    attachments:[{filename:'invoice.pdf',bytes:2048,contentType:'application/pdf'}]};
+  await page.context().route('**/api/mcp/operations/**',async route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(route.request().method()==='POST' && path.endsWith('/edit')) {
+      const body=route.request().postDataJSON(); editCount+=1;
+      expect(body).toMatchObject({to:['edited@example.test'],cc:[],bcc:['private@example.test'],subject:'Edited subject',bodyChanged:true,signatureChanged:true});
+      review={...review,to:body.to,cc:body.cc,bcc:body.bcc,subject:body.subject,bodyText:'Edited body',bodyHtml:'<p>Edited body</p>',signatureMode:'override',signatureText:'Edited signature',signatureHtml:'<p>Edited signature</p>'};
+      return route.fulfill({json:{id:operationId,review}});
+    }
+    if(route.request().method()==='POST') {
+      expect(route.request().postDataJSON()).toEqual({approve:true}); postCount+=1; approved=true;
+      return route.fulfill({json:{operationId,state:'succeeded',result:{status:200,body:{ok:true}}}});
+    }
+    return route.fulfill({json:{id:operationId,tool:'send_email',integrationName:'Test client',state:approved?'succeeded':'pending',expiresAt:'2099-01-01T00:00:00Z',
+      arguments:{requestId:'exact-request',to:['recipient@example.test'],subject:'Synthetic subject'},review}});
   });
-  await page.goto(`/ai/mcp/confirm/${operationId}`);
-  const approve=page.getByRole('button',{name:'Approve this operation',exact:true});
+  await page.goto('/');
+  const popupPromise=page.waitForEvent('popup');
+  await page.evaluate(url=>window.open(url,'_blank'),`/ai/mcp/confirm/${operationId}`);
+  const popup=await popupPromise;
+  await expect(popup.getByRole('heading',{name:'Review an AI operation'})).toBeVisible();
+  await expect(popup.getByText('Inboxora Sender',{exact:true})).toBeVisible();
+  await expect(popup.getByText('private@example.test',{exact:true})).toBeVisible();
+  await expect(popup.getByText('Configured sender signature',{exact:true})).toBeVisible();
+  await expect(popup.getByText('invoice.pdf',{exact:true})).toBeVisible();
+
+  await popup.getByRole('button',{name:'Edit message',exact:true}).click();
+  await popup.getByLabel('To').fill('edited@example.test');
+  await popup.getByLabel('Subject').fill('Edited subject');
+  await popup.getByTestId('mcp-mail-body-editor').fill('Edited body');
+  await popup.getByTestId('mcp-mail-signature-editor').fill('Edited signature');
+  await popup.getByRole('button',{name:'Save changes',exact:true}).click();
+  await expect(popup.getByText('edited@example.test',{exact:true})).toBeVisible();
+  await expect(popup.getByText('Edited subject',{exact:true})).toBeVisible();
+  await expect(popup.getByText('Signature overridden for this message',{exact:true})).toBeVisible();
+  expect(editCount).toBe(1);
+
+  const approve=popup.getByRole('button',{name:'Approve this operation',exact:true});
   await expect(approve).toBeDisabled();
-  await expect(page.locator('pre').first()).toContainText('private@example.test');
-  await page.getByRole('checkbox',{name:'I have reviewed this exact operation.'}).check();
+  await popup.getByRole('checkbox',{name:'I have reviewed this exact operation.'}).check();
   await approve.click();
-  await expect(page.getByText('Approved, but not yet executed.',{exact:false})).toBeVisible();
+  await expect.poll(() => popup.isClosed()).toBe(true);
+  expect(postCount).toBe(1);
   expect(approved).toBe(true);
+  await expect(page.getByTestId('message-list-scroll')).toBeVisible();
 });
 
 test('a regular user can create a read-only MCP token without opening administrator AI settings',async({page,fixtureApi})=>{

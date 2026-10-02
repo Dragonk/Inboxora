@@ -22,7 +22,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ### Added
 - Native MCP endpoint with OAuth/PKCE, revocable personal tokens, per-client resource permissions and approval-bound operation receipts.
-- Email, draft, attachment, calendar, availability and contact tools, with localized settings and approval screens for every user.
+- Email, draft, attachment, calendar, availability and contact tools, with localized settings and approval screens for every user. Mail approvals now use a real Inboxora message preview and allow human edits to recipients, subject, body and signature before sending.
 - Composer attachment previews and archive folder browsing with list/thumbnail views.
 - PDF signature details and current-time integrity, certificate-chain and revocation checks, with distinct valid/invalid/unavailable indicators.
 - Optional private ClamAV container and a fail-closed preview gate; warned downloads remain available without changing original bytes.
@@ -38,12 +38,12 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ### Fixed
 - Support OAuth HTTP Basic client credentials as well as public and form-post clients, rejecting mixed credentials and mismatched registered methods.
-- Search cached and provider-held email across Gmail, Microsoft Graph and IMAP; handle literal phrases, recipients, dates and Gmail label scopes, and show incomplete coverage rather than false empty results.
-- Preserve attachment bytes, priority and reply identity when creating or replacing drafts through MCP.
+- Search cached and provider-held email across Gmail, Microsoft Graph and IMAP; handle literal phrases, recipients, dates and Gmail label scopes, automatically continue retryable provider searches instead of showing a false empty state, and prioritize broad IMAP `\All` mailboxes where available.
+- Preserve attachment bytes, priority and reply identity when creating or replacing drafts through MCP; freeze the sanitized sender signature and allow an AI-supplied per-message signature override or explicit suppression.
 - Bound remote search waiting across all accounts to eight seconds and report partial coverage.
 - Fix research fetch continuation offsets, event text matching, forwarded MIME parameters and MCP concurrency cleanup after initialization errors.
 - Require positive move/unsubscribe confirmation, authorize mapped spam destinations, and return OAuth reauthorization errors for revoked grants.
-- Route MCP through the restart-safe Nginx upstream and clean up expired MCP payloads without replaying uncertain writes.
+- Route MCP through the restart-safe Nginx upstream and clean up expired MCP payloads without replaying uncertain writes. Browser approval now executes the exact frozen operation immediately and returns to the previous tab on successful completion; the client only reads the receipt afterwards.
 - Return empty PDF signature fields without loading trust lists; retry failed trust-list refreshes with bounded backoff instead of waiting six hours after a cold-start outage.
 - Validate PDF certificate paths against authenticated EU Trusted Lists instead of the TLS root store. Refresh signed lists automatically, show the verified path and distinguish missing revocation evidence from missing trust or an absent timestamp.
 - Preserve signature metadata line breaks; keep PDF search text readable and allow typed zoom percentages.

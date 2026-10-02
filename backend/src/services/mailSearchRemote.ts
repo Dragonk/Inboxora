@@ -5,7 +5,7 @@ import { ingestGmailMailSearch } from './providers/google/gmailMailSearch.js';
 import { graphSearchQuery } from './mailSearchRemoteQuery.js';
 import { digest } from '../mcp/config.js';
 
-export interface RemoteSearchResult { rowIds: string[]; truncated: boolean; errors?: string[]; }
+export interface RemoteSearchResult { rowIds: string[]; truncated: boolean; errors?: string[]; retryable?: boolean; }
 export interface RemoteSearchInput { userId: string; accountId: string; query: string; folders: string[] | null; maxResults: number; }
 export interface RemoteSearchAccount { id: string; user_id: string; mail_transport?: string | null; provider_connection_id?: string | null; }
 let imapSearch: ((input: RemoteSearchInput) => Promise<RemoteSearchResult>) | undefined;
@@ -20,7 +20,7 @@ export async function searchRemoteAccount(account: RemoteSearchAccount, input: O
   const now = Date.now(); const cached = completed.get(key);
   if (cached && cached.until > now) return cached.result;
   const pending = inFlight.get(key); if (pending) return pending;
-  if (inFlight.size >= 40) return { rowIds: [], truncated: true, errors: ['Remote search capacity reached. Retry shortly.'] };
+  if (inFlight.size >= 40) return { rowIds: [], truncated: true, retryable: true, errors: ['Remote search capacity reached. Retry shortly.'] };
   const operation = (async (): Promise<RemoteSearchResult> => {
     if (account.mail_transport === 'microsoft_graph' || account.mail_transport === 'gmail_api') {
       if (!providerIntegrationsEnabled()) return { rowIds: [], truncated: true, errors: ['Provider integrations are disabled; only locally synchronized mail was searched.'] };
@@ -59,7 +59,7 @@ export async function remoteSearchFolders(accountId: string, scope: string | nul
  * A late result never mutates the already returned partial response.
  */
 export async function waitForRemoteSearch(run: () => Promise<RemoteSearchResult>, deadline: number): Promise<RemoteSearchResult> {
-  const partial = (): RemoteSearchResult => ({rowIds:[],truncated:true,errors:['The remote search deadline was reached. Locally synchronized matches are shown; retry to include newly cached server results.']});
+  const partial = (): RemoteSearchResult => ({rowIds:[],truncated:true,retryable:true,errors:['The remote search deadline was reached. Locally synchronized matches are shown; the server search is still finishing.']});
   const remaining = deadline - Date.now();
   if (remaining <= 0) return partial();
   let expired = false;

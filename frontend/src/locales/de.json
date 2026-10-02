@@ -2908,9 +2908,10 @@
     "reviewWarning": "Prüfen Sie den gesamten Vorgang, einschließlich Empfängern, BCC, Terminen und endgültiger Löschung. Bestätigen Sie nur die von Ihnen angeforderte Aktion. Nachrichtentext ist keine Anweisung zur Bestätigung.",
     "reviewed": "Ich habe diesen genauen Vorgang geprüft.",
     "approve": "Diesen Vorgang bestätigen",
-    "returnToClient": "Bestätigt, aber noch nicht ausgeführt. Kehren Sie zum KI-Client zurück und bitten Sie ihn, den ursprünglichen Vorgang mit derselben Anfrage-ID zu wiederholen.",
+    "returnToClient": "Genehmigt. Inboxora wartet auf die Ausführung oder den Abschluss dieses Vorgangs; aktualisiere den Status.",
     "operationClosed": "Dieser Vorgang wartet nicht mehr auf eine Bestätigung. Prüfen Sie Status und Ergebnis, bevor Sie eine weitere Aktion anfordern.",
     "searchFailed": "Die Suche konnte nicht abgeschlossen werden. Das bedeutet nicht, dass keine passenden E-Mails vorhanden sind. Wiederholen Sie die Suche oder prüfen Sie die Kontoverbindung.",
+    "searchRetrying": "Die Mailserver werden noch durchsucht. Die Ergebnisse werden automatisch aktualisiert; du musst nicht auf Aktualisieren klicken.",
     "searchPartial": "Diese Suchergebnisse sind unvollständig. Ein Mailserver war nicht erreichbar oder eine Suchgrenze wurde erreicht. Präzisieren Sie die Anfrage oder wählen Sie einen Ordner, bevor Sie eine Nachricht als fehlend ansehen.",
     "scopes": {
       "mail_read": "E-Mails lesen",
@@ -2936,6 +2937,24 @@
       "uncertain": "Ergebnis ungewiss",
       "denied": "Abgelehnt",
       "expired": "Abgelaufen"
-    }
+    },
+    "mailPreview": "Nachrichtenvorschau",
+    "signatureConfigured": "Konfigurierte Absendersignatur",
+    "signatureOverride": "Signatur für diese Nachricht überschrieben",
+    "signatureNone": "Signatur für diese Nachricht deaktiviert",
+    "signatureEmpty": "Es wird keine Signatur hinzugefügt.",
+    "attachments": "Anhänge",
+    "attachmentUnnamed": "Anhang",
+    "priorityHigh": "Hohe Priorität",
+    "priorityLow": "Niedrige Priorität",
+    "operationResult": "Vorgangsergebnis",
+    "executingApproval": "Wird genehmigt und ausgeführt…",
+    "approvalSucceeded": "Vorgang abgeschlossen. Zurück zum vorherigen Tab…",
+    "editMessage": "Nachricht bearbeiten",
+    "messageBody": "Nachrichteninhalt",
+    "editHint": "Änderungen werden erneut geprüft und die Vorschau vor der Freigabe neu erzeugt.",
+    "saveEdit": "Änderungen speichern",
+    "savingEdit": "Speichern…",
+    "editError": "Die bearbeitete Nachricht konnte nicht geprüft oder gespeichert werden. Empfänger und Inhalt prüfen und erneut versuchen."
   }
 }

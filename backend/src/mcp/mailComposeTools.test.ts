@@ -17,6 +17,7 @@ vi.mock('./operations.js', () => ({runOperation:async (...args:Parameters<typeof
   return {result:await execute('operation-test',prepare ? await prepare() : {})};
 }}));
 import { mailComposeTools } from './mailComposeTools.js';
+import { reprepareEditedMail } from './mailApprovalEdit.js';
 const accountId='11111111-1111-4111-8111-111111111111';
 const messageId='22222222-2222-4222-8222-222222222222';
 const grant:Grant={id:messageId,user_id:messageId,client_id:null,name:'Unit test',scopes:['mail.read','mail.draft','mail.send'],
@@ -69,6 +70,20 @@ describe('MCP composition passes the real domain contract',()=>{
     expect(f.request).toHaveBeenCalledWith(messageId,'POST','/mail/draft',expect.objectContaining({
       attachments:[{filename:'file.txt',content:Buffer.from('attachment').toString('base64'),contentType:expected}],
     }),'operation-test');
+  });
+  it('revalidates human edits and regenerates the exact approval preview',async()=>{
+    const prepared={senderEmail:'me@example.test',senderName:'Owner',payload:{accountId,to:['old@example.test'],cc:[],bcc:[],subject:'Old',body:'Old body',bodyIsHtml:false,editedSignature:'Configured',editedSignatureIsHtml:true,attachments:[],forwardedAttachments:[],priority:'normal'},review:{kind:'mail',signatureMode:'configured'}};
+    const edited=await reprepareEditedMail(messageId,prepared,{to:['edited@example.test'],cc:[],bcc:['private@example.test'],subject:'Edited',body:'Edited body',bodyIsHtml:true,bodyChanged:true,signature:'Edited signature',signatureIsHtml:true,signatureChanged:true});
+    expect(f.send).toHaveBeenCalledWith(messageId,expect.objectContaining({to:['edited@example.test'],bcc:['private@example.test'],subject:'Edited',body:'Edited body',editedSignature:'Edited signature'}),null,
+      {prepareOnly:true,expectedSenderEmail:'me@example.test',expectedSenderName:'Owner'});
+    expect(edited.review).toMatchObject({kind:'mail',to:['edited@example.test'],bcc:['private@example.test'],subject:'Edited',signatureMode:'override'});
+  });
+  it('keeps the frozen HTML body and configured signature when only recipients change',async()=>{
+    const prepared={senderEmail:'me@example.test',senderName:'Owner',payload:{accountId,to:['old@example.test'],cc:[],bcc:[],subject:'Old',body:'<p>Rich body</p>',bodyIsHtml:true,editedSignature:'<strong>Configured</strong>',editedSignatureIsHtml:true,attachments:[],forwardedAttachments:[],priority:'normal'},review:{kind:'mail',signatureMode:'configured'}};
+    const edited=await reprepareEditedMail(messageId,prepared,{to:['edited@example.test'],cc:[],bcc:[],subject:'Old',body:'ignored editor snapshot',bodyIsHtml:true,bodyChanged:false,signature:'ignored editor snapshot',signatureIsHtml:true,signatureChanged:false});
+    expect(f.send).toHaveBeenCalledWith(messageId,expect.objectContaining({to:['edited@example.test'],body:'<p>Rich body</p>',bodyIsHtml:true,editedSignature:'<strong>Configured</strong>',editedSignatureIsHtml:true}),null,
+      {prepareOnly:true,expectedSenderEmail:'me@example.test',expectedSenderName:'Owner'});
+    expect(edited.review).toMatchObject({kind:'mail',to:['edited@example.test'],signatureMode:'configured'});
   });
   it('refuses oversized forwarded data before calling the send pipeline',async()=>{
     f.source.mockResolvedValue(Buffer.alloc(1024*1024+1));

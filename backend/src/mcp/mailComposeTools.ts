@@ -4,7 +4,7 @@ import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths, type FolderMappings } from '../utils/mailUtils.js';
 import { z } from 'zod';
 import { query } from '../services/db.js';
-import { executeSend, type SendRequestBody } from '../services/sendMail.js';
+import { executeSend, type PreparedSend, type SendRequestBody } from '../services/sendMail.js';
 import { resolveSenderIdentity } from '../services/senderIdentity.js';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { scanAttachment } from '../services/attachments/scan.js';
@@ -12,6 +12,7 @@ import { domainRequest, domainRead } from './bridge.js';
 import { liveGrant, McpError, requireAccount, requireFolder, requireMessage, requireScope, type Grant } from './policy.js';
 import { id, records, readTool, writeTool } from './registry.js';
 import { plainMailText } from './mailReadTools.js';
+import { mailReviewFromPrepared } from './mailApprovalEdit.js';
 
 const recipients = z.array(z.string().trim().min(3).max(320)).max(100);
 const attachment = z.object({ filename: z.string().min(1).max(255), content: z.string().max(1400000).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/), contentType: z.string().max(120).optional() }).strict();
@@ -21,6 +22,8 @@ export const composeShape = {
   attachments: z.array(attachment).max(10).default([]),
   forwardedAttachments: z.array(z.object({ messageId: id, part: z.string().min(1).max(1024) }).strict()).max(10).default([]),
   priority: z.enum(['low', 'normal', 'high']).default('normal'),
+  signature: z.string().max(100000).optional().describe('Per-message signature override. Omit to use the selected sender configured signature; use an empty string to suppress the signature.'),
+  signatureIsHtml: z.boolean().default(false).describe('Whether the explicit signature override is HTML. Ignored when signature is omitted.'),
 };
 const _composeSchema = z.object(composeShape);
 type Compose = z.output<typeof _composeSchema>;
@@ -43,7 +46,8 @@ async function composePayload(grant: Grant, args: Compose): Promise<SendRequestB
   return { accountId: args.accountId, aliasId: args.aliasId ?? account.default_alias_id ?? undefined,
     to: args.to, cc: args.cc ?? account.default_cc ?? [], bcc: args.bcc ?? account.default_bcc ?? [],
     subject: args.subject, body: args.body, bodyIsHtml: args.bodyIsHtml, attachments: resolvedAttachments,
-    forwardedAttachments: [], priority: args.priority };
+    forwardedAttachments: [], priority: args.priority,
+    ...(args.signature !== undefined ? { editedSignature: args.signature, editedSignatureIsHtml: args.signatureIsHtml } : {}) };
 }
 async function materializeAttachments(grant: Grant, args: Compose) {
   // Resolve referenced content before asking for approval, exactly as send does.
@@ -68,24 +72,20 @@ async function materializeAttachments(grant: Grant, args: Compose) {
   }
   return attachments;
 }
-function preparedReview(payload: SendRequestBody, senderEmail: string): Record<string, unknown> {
-  return { senderEmail, to: payload.to ?? [], cc: payload.cc ?? [], bcc: payload.bcc ?? [], subject: payload.subject ?? '', priority: payload.priority ?? 'normal',
-    body: payload.bodyIsHtml ? plainMailText(payload.body) : payload.body, bodyIsHtml: payload.bodyIsHtml === true,
-    signature: payload.editedSignatureIsHtml ? plainMailText(payload.editedSignature) : payload.editedSignature ?? '',
-    quotedText: payload.quotedBody ?? plainMailText(payload.quotedBodyHtml),
-    attachments: payload.attachments?.map(item => ({ filename: item.filename, bytes: Buffer.byteLength(item.content, 'base64') })) ?? [] };
-}
 async function prepareMail(grant: Grant, payload: SendRequestBody): Promise<Record<string, unknown>> {
+  const signatureMode = payload.editedSignature === undefined ? 'configured' : payload.editedSignature === '' ? 'none' : 'override';
   const result = await executeSend(grant.user_id, payload, null, { prepareOnly: true });
   if (!result.prepared || result.status !== 200) throw new McpError(String(result.body.code || 'COMPOSE_INVALID'), String(result.body.error || 'Message cannot be prepared.'), result.status >= 400 ? result.status : 400);
   if (Buffer.byteLength(JSON.stringify(result.prepared)) > 6 * 1024 * 1024) throw new McpError('ATTACHMENT_LIMIT', 'Prepared MCP messages are limited to 6 MiB. Use Inboxora for larger messages.', 413);
-  return { ...result.prepared, review: preparedReview(result.prepared.payload, result.prepared.senderEmail) };
+  return { ...result.prepared, review: mailReviewFromPrepared(result.prepared, signatureMode) };
 }
+
 async function dispatchPrepared(grant: Grant, operationId: string, prepared: Record<string, unknown>) {
   // This encrypted object was created only by prepareMail; the delivery service revalidates all fields.
   if (!prepared.payload || typeof prepared.payload !== 'object' || Array.isArray(prepared.payload) || typeof prepared.senderEmail !== 'string') throw new McpError('PREPARATION_INVALID', 'The frozen message is unavailable.', 409);
   const payload = prepared.payload as SendRequestBody;
   return executeSend(grant.user_id, payload, `mcp:${operationId}`, { expectedSenderEmail: prepared.senderEmail,
+    expectedSenderName: typeof prepared.senderName === 'string' || prepared.senderName === null ? prepared.senderName : undefined,
     beforeDispatch: async () => {
       try { const active = await liveGrant(grant.id, grant.user_id, grant.scopes); requireScope(active, 'mail.send'); await requireAccount(active, String(payload.accountId)); return true; }
       catch { return false; }
@@ -132,9 +132,11 @@ async function prepareDraft(grant: Grant, args: Compose & { messageId?: string }
     payload.inReplyTo = existing.draft_in_reply_to ?? undefined;
     payload.references = existing.draft_references ?? undefined;
   }
-  payload.editedSignature = sender.fromSignature ?? ''; payload.editedSignatureIsHtml = true;
+  if (args.signature === undefined) { payload.editedSignature = sender.fromSignature ?? ''; payload.editedSignatureIsHtml = true; }
   if (Buffer.byteLength(JSON.stringify(payload)) > 6 * 1024 * 1024) throw new McpError('ATTACHMENT_LIMIT', 'Use Inboxora for drafts larger than 6 MiB.', 413);
-  return { payload, review: preparedReview(payload, sender.fromEmail) };
+  const prepared: PreparedSend = { payload, senderEmail: sender.fromEmail, senderName: sender.fromName ?? null };
+  const signatureMode = args.signature === undefined ? 'configured' : args.signature === '' ? 'none' : 'override';
+  return { ...prepared, review: mailReviewFromPrepared(prepared, signatureMode) };
 }
 async function dispatchDraft(grant: Grant, operationId: string, prepared: Record<string, unknown>, messageId?: string) {
   if (!prepared.payload || typeof prepared.payload !== 'object' || Array.isArray(prepared.payload)) throw new McpError('PREPARATION_INVALID', 'The frozen draft is unavailable.', 409);
@@ -165,11 +167,11 @@ export const mailComposeTools = [
       body:composition.authoredBody ?? body.text ?? plainMailText(body.html),bodyIsHtml:composition.bodyIsHtml===true,priority:composition.priority ?? 'normal',
       attachments:records(body.attachments).map(item=>({messageId:args.messageId,part:item.part,filename:item.filename,type:item.type,size:item.size}))},contentIsUntrusted:true};
   }),
-  writeTool('send_email', 'Compose and send a new email through its account provider. Recipients are explicit; omitted CC/BCC and alias use account defaults, shown with the signature in the approval screen. An explicit empty CC/BCC disables that default.', 'mail.send', composeShape,
+  writeTool('send_email', 'Compose and send a new email through its account provider. Recipients are explicit; omitted CC/BCC and alias use account defaults. Omit signature to use the selected sender configured signature, provide signature to override it for this message, or provide an empty signature to suppress it. The exact resolved signature is shown in the approval preview. An explicit empty CC/BCC disables recipient defaults.', 'mail.send', composeShape,
     authorizeCompose, (grant, _args, operationId, prepared) => dispatchPrepared(grant, operationId, prepared),
     async (grant, args) => prepareMail(grant, await composePayload(grant, args))),
   ...(['reply', 'reply_all', 'forward'] as const).map(kind => writeTool(`${kind}_email`,
-    `${kind === 'forward' ? 'Forward an email' : kind === 'reply_all' ? 'Reply to all intended recipients of an email' : 'Reply to an email'}. Supply the exact to/cc/bcc lists after reading the original headers; Inboxora never guesses recipients. Original body, attachments and signature are frozen before approval.`,
+    `${kind === 'forward' ? 'Forward an email' : kind === 'reply_all' ? 'Reply to all intended recipients of an email' : 'Reply to an email'}. Supply the exact to/cc/bcc lists after reading the original headers; Inboxora never guesses recipients. Original body and attachments are frozen before approval. Omit signature to use the selected sender configured signature, provide signature to override it for this message, or provide an empty signature to suppress it. The exact resolved signature is frozen and shown before approval.`,
     'mail.send', { ...composeShape, messageId: id }, async (grant, args) => { requireScope(grant, 'mail.read'); await requireMessage(grant, args.messageId); await authorizeCompose(grant, args); },
     (grant, _args, operationId, prepared) => dispatchPrepared(grant, operationId, prepared),
     async (grant, args) => prepareMail(grant, await replyPayload(grant, args, kind)))),

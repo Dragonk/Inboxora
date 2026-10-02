@@ -346,3 +346,10 @@ Remote search waiting now shares an eight-second budget across accounts. Slow pr
 Research `fetch` now uses character-based `textOffset`/`maxCharacters` with a reusable continuation offset. Event searches match actual field values rather than JSON keys. Forwarded MIME types are normalized before approval, and failed MCP initialization releases its concurrency slot. Regression tests cover these cases.
 
 OAuth token exchange and revocation support public clients (`none`), HTTP Basic (`client_secret_basic`) and form-post client secrets (`client_secret_post`). Inboxora enforces the registered method and rejects conflicting header/body credentials. All three flows are covered by the PostgreSQL HTTP integration suite.
+
+
+The development MCP approval flow now treats browser approval as the final action. For mail sends, Inboxora renders a normal message preview with sender, recipients (including BCC), subject, body, signature and attachment metadata. Recipients, subject, rich message body and signature can be edited in the approval page; saving edits re-runs server-side recipient validation, sanitization, sender checks and message preparation before the preview is replaced. Approving then atomically dispatches that exact frozen version and the approval tab returns to its opener when the browser allows it. The AI client can read the durable receipt with the same request ID and cannot turn the approval into a duplicate send.
+
+MCP composition also understands the configured sender signature as a first-class default: omit `signature` to use it, supply a per-message override, or pass an empty signature to suppress it. The final sanitized signature is what the approval preview shows and what the delivery snapshot retains.
+
+Mail search no longer treats the first provider-response deadline as a completed empty search. Retryable partial responses keep the UI in a searching state and are retried automatically against the coalesced provider operation. IMAP search also prioritizes `\All` when the server advertises it (plus Junk separately); without `\All`, Inbox, Sent and Archive are searched before narrow folders.

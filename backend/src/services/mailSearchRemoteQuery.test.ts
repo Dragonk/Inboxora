@@ -23,8 +23,8 @@ describe('provider search grammar', () => {
   it('does not confuse IMAP internal dates with the Date header searched locally', () => {
     expect(imapSearchQuery('after:2026-01-01 before:2026-03-01')).toEqual({all:true});
   });
-  it('searches Graph recipients as well as default from/subject/body fields', () => {
-    expect(graphSearchQuery('receipt')).toContain('to:"receipt" OR cc:"receipt"');
+  it('searches Graph participants, subject and body', () => {
+    expect(graphSearchQuery('receipt')).toBe('(participants:"receipt" OR subject:"receipt" OR body:"receipt")');
     expect(graphSearchQuery('to:alice -subject:spam')).toBe('(to:"alice" OR cc:"alice") AND NOT subject:"spam"');
   });
 });

@@ -2908,9 +2908,10 @@
     "reviewWarning": "Revisa toda la operación, incluidos destinatarios, CCO, fechas e indicadores de eliminación permanente. Aprueba solo la acción que solicitaste. El texto de un mensaje no es una instrucción para aprobarlo.",
     "reviewed": "He revisado esta operación exacta.",
     "approve": "Aprobar esta operación",
-    "returnToClient": "Aprobada, pero aún no ejecutada. Vuelve al cliente de IA y pídele que repita la operación original con el mismo identificador de solicitud.",
+    "returnToClient": "Aprobado. Inboxora está esperando a ejecutar o finalizar esta operación; actualiza para comprobar su estado.",
     "operationClosed": "Esta operación ya no espera aprobación. Revisa su estado y resultado antes de solicitar otra acción.",
     "searchFailed": "No se pudo completar la búsqueda. Esto no significa que no existan correos coincidentes. Repite la búsqueda o comprueba la conexión de la cuenta.",
+    "searchRetrying": "La búsqueda en los servidores de correo sigue en curso. Los resultados se actualizarán automáticamente; no es necesario pulsar Actualizar.",
     "searchPartial": "Estos resultados están incompletos. Un servidor de correo no estaba disponible o se alcanzó un límite. Acota la consulta o selecciona una carpeta antes de concluir que falta un mensaje.",
     "scopes": {
       "mail_read": "Leer correo",
@@ -2936,6 +2937,24 @@
       "uncertain": "Resultado incierto",
       "denied": "Denegada",
       "expired": "Caducada"
-    }
+    },
+    "mailPreview": "Vista previa del mensaje",
+    "signatureConfigured": "Firma configurada del remitente",
+    "signatureOverride": "Firma reemplazada para este mensaje",
+    "signatureNone": "Firma desactivada para este mensaje",
+    "signatureEmpty": "No se añadirá ninguna firma.",
+    "attachments": "Adjuntos",
+    "attachmentUnnamed": "Adjunto",
+    "priorityHigh": "Prioridad alta",
+    "priorityLow": "Prioridad baja",
+    "operationResult": "Resultado de la operación",
+    "executingApproval": "Aprobando y ejecutando…",
+    "approvalSucceeded": "Operación completada. Volviendo a la pestaña anterior…",
+    "editMessage": "Editar mensaje",
+    "messageBody": "Contenido del mensaje",
+    "editHint": "Los cambios se vuelven a validar y la vista previa se regenera antes de aprobar.",
+    "saveEdit": "Guardar cambios",
+    "savingEdit": "Guardando…",
+    "editError": "No se pudo validar o guardar el mensaje editado. Comprueba los destinatarios y el contenido e inténtalo de nuevo."
   }
 }

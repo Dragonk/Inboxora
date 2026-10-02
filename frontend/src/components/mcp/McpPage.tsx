@@ -3,9 +3,11 @@ import { useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from '../../utils/authEpoch.ts';
-import { MCP_STATE_KEYS, clearMcpReturn, emptyResources, mcpRequest, newMcpGrant, type McpConsent, type McpOperation, type McpResources } from '../../utils/mcp.ts';
+import { MCP_STATE_KEYS, clearMcpReturn, emptyResources, mcpRequest, newMcpGrant, returnFromMcpApproval, type McpConsent, type McpOperation, type McpResources } from '../../utils/mcp.ts';
 import { Button } from '../ui.tsx';
 import McpGrantForm from './McpGrantForm.tsx';
+import McpMailReview, { isMailReview } from './McpMailReview.tsx';
+import McpMailEditor, { type McpMailEdits } from './McpMailEditor.tsx';
 import './mcp.css';
 
 export default function McpPage() {
@@ -18,12 +20,12 @@ export default function McpPage() {
   const [form, setForm] = useState(newMcpGrant);
   const [resources, setResources] = useState<McpResources>(emptyResources);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false);
-  const [reviewed, setReviewed] = useState(false); const [reload, setReload] = useState(0);
+  const [reviewed, setReviewed] = useState(false); const [reload, setReload] = useState(0); const [closing, setClosing] = useState(false); const [editingMail, setEditingMail] = useState(false);
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; clearMcpReturn(); return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     let current = true; const epoch = getAuthEpoch();
-    setLoading(true); setError(''); setConsent(null); setOperation(null); setReviewed(false);
+    setLoading(true); setError(''); setConsent(null); setOperation(null); setReviewed(false); setEditingMail(false);
     const load = async () => {
       if (authorization) {
         if (!request || !/^[A-Za-z0-9_-]{43}$/.test(request)) throw new Error('Invalid authorization request.');
@@ -40,6 +42,16 @@ export default function McpPage() {
       .finally(() => { if (current && isCurrentAuthEpoch(epoch)) setLoading(false); });
     return () => { current = false; };
   }, [authorization, request, id, reload, t]);
+  const saveMailEdit = async (edits: McpMailEdits) => {
+    if (!id || busy) return; const epoch = getAuthEpoch(); setBusy(true); setError('');
+    try {
+      const result = await mcpRequest<{ id: string; review: Record<string, unknown> }>('POST', `/operations/${id}/edit`, edits);
+      if (mounted.current && isCurrentAuthEpoch(epoch) && operation) {
+        setOperation({ ...operation, review: result.review }); setReviewed(false); setEditingMail(false);
+      }
+    } catch { if (mounted.current && isCurrentAuthEpoch(epoch)) setError(t('mcp.editError')); }
+    finally { if (mounted.current && isCurrentAuthEpoch(epoch)) setBusy(false); }
+  };
   const decide = async (approve: boolean) => {
     if (busy) return; const epoch = getAuthEpoch(); setBusy(true); setError('');
     try {
@@ -51,8 +63,15 @@ export default function McpPage() {
           window.location.assign(result.redirectUrl);
         }
       } else if (id) {
-        await mcpRequest('POST', `/operations/${id}/decision`, { approve });
-        if (mounted.current && isCurrentAuthEpoch(epoch)) { setReviewed(false); setReload(value => value + 1); }
+        const receipt = await mcpRequest<{ operationId: string; state: string; result?: unknown; executionDeferred?: boolean }>('POST', `/operations/${id}/decision`, { approve });
+        if (mounted.current && isCurrentAuthEpoch(epoch)) {
+          setReviewed(false);
+          if (operation) setOperation({ ...operation, state: receipt.state, result: receipt.result ?? operation.result });
+          if (approve && receipt.state === 'succeeded') {
+            setClosing(true);
+            window.setTimeout(returnFromMcpApproval, 120);
+          } else setReload(value => value + 1);
+        }
       }
     } catch { if (mounted.current && isCurrentAuthEpoch(epoch)) setError(t('mcp.decisionError')); }
     finally { if (mounted.current && isCurrentAuthEpoch(epoch)) setBusy(false); }
@@ -66,15 +85,20 @@ export default function McpPage() {
     {consent && <><div className="mcp-card"><h2>{consent.name}</h2><p className="mcp-warning">{t('mcp.unverifiedClient')}</p><p>{t('mcp.callback')} <code>{consent.redirectUri}</code></p></div>
       <McpGrantForm value={form} onChange={setForm} resources={resources} allowedScopes={consent.scopes} disabled={busy}/>
       <div className="mcp-actions"><Button disabled={busy} onClick={() => void decide(false)}>{t('mcp.deny')}</Button><Button variant="primary" disabled={busy || !form.name.trim() || !form.scopes.length || form.expiresInDays < 1 || form.expiresInDays > 365} onClick={() => void decide(true)}>{t('mcp.connect')}</Button></div></>}
-    {operation && <><div className="mcp-card"><h2>{operation.integrationName}</h2><p><code>{operation.tool}</code> · {t(MCP_STATE_KEYS[operation.state] ?? 'mcp.states.uncertain')}</p>
-      {operation.expiresAt && <p>{t('mcp.expiresAt', { date: new Date(operation.expiresAt).toLocaleString() })}</p>}
-      {operation.review && <><h3>{t('mcp.exactMessage')}</h3><pre className="mcp-code">{JSON.stringify(operation.review, null, 2)}</pre></>}
-      <details open={!operation.review}><summary>{t('mcp.exactArguments')}</summary><pre className="mcp-code">{JSON.stringify(operation.arguments, null, 2)}</pre></details>
-      {operation.result != null && <pre className="mcp-code">{JSON.stringify(operation.result, null, 2)}</pre>}
+    {operation && <><div className="mcp-card"><h2>{operation.integrationName}</h2>
+      <div className="mcp-operation-meta"><code>{operation.tool}</code><span>{t(MCP_STATE_KEYS[operation.state] ?? 'mcp.states.uncertain')}</span>
+        {operation.expiresAt && <span>{t('mcp.expiresAt', { date: new Date(operation.expiresAt).toLocaleString() })}</span>}</div>
+      {operation.review && isMailReview(operation.review) ? editingMail && pending
+        ? <McpMailEditor review={operation.review} busy={busy} onCancel={() => setEditingMail(false)} onSave={saveMailEdit}/>
+        : <><McpMailReview review={operation.review}/>{pending && <div className="mcp-actions"><Button disabled={busy} onClick={() => { setReviewed(false); setEditingMail(true); }}>{t('mcp.editMessage')}</Button></div>}</>
+        : operation.review && <><h3>{t('mcp.exactMessage')}</h3><pre className="mcp-code">{JSON.stringify(operation.review, null, 2)}</pre></>}
+      <details className="mcp-technical" open={!operation.review}><summary>{t('mcp.exactArguments')}</summary><pre className="mcp-code">{JSON.stringify(operation.arguments, null, 2)}</pre></details>
+      {operation.result != null && <details className="mcp-technical"><summary>{t('mcp.operationResult')}</summary><pre className="mcp-code">{JSON.stringify(operation.result, null, 2)}</pre></details>}
     </div>
-      {pending ? <><p className="mcp-warning">{t('mcp.reviewWarning')}</p><label className="mcp-check"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} disabled={busy}/>{t('mcp.reviewed')}</label>
-        <div className="mcp-actions"><Button disabled={busy} onClick={() => void decide(false)}>{t('mcp.deny')}</Button><Button variant="primary" disabled={busy || !reviewed} onClick={() => void decide(true)}>{t('mcp.approve')}</Button></div></>
-        : <><p role="status">{operation.state === 'approved' ? t('mcp.returnToClient') : t('mcp.operationClosed')}</p><Button disabled={busy} onClick={() => setReload(value => value + 1)}>{t('mcp.refresh')}</Button></>}
+      {closing && <p role="status" className="mcp-success">{t('mcp.approvalSucceeded')}</p>}
+      {pending && !editingMail ? <><p className="mcp-warning">{t('mcp.reviewWarning')}</p><label className="mcp-check"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} disabled={busy}/>{t('mcp.reviewed')}</label>
+        <div className="mcp-actions"><Button disabled={busy} onClick={() => void decide(false)}>{t('mcp.deny')}</Button><Button variant="primary" disabled={busy || !reviewed} onClick={() => void decide(true)}>{busy ? t('mcp.executingApproval') : t('mcp.approve')}</Button></div></>
+        : !pending && !closing && <><p role="status">{operation.state === 'approved' ? t('mcp.returnToClient') : t('mcp.operationClosed')}</p><Button disabled={busy} onClick={() => setReload(value => value + 1)}>{t('mcp.refresh')}</Button></>}
     </>}
   </section></main>;
 }

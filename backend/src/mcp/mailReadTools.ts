@@ -36,10 +36,10 @@ export async function readMail(grant: Grant, messageId: string, offset = 0, maxC
 const readShape = { messageId: id, textOffset: z.number().int().min(0).max(10000000).default(0),
   maxCharacters: z.number().int().min(100).max(60000).default(30000) };
 export const mailReadTools = [
-  readTool('list_accounts', 'List permitted email accounts and usable sender aliases. Passwords, OAuth tokens and server credentials are never returned.', 'mail.read', {}, async grant => {
-    const accounts = await query<{ id: string; [key: string]: unknown }>(`SELECT id,name,email_address,sender_name,mail_transport,default_alias_id
+  readTool('list_accounts', 'List permitted email accounts and usable sender aliases, including the configured HTML signatures so a mail-writing agent can preserve or intentionally override them. Passwords, OAuth tokens and server credentials are never returned.', 'mail.read', {}, async grant => {
+    const accounts = await query<{ id: string; [key: string]: unknown }>(`SELECT id,name,email_address,sender_name,mail_transport,default_alias_id,signature
       FROM email_accounts WHERE user_id=$1 AND enabled=true AND ($2::uuid[] IS NULL OR id=ANY($2)) ORDER BY name,id`, [grant.user_id, grant.restrictions.accounts]);
-    const aliases = await query(`SELECT aa.id,aa.account_id,aa.name,aa.email,aa.reply_to FROM account_aliases aa JOIN email_accounts a ON a.id=aa.account_id
+    const aliases = await query(`SELECT aa.id,aa.account_id,aa.name,aa.email,aa.reply_to,aa.signature,COALESCE(aa.signature,a.signature) AS effective_signature FROM account_aliases aa JOIN email_accounts a ON a.id=aa.account_id
       WHERE a.user_id=$1 AND a.enabled=true AND a.id=ANY($2::uuid[]) ORDER BY aa.name,aa.id`, [grant.user_id, accounts.rows.map(account => account.id)]);
     return { accounts: accounts.rows, aliases: aliases.rows };
   }),

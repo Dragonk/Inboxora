@@ -57,6 +57,7 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
         async (grant, args) => requireAccount(grant, args.accountId), async (_grant, args) => { calls++; await new Promise(resolve => setTimeout(resolve, 40)); return { status: 200, body: { subject: args.subject } }; }),
       ...domainTools,
     ];
+    app.set('mcpTools', fixtureTools);
     app.use(createMcpRouter('integration-test', fixtureTools, (...args) => {
       if (serverCreationFailures > 0) { serverCreationFailures--; throw new Error('Synthetic protocol construction failure'); }
       return createProtocolServer(...args);
@@ -131,7 +132,11 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     expect((await browser(`/operations/${operationId}/decision`,{approve:true},foreignCookie)).status).toBe(409);
     const bearerApproval = await fetch(`${origin}/api/mcp/operations/${operationId}/decision`, { method:'POST',headers:{authorization:`Bearer ${grant.token}`,'content-type':'application/json','x-requested-with':'MailFlow'},body:'{"approve":true}' });
     expect(bearerApproval.status).toBe(401);
-    expect((await browser(`/operations/${operationId}/decision`,{approve:true})).status).toBe(200);
+    const approved = await browser(`/operations/${operationId}/decision`,{approve:true});
+    expect(approved.status).toBe(200);
+    expect(record(await approved.json()).state).toBe('succeeded');
+    // Browser approval is the dispatch trigger; the AI client does not have to resubmit the mutation.
+    expect(calls).toBe(before+1);
     await Promise.all([client.callTool({name:'test_write',arguments:args}),client.callTool({name:'test_write',arguments:args})]);
     const receipt = await readOperation(await liveGrant(grant.id,userId),operationId);
     expect(receipt.state).toBe('succeeded'); expect(calls).toBe(before+1);

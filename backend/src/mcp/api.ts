@@ -6,9 +6,11 @@ import { encrypt } from '../services/encryption.js';
 import { requireAuth } from '../middleware/auth.js';
 import { sessionUserId } from '../utils/query.js';
 import { authorizationInfo, approveAuthorization, createPersonalToken } from './oauth.js';
-import { grantSchema, McpError, SCOPES } from './policy.js';
+import { grantSchema, liveGrant, McpError, SCOPES } from './policy.js';
 import { mcpEnabled, resourceUrl } from './config.js';
 import { decodeOperationData, type Operation } from './operations.js';
+import type { RegisteredTool } from './registry.js';
+import { reprepareEditedMail } from './mailApprovalEdit.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -92,17 +94,65 @@ router.get('/operations/:id', async (req, res) => {
     arguments: reviewArguments(decodeOperationData(row.arguments_encrypted)), review: execution.review ?? null,
     result: row.result_encrypted ? decodeOperationData(row.result_encrypted) : null });
 });
+const mailEdit = z.object({
+  to: z.array(z.string().trim().min(3).max(320)).max(100),
+  cc: z.array(z.string().trim().min(3).max(320)).max(100),
+  bcc: z.array(z.string().trim().min(3).max(320)).max(100),
+  subject: z.string().max(998),
+  body: z.string().max(500000),
+  bodyIsHtml: z.boolean(),
+  bodyChanged: z.boolean(),
+  signature: z.string().max(100000),
+  signatureIsHtml: z.boolean(),
+  signatureChanged: z.boolean(),
+}).strict();
+router.post('/operations/:id/edit', async (req, res) => {
+  const id = uuid.parse(req.params.id); const userId = sessionUserId(req); const edit = mailEdit.parse(req.body);
+  const found = await query<Operation>(`SELECT * FROM mcp_operations WHERE id=$1 AND user_id=$2 AND state='pending' AND expires_at>NOW()`, [id,userId]);
+  const row = found.rows[0];
+  if (!row || !['send_email','reply_email','reply_all_email','forward_email'].includes(row.tool) || !row.execution_encrypted) {
+    res.status(409).json({ code:'EDIT_UNAVAILABLE', error:'This pending message can no longer be edited.' }); return;
+  }
+  const current = decodeOperationData(row.execution_encrypted);
+  if (!current.payload || typeof current.payload !== 'object' || Array.isArray(current.payload) || typeof current.senderEmail !== 'string') {
+    res.status(409).json({ code:'EDIT_UNAVAILABLE', error:'The prepared message is unavailable.' }); return;
+  }
+  const prepared = await reprepareEditedMail(userId, current as never, edit);
+  const stored = await query(`UPDATE mcp_operations SET execution_encrypted=$3
+    WHERE id=$1 AND user_id=$2 AND state='pending' AND expires_at>NOW() RETURNING id`, [id,userId,encrypt(JSON.stringify(prepared))]);
+  if (!stored.rows.length) { res.status(409).json({ code:'EDIT_UNAVAILABLE', error:'The operation changed while the message was being edited.' }); return; }
+  res.json({ id, review: prepared.review });
+});
 router.post('/operations/:id/decision', async (req, res) => {
   const input = z.object({ approve: z.boolean() }).strict().parse(req.body);
-  const result = await query(`UPDATE mcp_operations o SET state=$3,approved_at=CASE WHEN $3='approved' THEN NOW() ELSE NULL END,
+  const userId = sessionUserId(req);
+  const result = await query<Operation>(`UPDATE mcp_operations o SET state=$3,approved_at=CASE WHEN $3='approved' THEN NOW() ELSE NULL END,
       expires_at=CASE WHEN $3='approved' THEN NOW()+INTERVAL '10 minutes' ELSE expires_at END,
       execution_encrypted=CASE WHEN $3='denied' THEN NULL ELSE execution_encrypted END,
       arguments_encrypted=CASE WHEN $3='denied' THEN $4 ELSE arguments_encrypted END
     WHERE o.id=$1 AND o.user_id=$2 AND o.state='pending' AND o.expires_at>NOW()
-      AND EXISTS(SELECT 1 FROM mcp_grants g WHERE g.id=o.grant_id AND g.revoked_at IS NULL AND g.expires_at>NOW()) RETURNING o.id,o.state`,
-  [uuid.parse(req.params.id), sessionUserId(req), input.approve ? 'approved' : 'denied', encrypt('{}')]);
-  if (!result.rows.length) { res.status(409).json({ code: 'APPROVAL_UNAVAILABLE', error: 'This operation expired, changed state or belongs to a revoked integration.' }); return; }
-  res.json(result.rows[0]);
+      AND EXISTS(SELECT 1 FROM mcp_grants g WHERE g.id=o.grant_id AND g.revoked_at IS NULL AND g.expires_at>NOW()) RETURNING o.*`,
+  [uuid.parse(req.params.id), userId, input.approve ? 'approved' : 'denied', encrypt('{}')]);
+  const row = result.rows[0];
+  if (!row) { res.status(409).json({ code: 'APPROVAL_UNAVAILABLE', error: 'This operation expired, changed state or belongs to a revoked integration.' }); return; }
+  if (!input.approve) { res.json({ operationId: row.id, state: 'denied' }); return; }
+
+  // Browser approval is the user's final action. Execute the exact encrypted,
+  // pre-resolved operation immediately instead of requiring the AI client to
+  // submit a second mutation. runOperation's state transition remains the
+  // at-most-once fence, so a later same-requestId call only reads the receipt.
+  const configuredTools = req.app.get('mcpTools') as RegisteredTool[] | undefined;
+  const availableTools = configuredTools ?? (await import('./catalog.js')).tools;
+  const tool = availableTools.find(candidate => candidate.definition.name === row.tool);
+  if (!tool) {
+    // A rolling deployment may remove a tool while an old approval page is open.
+    // Keep the exact approved receipt rather than guessing a replacement action.
+    res.json({ operationId: row.id, state: 'approved', executionDeferred: true });
+    return;
+  }
+  const grant = await liveGrant(row.grant_id, userId, row.scopes_snapshot);
+  const receipt = await tool.invoke(grant, decodeOperationData(row.arguments_encrypted));
+  res.json(receipt);
 });
 router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (error instanceof z.ZodError) { res.status(400).json({ code: 'INVALID_ARGUMENTS', error: 'Some integration settings are invalid.', fields: error.issues.map(issue => issue.path.join('.')) }); return; }

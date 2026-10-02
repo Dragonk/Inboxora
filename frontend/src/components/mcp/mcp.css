@@ -21,3 +21,38 @@
 .mcp-panel a { color: var(--accent); overflow-wrap: anywhere; }
 .mcp-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 @media(max-width:600px) { .mcp-page { padding: 18px 12px; } .mcp-panel { width: 100%; } }
+.mcp-operation-meta { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; color:var(--text-tertiary); font-size:12px; margin:10px 0 16px; }
+.mcp-operation-meta code { color:var(--text-secondary); background:var(--bg-tertiary); padding:2px 6px; border-radius:5px; }
+.mcp-mail-preview { border:1px solid var(--border-subtle); border-radius:12px; background:var(--bg-elevated); overflow:hidden; margin:14px 0 18px; box-shadow:0 8px 30px rgba(0,0,0,.06); }
+.mcp-mail-preview-top { display:flex; align-items:center; gap:10px; padding:16px 18px 12px; }
+.mcp-mail-sender { min-width:0; flex:1; }
+.mcp-mail-sender > span { color:var(--text-tertiary); font-size:12px; overflow-wrap:anywhere; }
+.mcp-mail-priority { flex-shrink:0; font-size:11px; color:var(--amber); border:1px solid var(--border); border-radius:999px; padding:3px 8px; }
+.mcp-mail-envelope { display:grid; gap:7px; padding:0 18px 12px 64px; }
+.mcp-mail-recipient-row { display:grid; grid-template-columns:34px minmax(0,1fr); gap:8px; align-items:start; font-size:12px; }
+.mcp-mail-recipient-row > span { color:var(--text-tertiary); padding-top:4px; }
+.mcp-mail-recipient-row > div { display:flex; gap:5px; flex-wrap:wrap; }
+.mcp-mail-recipient { border:1px solid var(--border-subtle); background:var(--bg-secondary); color:var(--text-secondary); border-radius:999px; padding:3px 8px; overflow-wrap:anywhere; }
+.mcp-mail-subject { border-top:1px solid var(--border-subtle); border-bottom:1px solid var(--border-subtle); padding:13px 18px; color:var(--text-primary); font-size:17px; font-weight:600; overflow-wrap:anywhere; }
+.mcp-mail-body { padding:12px 18px 16px; background:var(--bg-primary); }
+.mcp-mail-signature-label,.mcp-mail-section-label { font-size:11px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:.04em; margin:12px 0 6px; }
+.mcp-mail-empty-signature { color:var(--text-tertiary); font-size:12px; padding:5px 0 2px; }
+.mcp-mail-attachments { border-top:1px solid var(--border-subtle); padding:12px 18px 16px; }
+.mcp-mail-attachment-list { display:flex; flex-wrap:wrap; gap:7px; }
+.mcp-mail-attachment { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:100%; border:1px solid var(--border); background:var(--bg-secondary); color:var(--text-primary); border-radius:8px; padding:7px 10px; font-size:12px; }
+.mcp-mail-attachment span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mcp-mail-attachment small { color:var(--text-tertiary); flex-shrink:0; }
+.mcp-technical { margin:14px 0; border-top:1px solid var(--border-subtle); padding-top:12px; color:var(--text-secondary); }
+.mcp-success { padding:12px; border-left:3px solid var(--green); background:var(--bg-tertiary); color:var(--text-primary) !important; }
+@media(max-width:600px) { .mcp-mail-envelope { padding-left:18px; } .mcp-mail-preview-top { align-items:flex-start; } .mcp-mail-recipient-row { grid-template-columns:30px minmax(0,1fr); } }
+.mcp-mail-editor { border:1px solid var(--border-subtle); border-radius:12px; background:var(--bg-elevated); padding:16px; margin:14px 0 18px; }
+.mcp-mail-editor-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.mcp-mail-editor-grid label,.mcp-mail-editor-label { font-size:12px; font-weight:600; color:var(--text-secondary); }
+.mcp-mail-editor-grid input { margin-top:5px; }
+.mcp-mail-editor-wide { grid-column:1/-1; }
+.mcp-mail-editor-label { display:block; margin:14px 0 6px; }
+.mcp-mail-rich-editor { min-height:170px; max-height:420px; overflow:auto; border:1px solid var(--border-subtle); border-radius:8px; background:var(--bg-primary); color:var(--text-primary); padding:12px; font-size:14px; line-height:1.55; outline:none; }
+.mcp-mail-rich-editor:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow); }
+.mcp-mail-signature-editor { min-height:72px; max-height:220px; }
+.mcp-mail-editor-hint { margin:8px 0 0; font-size:11px; color:var(--text-tertiary)!important; }
+@media(max-width:700px){.mcp-mail-editor-grid{grid-template-columns:1fr}.mcp-mail-editor-wide{grid-column:auto}}

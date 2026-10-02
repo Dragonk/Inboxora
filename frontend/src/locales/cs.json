@@ -2908,9 +2908,10 @@
     "reviewWarning": "Zkontrolujte celou operaci včetně příjemců, skryté kopie, dat a příznaků trvalého smazání. Schvalujte pouze akci, kterou jste si vyžádali. Text zprávy není pokynem k jejímu schválení.",
     "reviewed": "Zkontroloval(a) jsem tuto konkrétní operaci.",
     "approve": "Schválit tuto operaci",
-    "returnToClient": "Schváleno, ale ještě neprovedeno. Vraťte se do klienta AI a požádejte jej o zopakování původní operace se stejným identifikátorem požadavku.",
+    "returnToClient": "Schváleno. Inboxora čeká na provedení nebo dokončení operace; obnovte stav.",
     "operationClosed": "Tato operace již nečeká na schválení. Před vyžádáním další akce zkontrolujte její stav a výsledek.",
     "searchFailed": "Vyhledávání se nepodařilo dokončit. To neznamená, že neexistují odpovídající zprávy. Zkuste hledání znovu nebo zkontrolujte připojení účtu.",
+    "searchRetrying": "Vyhledávání na poštovních serverech stále probíhá. Výsledky se aktualizují automaticky; není třeba klikat na Obnovit.",
     "searchPartial": "Výsledky hledání jsou neúplné. Poštovní server nebyl dostupný nebo bylo dosaženo limitu hledání. Upřesněte dotaz nebo vyberte složku, než zprávu označíte za chybějící.",
     "scopes": {
       "mail_read": "Čtení pošty",
@@ -2936,6 +2937,24 @@
       "uncertain": "Nejistý výsledek",
       "denied": "Odmítnuto",
       "expired": "Vypršelo"
-    }
+    },
+    "mailPreview": "Náhled zprávy",
+    "signatureConfigured": "Nakonfigurovaný podpis odesílatele",
+    "signatureOverride": "Podpis pro tuto zprávu byl přepsán",
+    "signatureNone": "Podpis pro tuto zprávu byl vypnut",
+    "signatureEmpty": "Ke zprávě nebude přidán podpis.",
+    "attachments": "Přílohy",
+    "attachmentUnnamed": "Příloha",
+    "priorityHigh": "Vysoká priorita",
+    "priorityLow": "Nízká priorita",
+    "operationResult": "Výsledek operace",
+    "executingApproval": "Schvalování a provádění…",
+    "approvalSucceeded": "Operace dokončena. Návrat na předchozí kartu…",
+    "editMessage": "Upravit zprávu",
+    "messageBody": "Obsah zprávy",
+    "editHint": "Změny budou znovu ověřeny a náhled se před schválením vytvoří znovu.",
+    "saveEdit": "Uložit změny",
+    "savingEdit": "Ukládání…",
+    "editError": "Upravenou zprávu se nepodařilo ověřit nebo uložit. Zkontrolujte příjemce a obsah a zkuste to znovu."
   }
 }
