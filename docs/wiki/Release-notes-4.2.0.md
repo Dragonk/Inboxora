@@ -338,3 +338,5 @@ HTTP/OAuth tests, source-draft MIME tests and browser tests for consent, explici
 approval, ordinary-user settings, desktop/mobile layouts and both themes. End-user account
 linking inside ChatGPT or Vibe remains a deployment acceptance check; no claim is made
 that every third-party client's UI has been exercised.
+
+MCP follow-up checks also cover empty move receipts, manual unsubscribe links, mapped Inbox permissions when marking not-spam, draft priority and OAuth `invalid_grant` after revocation. These paths no longer report an unconfirmed action as completed.

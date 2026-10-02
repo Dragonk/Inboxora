@@ -9195,7 +9195,7 @@ function DavCredentialsTab() {
 
 export default function AdminPanel() {
   const { t } = useTranslation();
-  const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
+  const { setShowAdmin, adminTab, setAdminTab, user, authEpoch } = useStore();
   const isMobile = useMobile();
   const orderedTabs = [
     ...TAB_GROUPS.flatMap(group => group.tabIds.flatMap(id => TABS.filter(tab => tab.id === id))),
@@ -9293,7 +9293,7 @@ export default function AdminPanel() {
       {adminTab === 'dav-credentials' && <DavCredentialsTab />}
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
-      {adminTab === 'ai' && <>{useStore.getState().user?.isAdmin && <AISection />}<McpSettings key={useStore.getState().authEpoch}/></>}
+      {adminTab === 'ai' && <>{isAdmin && <AISection />}<McpSettings key={authEpoch}/></>}
       {adminTab === 'ai-actions' && <AiActionsTab />}
       {adminTab === 'plugins' && <PluginsSection onNavigate={navigateTo} />}
       {adminTab === 'about' && <AboutTab />}

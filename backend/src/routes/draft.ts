@@ -61,6 +61,7 @@ type RawDraftInput = {
   replyParentAccountId?: string | null;
   replyKind?: 'reply' | 'reply_all' | null;
   attachments?: unknown;
+  priority?: ComposedMail['priority'];
 };
 
 type ExistingDraftIdentity = {
@@ -130,7 +131,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments, priority = 'normal' }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -169,6 +170,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 
   const mailOptions = {
     messageId,
+    priority,
     from: `${fromName} <${fromEmail}>`,
     ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
     to: (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ') || undefined,
@@ -206,6 +208,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean).map(entry => parseMailbox(String(entry)));
   const composed: ComposedMail = {
     messageId,
+    priority,
     from: { email: fromEmail, name: fromName ?? undefined },
     replyTo: fromReplyTo ? parseMailbox(fromReplyTo) : null,
     to: recipientMailboxes(to),
@@ -240,7 +243,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
       // draft projections already preserve this JSON across reopen, unlike a
       // transient ComposeModal-only field.
       draftComposition: {
-        version: 3, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature,
+        version: 3, priority, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature,
         signatureText: sigText, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null,
         replyToMessageId: typeof replyToMessageId === 'string' ? replyToMessageId : null,
         replyParentMessageId: typeof replyParentMessageId === 'string' ? replyParentMessageId : null,
@@ -312,7 +315,8 @@ async function deleteProviderDraftByIdentity(userId: string, identity: ExistingD
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments, priority } = req.body;
+  if (priority !== undefined && !['low','normal','high'].includes(priority)) return res.status(400).json({ error: 'Invalid draft priority' });
   if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
   const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
   const existingDraft = existingDraftIdentity(req.body?.existingDraft);
@@ -325,7 +329,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments });
+    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments, priority });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });

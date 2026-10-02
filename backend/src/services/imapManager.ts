@@ -6186,7 +6186,11 @@ export class ImapManager {
               rowIds.push(id);
               await persistConversationCopyForRow(id, account, message);
             }
-          } catch { errors.push(`Search could not finish folder ${folder}.`); truncated = true; }
+          } catch (caught) {
+            const error = toAppError(caught);
+            console.warn('IMAP search folder failed:', JSON.stringify({accountId:account.id,folder,code:error.code ?? error.name}));
+            errors.push(`Search could not finish folder ${folder}.`); truncated = true;
+          }
           if (rowIds.length >= maximum) { truncated ||= folderIndex < selected.length - 1; break; }
         }
       } finally { clearTimeout(timer); }

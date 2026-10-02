@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { query } from '../services/db.js';
-import { resolveAllDraftsPaths, resolveAllTrashPaths, resolveArchiveFolder, resolveSpamFolder, resolveTrashFolder, type FolderMappings } from '../utils/mailUtils.js';
+import { resolveAllDraftsPaths, resolveAllSpamPaths, resolveAllTrashPaths, resolveArchiveFolder, resolveSpamFolder, resolveTrashFolder, type FolderMappings } from '../utils/mailUtils.js';
 import { domainRequest } from './bridge.js';
 import { McpError, requireFolder, requireMessage, type Grant } from './policy.js';
 import { id, writeTool } from './registry.js';
@@ -18,7 +18,14 @@ export const mailActionTools = [
     (grant, args, operationId) => domainRequest(grant.user_id, 'PATCH', `/mail/messages/${args.messageId}/${path}`, { [field]: args.value }, operationId))),
   writeTool('move_email', 'Move one email to an existing permitted folder in the same account.', 'mail.modify', { messageId: id, destinationFolder: z.string().min(1).max(1024) },
     async (grant, args) => { const source = await requireMessage(grant, args.messageId); await requireFolder(grant, source.account_id, args.destinationFolder); },
-    (grant, args, operationId) => domainRequest(grant.user_id, 'POST', '/mail/messages/bulk-move', { ids: [args.messageId], folder: args.destinationFolder }, operationId)),
+    async (grant, args, operationId) => {
+      const result = await domainRequest(grant.user_id, 'POST', '/mail/messages/bulk-move', { ids: [args.messageId], folder: args.destinationFolder }, operationId);
+      // Graph may return a replacement row ID; a nonempty confirmed set is the proof.
+      if (result.status < 400 && result.body.ok !== false && (!Array.isArray(result.body.moved) || result.body.moved.length === 0)) {
+        return {status:502,body:{code:'MOVE_UNCONFIRMED',error:'The provider has not confirmed this move. Check Inboxora before retrying.'}};
+      }
+      return result;
+    }),
   writeTool('archive_email', 'Archive one email. Gmail removes its Inbox label; other providers use the archive folder. Archiving does not delete mail.', 'mail.modify', { messageId: id },
     async (grant, args) => {
       const { message, account } = await messageAccount(grant, args.messageId);
@@ -50,11 +57,21 @@ export const mailActionTools = [
     kind === 'spam' ? 'Move an email to Spam and train the spam filter.' : 'Move an email to Inbox and mark it as not spam.', 'mail.spam', { messageId: id },
     async (grant, args) => {
       const { message, account } = await messageAccount(grant, args.messageId);
-      const folder = kind === 'spam' ? await resolveSpamFolder(message.account_id, account.folder_mappings) : 'INBOX';
+      if (kind === 'ham' && !(await resolveAllSpamPaths(message.account_id, account.folder_mappings)).has(message.folder)) {
+        throw new McpError('NOT_IN_SPAM', 'This message is not in the spam folder.', 400);
+      }
+      const folder = kind === 'spam' ? await resolveSpamFolder(message.account_id, account.folder_mappings) : (account.folder_mappings?.inbox || 'INBOX');
       if (!folder) throw new McpError('SPAM_FOLDER_UNAVAILABLE', 'No spam folder is configured.', 422);
       await requireFolder(grant, message.account_id, folder);
     }, (grant, args, operationId) => domainRequest(grant.user_id, 'POST', `/mail/messages/${args.messageId}/${kind}`, {}, operationId))),
-  writeTool('unsubscribe_email', 'Use an email’s supported List-Unsubscribe mechanism. This may contact the sender or send an unsubscribe email; ask the user to approve it.', 'mail.unsubscribe', { messageId: id },
+  writeTool('unsubscribe_email', 'Use an email’s supported List-Unsubscribe mechanism. One-click requests may contact the sender; unsupported senders return a manual link and never count as unsubscribed. No unsubscribe email is sent automatically.', 'mail.unsubscribe', { messageId: id },
     async (grant, args) => { await requireMessage(grant, args.messageId); },
-    (grant, args, operationId) => domainRequest(grant.user_id, 'POST', `/mail/messages/${args.messageId}/unsubscribe`, {}, operationId)),
+    async (grant, args, operationId) => {
+      const result = await domainRequest(grant.user_id, 'POST', `/mail/messages/${args.messageId}/unsubscribe`, {}, operationId);
+      if (result.status < 400 && result.body.state === 'offered') return {
+        status:422,body:{...result.body,ok:false,code:'UNSUBSCRIBE_MANUAL_ACTION_REQUIRED',
+          error:'This sender does not support one-click unsubscribe. Nothing was sent; the user must use the offered link or address.'},
+      };
+      return result;
+    }),
 ];

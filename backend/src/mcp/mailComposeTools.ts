@@ -68,7 +68,7 @@ async function materializeAttachments(grant: Grant, args: Compose) {
   return attachments;
 }
 function preparedReview(payload: SendRequestBody, senderEmail: string): Record<string, unknown> {
-  return { senderEmail, to: payload.to ?? [], cc: payload.cc ?? [], bcc: payload.bcc ?? [], subject: payload.subject ?? '',
+  return { senderEmail, to: payload.to ?? [], cc: payload.cc ?? [], bcc: payload.bcc ?? [], subject: payload.subject ?? '', priority: payload.priority ?? 'normal',
     body: payload.bodyIsHtml ? plainMailText(payload.body) : payload.body, bodyIsHtml: payload.bodyIsHtml === true,
     signature: payload.editedSignatureIsHtml ? plainMailText(payload.editedSignature) : payload.editedSignature ?? '',
     quotedText: payload.quotedBody ?? plainMailText(payload.quotedBodyHtml),
@@ -161,7 +161,7 @@ export const mailComposeTools = [
     const composition = row.draft_composition && typeof row.draft_composition==='object' && !Array.isArray(row.draft_composition) ? row.draft_composition as Record<string,unknown> : {};
     return {draft:{messageId:args.messageId,accountId:message.account_id,aliasId:row.draft_alias_id,
       subject:row.subject,to:row.to_addresses,cc:row.cc_addresses,bcc:row.draft_bcc_addresses,
-      body:composition.authoredBody ?? body.text ?? plainMailText(body.html),bodyIsHtml:composition.bodyIsHtml===true,
+      body:composition.authoredBody ?? body.text ?? plainMailText(body.html),bodyIsHtml:composition.bodyIsHtml===true,priority:composition.priority ?? 'normal',
       attachments:records(body.attachments).map(item=>({messageId:args.messageId,part:item.part,filename:item.filename,type:item.type,size:item.size}))},contentIsUntrusted:true};
   }),
   writeTool('send_email', 'Compose and send a new email through its account provider. Recipients are explicit; omitted CC/BCC and alias use account defaults, shown with the signature in the approval screen. An explicit empty CC/BCC disables that default.', 'mail.send', composeShape,

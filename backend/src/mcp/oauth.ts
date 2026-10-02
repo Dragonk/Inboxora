@@ -50,6 +50,13 @@ const clientsStore: OAuthRegisteredClientsStore = {
     return client;
   },
 };
+async function exchangeGrant(id: string, scopes?: string[]): Promise<Grant> {
+  try { return await liveGrant(id, undefined, scopes); }
+  catch (error) {
+    if (error instanceof McpError && error.code === 'GRANT_REVOKED') throw new InvalidGrantError('This integration expired or was revoked.');
+    throw error;
+  }
+}
 async function reserveGrantSlot(db: PoolClient, userId: string): Promise<void> {
   await db.query("SELECT pg_advisory_xact_lock(hashtext('mcp-grants'),hashtext($1))", [userId]);
   const result = await db.query<{ count: string }>(
@@ -91,7 +98,7 @@ export const oauthProvider: OAuthServerProvider = {
       if (!row?.grant_id) throw new InvalidGrantError('Invalid or expired authorization code.');
       const request = unpack<AuthorizationRequest>(row.request_encrypted);
       if (redirectUri !== request.redirectUri) throw new InvalidGrantError('The redirect URI must match the authorization request.');
-      const grant = await liveGrant(row.grant_id);
+      const grant = await exchangeGrant(row.grant_id);
       await db.query('UPDATE mcp_authorizations SET consumed_at=NOW() WHERE code_hash=$1', [digest(code)]);
       return tokensForGrant(db, grant, grant.scopes);
     });
@@ -109,7 +116,7 @@ export const oauthProvider: OAuthServerProvider = {
         await db.query('UPDATE mcp_grants SET revoked_at=COALESCE(revoked_at,NOW()) WHERE id=$1', [row.grant_id]);
         return null;
       }
-      const grant = await liveGrant(row.grant_id, undefined, row.scopes);
+      const grant = await exchangeGrant(row.grant_id, row.scopes);
       if (scopes?.some(scope => !grant.scopes.includes(scope as typeof SCOPES[number]))) throw new InvalidScopeError('Refresh cannot increase the approved permissions.');
       await db.query('UPDATE mcp_tokens SET consumed_at=NOW() WHERE token_hash=$1', [digest(token)]);
       return tokensForGrant(db, grant, scopes ?? grant.scopes);
@@ -125,7 +132,7 @@ export const oauthProvider: OAuthServerProvider = {
     const row = rows.rows[0];
     if (!row || row.resource !== resourceUrl()) throw new InvalidTokenError('Invalid or expired access token.');
     let grant: Grant;
-    try { grant = await liveGrant(row.grant_id, undefined, row.scopes); }
+    try { grant = await exchangeGrant(row.grant_id, row.scopes); }
     catch { throw new InvalidTokenError('Integration revoked or expired.'); }
     await query(`UPDATE mcp_grants SET last_used_at=NOW() WHERE id=$1 AND (last_used_at IS NULL OR last_used_at<NOW()-INTERVAL '1 minute')`, [grant.id]);
     return { token, clientId: grant.client_id ?? grant.id, scopes: grant.scopes, resource: new URL(resourceUrl()),

@@ -38,7 +38,8 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ### Fixed
 - Search cached and provider-held email across Gmail, Microsoft Graph and IMAP; handle literal phrases, recipients, dates and Gmail label scopes, and show incomplete coverage rather than false empty results.
-- Preserve attachment bytes and reply identity when creating or replacing drafts through MCP.
+- Preserve attachment bytes, priority and reply identity when creating or replacing drafts through MCP.
+- Require positive move/unsubscribe confirmation, authorize mapped spam destinations, and return OAuth reauthorization errors for revoked grants.
 - Route MCP through the restart-safe Nginx upstream and clean up expired MCP payloads without replaying uncertain writes.
 - Return empty PDF signature fields without loading trust lists; retry failed trust-list refreshes with bounded backoff instead of waiting six hours after a cold-start outage.
 - Validate PDF certificate paths against authenticated EU Trusted Lists instead of the TLS root store. Refresh signed lists automatically, show the verified path and distinguish missing revocation evidence from missing trust or an absent timestamp.

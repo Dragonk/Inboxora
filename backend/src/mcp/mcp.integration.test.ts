@@ -226,5 +226,8 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     expect((await exchange({grant_type:'refresh_token',refresh_token:pair.refresh_token})).status).toBe(400);
     await expect(oauthProvider.verifyAccessToken(next.access_token)).rejects.toThrow(/revoked|expired/);
     await expect(oauthProvider.verifyAccessToken(pair.access_token)).rejects.toThrow(/revoked|expired/);
+    const revokedRefresh = await exchange({grant_type:'refresh_token',refresh_token:next.refresh_token});
+    expect(revokedRefresh.status).toBe(400);
+    expect(await revokedRefresh.json()).toMatchObject({error:'invalid_grant'});
   });
 });

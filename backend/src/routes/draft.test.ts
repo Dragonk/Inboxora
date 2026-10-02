@@ -71,12 +71,13 @@ describe('POST /api/mail/draft — local row persistence', () => {
   it('saves actual uploaded attachment bytes in the source draft and invalidates attachment metadata', async () => {
     const response = await fetch(`${base}/api/mail/draft`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ accountId: ACCOUNT_ID, to: [], subject: 'Attachment draft', body: 'Text',
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: [], subject: 'Attachment draft', body: 'Text', priority: 'high',
         attachments: [{ filename: 'invoice.txt', content: Buffer.from('draft attachment').toString('base64'), contentType: 'text/plain' }] }),
     });
     expect(response.status).toBe(200);
     const mime = imapManager.appendToFolder.mock.calls[0][2];
     const parsed = await simpleParser(mime);
+    expect(parsed.headers.get('priority')).toBe('high');
     expect(parsed.attachments).toHaveLength(1);
     expect(parsed.attachments[0].filename).toBe('invoice.txt');
     expect(parsed.attachments[0].content.toString()).toBe('draft attachment');
@@ -121,7 +122,7 @@ describe('POST /api/mail/draft — local row persistence', () => {
     expect(res.status).toBe(200);
     expect(imapManager.upsertDraftMessageRecord).toHaveBeenCalledWith(expect.anything(), 'Drafts', 5, expect.objectContaining({
       inReplyTo: '<parent@example.test>', references: '<root@example.test> <parent@example.test>',
-      draftComposition: { version: 3, authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, signatureText: null, quotedBody: 'old quote', quotedBodyHtml: null, replyToMessageId: '11111111-1111-4111-8111-111111111111', replyParentMessageId: null, replyParentAccountId: null, replyKind: 'reply_all' },
+      draftComposition: { version: 3, priority: 'normal', authoredBody: 'author text', bodyIsHtml: false, signatureHtml: null, signatureText: null, quotedBody: 'old quote', quotedBodyHtml: null, replyToMessageId: '11111111-1111-4111-8111-111111111111', replyParentMessageId: null, replyParentAccountId: null, replyKind: 'reply_all' },
     }));
   });
 

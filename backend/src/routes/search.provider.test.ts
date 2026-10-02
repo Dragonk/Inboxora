@@ -8,6 +8,7 @@ import type { JsonBody } from '../test/json.js';
 // and that the operator switch stops the outbound call. The adapter itself is mocked —
 // its landing behaviour is covered by graphMailSearch.integration.test.ts.
 const ingestMock = vi.hoisted(() => vi.fn());
+const gmailMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../services/db.js', () => ({ query: vi.fn() }));
 vi.mock('../middleware/auth.js', () => ({
@@ -17,6 +18,7 @@ vi.mock('../middleware/auth.js', () => ({
   },
 }));
 vi.mock('../services/providers/microsoft/graphMailSearch.js', () => ({ ingestGraphMailSearch: ingestMock }));
+vi.mock('../services/providers/google/gmailMailSearch.js', () => ({ ingestGmailMailSearch: gmailMock }));
 
 import express from 'express';
 import searchRoutes from './search.js';
@@ -56,6 +58,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(searchTestClock += 60000);
   searchQueries = 0;
+  gmailMock.mockReset();
+  gmailMock.mockResolvedValue({rowIds:[],truncated:false});
   ingestMock.mockReset();
   ingestMock.mockResolvedValue({ accountId: 'a1', hits: 0, created: 0, updated: 0, skipped: 0, unresolvedFolders: 0, rowIds: [], truncated: false });
   query.mockReset();
@@ -118,7 +122,7 @@ describe('GET /api/search provider-side search', () => {
     expect(ingestMock).not.toHaveBeenCalled();
   });
 
-  it('decides on the account transport: a Google account still searches locally only', async () => {
+  it('searches native Gmail through its own provider adapter', async () => {
     accounts = [{ id: 'g1', user_id: 'user-1', include_in_unified_inbox: true, mail_transport: 'gmail_api', provider_connection_id: 'google-1' }];
     localPages = [[{ id: 'm1' }]];
 
@@ -126,6 +130,7 @@ describe('GET /api/search provider-side search', () => {
 
     expect(response.status).toBe(200);
     expect(ingestMock).not.toHaveBeenCalled();
+    expect(gmailMock).toHaveBeenCalledExactlyOnceWith({userId:'user-1',accountId:'g1',connectionId:'google-1',query:'invoice',folders:null,maxResults:200});
   });
 
   it('queries remote accounts before reading their updated local projection', async () => {
