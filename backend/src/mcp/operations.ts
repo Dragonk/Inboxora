@@ -49,10 +49,11 @@ export async function readOperation(grant: Grant, id: string): Promise<Record<st
 export function classifyOperation(outcome: DomainResult): Operation['state'] {
   const code = String(outcome.body.code ?? '');
   if (outcome.status >= 500 || /UNKNOWN|UNCERTAIN|INFLIGHT/.test(code) || outcome.body.state === 'outcome_unknown') return 'uncertain';
-  if (outcome.status >= 400 || outcome.body.ok === false) return 'failed';
+  if (outcome.status >= 400) return 'failed';
   if (outcome.body.invitationError || (Array.isArray(outcome.body.failed) && outcome.body.failed.length)
     || (Array.isArray(outcome.body.pending) && outcome.body.pending.length)) return 'partial';
-  if (outcome.body.partial === true || outcome.body.state === 'partial') return 'partial';
+  if (outcome.status === 202 || outcome.body.partial === true || ['pending','retryable','partial'].includes(String(outcome.body.state))) return 'partial';
+  if (outcome.body.ok === false || ['failed','conflict'].includes(String(outcome.body.state))) return 'failed';
   return 'succeeded';
 }
 

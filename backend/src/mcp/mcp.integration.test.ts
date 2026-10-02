@@ -1,4 +1,5 @@
-import { domainRead } from './bridge.js';
+import { maintainMcpData } from './maintenance.js';
+import { decrypt } from '../services/encryption.js';
 import 'express-async-errors';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type Server as HttpServer } from 'node:http';
@@ -93,10 +94,13 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     const grant = await token('read-only', { scopes:['mail.read'] }); const client = await connect(grant.token);
     const listed = await client.listTools();
     expect(listed.tools.some(tool => tool.name==='test_read')).toBe(true);
+    expect(listed.tools.find(tool => tool.name==='test_read')?._meta?.securitySchemes).toEqual([{type:'oauth2',scopes:['mail.read']}]);
     expect(listed.tools.some(tool => tool.name==='send_email')).toBe(false);
     expect((await client.callTool({ name:'test_read',arguments:{accountId} })).structuredContent).toEqual({ owner:userId });
     expect((await client.callTool({ name:'test_read',arguments:{accountId:foreignAccountId} })).isError).toBe(true);
-    expect((await client.callTool({ name:'test_write',arguments:{accountId,subject:'not permitted',requestId:randomUUID()} })).isError).toBe(true);
+    const forbidden = await client.callTool({ name:'test_write',arguments:{accountId,subject:'not permitted',requestId:randomUUID()} });
+    expect(forbidden.isError).toBe(true);
+    expect(JSON.stringify(forbidden._meta)).toContain('insufficient_scope');
     expect((await client.readResource({ uri:'inboxora://guide' })).contents[0]).toMatchObject({ mimeType:'text/plain' });
   });
   it('stores hashes and ciphertext, not personal tokens, and rejects foreign resource grants', async () => {
@@ -149,14 +153,13 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     await invoke('create_event',event);
     const stored = (await query<{id:string;etag:string}>("SELECT id,etag FROM calendar_events WHERE calendar_id=$1 AND summary='Synthetic appointment'",[calendarId])).rows[0];
     expect(stored).toBeDefined();
-    console.log('Synthetic calendar response:', JSON.stringify(await domainRead(userId, `/calendar/events?from=2026-10-03T00%3A00%3A00Z&to=2026-10-04T00%3A00%3A00Z&calendarIds=${calendarId}`)));
     const listed = await client.callTool({name:'list_events',arguments:{from:'2026-10-03T00:00:00Z',to:'2026-10-04T00:00:00Z'}});
     expect(record(listed.structuredContent).events).toEqual(expect.arrayContaining([expect.objectContaining({summary:'Synthetic appointment'})]));
     await invoke('update_event',{...event,eventId:stored.id,expectedEtag:stored.etag,summary:'Changed appointment'});
     const updated = (await query<{etag:string}>('SELECT etag FROM calendar_events WHERE id=$1',[stored.id])).rows[0];
     await invoke('delete_event',{calendarId,eventId:stored.id,expectedEtag:updated.etag});
     expect((await query('SELECT id FROM calendar_events WHERE id=$1',[stored.id])).rows).toEqual([]);
-    await invoke('create_contact',{addressBookId:bookId,displayName:'Synthetic Contact',emails:[{value:'synthetic@example.test'}]});
+    await invoke('create_contact',{addressBookId:bookId,displayName:'Synthetic Contact',emails:[{value:'synthetic@example.test'}],contactDates:[{label:'Birthday',value:'1990-05-06'}],addresses:[{type:'work',locality:'Warsaw',postalCode:'00-001'}]});
     const contact = (await query<{id:string;etag:string}>("SELECT id,etag FROM contacts WHERE address_book_id=$1 AND display_name='Synthetic Contact'",[bookId])).rows[0];
     expect(contact).toBeDefined();
     const found = await client.callTool({name:'search_contacts',arguments:{query:'synthetic'}});
@@ -165,6 +168,36 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     const fresh = (await query<{etag:string}>('SELECT etag FROM contacts WHERE id=$1',[contact.id])).rows[0];
     await invoke('delete_contact',{contactId:contact.id,expectedEtag:fresh.etag});
     expect((await query('SELECT id FROM contacts WHERE id=$1',[contact.id])).rows).toEqual([]);
+  });
+  it('reads cached mail and a singleton thread without marking the message read', async () => {
+    const messageId = randomUUID();
+    await query(`INSERT INTO messages(id,account_id,uid,folder,message_id,subject,body_text,is_read)
+      VALUES($1,$2,9001,'INBOX','<mcp-read@example.test>','Read test','Private synthetic body',false)`,[messageId,accountId]);
+    const grant = await token('Mail reader',{scopes:['mail.read']});
+    const client = await connect(grant.token);
+    const email = await client.callTool({name:'get_email',arguments:{messageId}});
+    expect(email.isError).not.toBe(true);
+    expect(record(email.structuredContent).text).toBe('Private synthetic body');
+    const thread = await client.callTool({name:'get_thread',arguments:{messageId}});
+    expect(record(thread.structuredContent).messages).toEqual(expect.arrayContaining([expect.objectContaining({id:messageId})]));
+    expect((await query<{is_read:boolean}>('SELECT is_read FROM messages WHERE id=$1',[messageId])).rows[0].is_read).toBe(false);
+  });
+  it('erases expired payloads and parks interrupted writes without reopening their request IDs', async () => {
+    const grant = await token('Retention'); const client = await connect(grant.token);
+    const args = {accountId,subject:'Sensitive pending content',requestId:randomUUID()};
+    const pending = record((await client.callTool({name:'test_write',arguments:args})).structuredContent);
+    await query("UPDATE mcp_operations SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1",[pending.operationId]);
+    await maintainMcpData();
+    const cleared = (await query<{arguments_encrypted:string;execution_encrypted:string|null}>('SELECT arguments_encrypted,execution_encrypted FROM mcp_operations WHERE id=$1',[pending.operationId])).rows[0];
+    expect(decrypt(cleared.arguments_encrypted)).toBe('{}'); expect(cleared.execution_encrypted).toBeNull();
+    const before = calls;
+    expect(record((await client.callTool({name:'test_write',arguments:args})).structuredContent).state).toBe('expired');
+    expect(calls).toBe(before);
+    const other = record((await client.callTool({name:'test_write',arguments:{...args,requestId:randomUUID()}})).structuredContent);
+    await query("UPDATE mcp_operations SET state='executing',started_at=NOW()-INTERVAL '2 hours' WHERE id=$1",[other.operationId]);
+    await maintainMcpData();
+    expect((await readOperation(await liveGrant(grant.id,userId),String(other.operationId))).state).toBe('uncertain');
+    expect(calls).toBe(before);
   });
   it('runs OAuth with S256, exact redirect/resource binding, rotation and replay revocation', async () => {
     const registration = await fetch(`${origin}/oauth/mcp/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'SDK OAuth test',redirect_uris:['http://127.0.0.1:34567/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code']})});

@@ -9,7 +9,7 @@ import { InvalidClientMetadataError, InvalidGrantError, InvalidScopeError, Inval
 import { query, withTransaction } from '../services/db.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 import { digest, issuerUrl, publicOrigin, resourceUrl, secretToken } from './config.js';
-import { SCOPES, READ_SCOPES, type Grant, type GrantInput, liveGrant, validateOwnedRestrictions } from './policy.js';
+import { SCOPES, READ_SCOPES, type Grant, type GrantInput, McpError, liveGrant, validateOwnedRestrictions } from './policy.js';
 
 interface StoredAuthorization {
   client_id: string; request_encrypted: string; grant_id: string | null;
@@ -50,6 +50,12 @@ const clientsStore: OAuthRegisteredClientsStore = {
     return client;
   },
 };
+async function reserveGrantSlot(db: PoolClient, userId: string): Promise<void> {
+  await db.query("SELECT pg_advisory_xact_lock(hashtext('mcp-grants'),hashtext($1))", [userId]);
+  const result = await db.query<{ count: string }>(
+    'SELECT count(*) FROM mcp_grants WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>NOW()', [userId]);
+  if (Number(result.rows[0].count) >= 100) throw new McpError('GRANT_LIMIT', 'Revoke an unused integration before adding another. At most 100 active integrations are allowed.', 429);
+}
 async function tokensForGrant(client: PoolClient, grant: Grant, scopes: string[]): Promise<OAuthTokens> {
   const access = secretToken(); const refresh = secretToken();
   await client.query(`INSERT INTO mcp_tokens(token_hash,grant_id,kind,scopes,resource,expires_at) VALUES
@@ -158,6 +164,7 @@ export async function approveAuthorization(id: string, userId: string, input: Gr
       return redirect.href;
     }
     if (input.scopes.some(scope => !request.scopes.includes(scope))) throw new InvalidScopeError('Consent cannot exceed the requested permissions.');
+    await reserveGrantSlot(db, userId);
     const grant = await db.query<{ id: string }>(`INSERT INTO mcp_grants(user_id,client_id,name,scopes,restrictions,require_confirmation,expires_at)
       VALUES($1,$2,$3,$4,$5,$6,NOW()+$7*INTERVAL '1 day') RETURNING id`,
     [userId, row.client_id, input.name, input.scopes, JSON.stringify(input.restrictions), input.requireConfirmation, input.expiresInDays]);
@@ -171,6 +178,7 @@ export async function createPersonalToken(userId: string, input: GrantInput) {
   await validateOwnedRestrictions(userId, input.restrictions);
   const token = secretToken();
   const grant = await withTransaction(async db => {
+    await reserveGrantSlot(db, userId);
     const result = await db.query<{ id: string; expires_at: string }>(`INSERT INTO mcp_grants(user_id,name,scopes,restrictions,require_confirmation,expires_at)
       VALUES($1,$2,$3,$4,$5,NOW()+$6*INTERVAL '1 day') RETURNING id,expires_at`,
     [userId, input.name, input.scopes, JSON.stringify(input.restrictions), input.requireConfirmation, input.expiresInDays]);

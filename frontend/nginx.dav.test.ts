@@ -76,3 +76,15 @@ describe('DAV reverse proxy contract', () => {
     }
   });
 });
+
+describe('MCP reverse proxy contract', () => {
+  it('uses the restart-safe API upstream, preserves the public host and disables buffering', () => {
+    for (const server of serverBlocks(config)) {
+      assert.match(server, /location = \/mcp \{\s*proxy_pass http:\/\/mailflow_api;/);
+      assert.match(server, /location = \/mcp \{[^}]*proxy_set_header Host \$http_host;/);
+      assert.match(server, /location = \/mcp \{[^}]*proxy_buffering off;/);
+      assert.match(server, /location \^~ \/\.well-known\/oauth- \{\s*proxy_pass http:\/\/mailflow_api;/);
+      assert.doesNotMatch(server, /proxy_pass http:\/\/backend:3000;/);
+    }
+  });
+});

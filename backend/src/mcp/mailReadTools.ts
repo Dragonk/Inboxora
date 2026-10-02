@@ -69,7 +69,7 @@ export const mailReadTools = [
     const source = await requireMessage(grant, args.messageId);
     const rows = await query(`SELECT ${LIST_COLUMNS} FROM messages m JOIN email_accounts a ON a.id=m.account_id
       WHERE a.user_id=$1 AND m.account_id=$2 AND m.is_deleted=false
-        AND m.thread_key=(SELECT thread_key FROM messages WHERE id=$3 AND account_id=$2)
+        AND (m.id=$3 OR m.thread_key=(SELECT thread_key FROM messages WHERE id=$3 AND account_id=$2))
         AND ${searchFolderAccessCondition(4)} AND ${visiblePhysicalMessageSql} AND ${populatedMessageSql}
       ORDER BY m.date ASC NULLS LAST,m.id ASC LIMIT $5 OFFSET $6`, [grant.user_id, source.account_id, args.messageId,
       grant.restrictions.folders === null ? null : JSON.stringify(grant.restrictions.folders), args.limit + 1, args.offset]);

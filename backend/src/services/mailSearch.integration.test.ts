@@ -30,8 +30,8 @@ describe.skipIf(process.env.REQUIRE_MCP_POSTGRES !== '1')('mail search SQL and s
       ($5,$7,5,'INBOX','Foreign invoice','Numer faktury żółw invoice 100%','2026-09-30T13:00:00Z','private@example.test','[]')`,
     [phrase,separated,uncached,otherDay,foreign,account,foreignAccount]);
     await query(`INSERT INTO messages(id,account_id,uid,folder,subject,body_text,date,provider_message_id) VALUES
-      ($1,$3,0,'INBOX','Archived native message','label needle','2026-09-30T12:00:00Z','native-archive'),
-      ($2,$3,0,'INBOX','Inbox native message','label needle','2026-09-30T11:00:00Z','native-inbox')`,[archived,labelInbox,gmail]);
+      ($1,$3,-1,'INBOX','Archived native message','label needle','2026-09-30T12:00:00Z','native-archive'),
+      ($2,$3,-2,'INBOX','Inbox native message','label needle','2026-09-30T11:00:00Z','native-inbox')`,[archived,labelInbox,gmail]);
     await query(`INSERT INTO message_labels(message_id,account_id,label_id,folder_path) VALUES
       ($1,$3,'archive-label','Archive'),($2,$3,'INBOX','INBOX')`,[archived,labelInbox,gmail]);
   });

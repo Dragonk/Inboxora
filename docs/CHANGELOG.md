@@ -21,6 +21,8 @@ configuration requirements, the **known safe limitations**, and what was verifie
 ## [Unreleased]
 
 ### Added
+- Native MCP endpoint with OAuth/PKCE, revocable personal tokens, per-client resource permissions and approval-bound operation receipts.
+- Email, draft, attachment, calendar, availability and contact tools, with localized settings and approval screens for every user.
 - Composer attachment previews and archive folder browsing with list/thumbnail views.
 - PDF signature details and current-time integrity, certificate-chain and revocation checks, with distinct valid/invalid/unavailable indicators.
 - Optional private ClamAV container and a fail-closed preview gate; warned downloads remain available without changing original bytes.
@@ -35,6 +37,9 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Search cached and provider-held email across Gmail, Microsoft Graph and IMAP; handle literal phrases, recipients, dates and Gmail label scopes, and show incomplete coverage rather than false empty results.
+- Preserve attachment bytes and reply identity when creating or replacing drafts through MCP.
+- Route MCP through the restart-safe Nginx upstream and clean up expired MCP payloads without replaying uncertain writes.
 - Return empty PDF signature fields without loading trust lists; retry failed trust-list refreshes with bounded backoff instead of waiting six hours after a cold-start outage.
 - Validate PDF certificate paths against authenticated EU Trusted Lists instead of the TLS root store. Refresh signed lists automatically, show the verified path and distinguish missing revocation evidence from missing trust or an absent timestamp.
 - Preserve signature metadata line breaks; keep PDF search text readable and allow typed zoom percentages.

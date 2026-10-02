@@ -5,7 +5,7 @@ import { runOperation } from './operations.js';
 import type { DomainResult } from './bridge.js';
 
 export interface RegisteredTool {
-  definition: Tool;
+  definition: Tool & { securitySchemes: Array<{ type: 'oauth2'; scopes: string[] }> };
   scope: Scope | null;
   invoke: (grant: Grant, input: unknown) => Promise<Record<string, unknown>>;
 }
@@ -14,7 +14,8 @@ export function readTool<S extends z.ZodRawShape>(name: string, description: str
   const schema = z.object(shape).strict();
   return {
     scope,
-    definition: { name, description, inputSchema: z.toJSONSchema(schema, { io: 'input' }) as Tool['inputSchema'],
+    definition: { name, description, securitySchemes: [{ type: 'oauth2', scopes: scope ? [scope] : [] }],
+      _meta: { securitySchemes: [{ type: 'oauth2', scopes: scope ? [scope] : [] }] }, inputSchema: z.toJSONSchema(schema, { io: 'input' }) as Tool['inputSchema'],
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } },
     async invoke(grant, input) {
       const current = await liveGrant(grant.id, grant.user_id, grant.scopes);
@@ -31,7 +32,8 @@ export function writeTool<S extends z.ZodRawShape>(name: string, description: st
   const schema = z.object({ ...shape, requestId }).strict();
   return {
     scope,
-    definition: { name, description: `${description} Writes may require user approval in Inboxora. A pending approval is not a completed operation.`,
+    definition: { name, securitySchemes: [{ type: 'oauth2', scopes: [scope] }],
+      _meta: { securitySchemes: [{ type: 'oauth2', scopes: [scope] }] }, description: `${description} Writes may require user approval in Inboxora. A pending approval is not a completed operation.`,
       inputSchema: z.toJSONSchema(schema, { io: 'input' }) as Tool['inputSchema'],
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true } },
     async invoke(grant, input) {

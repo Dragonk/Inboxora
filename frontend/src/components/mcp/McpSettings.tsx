@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '../ui.tsx';
 import DavCopyValue from '../DavCopyValue.tsx';
 import { getAuthEpoch, isCurrentAuthEpoch } from '../../utils/authEpoch.ts';
-import { mcpRequest, newMcpGrant, emptyResources, type McpConfig, type McpResources, type McpGrant, type McpOperation } from '../../utils/mcp.ts';
+import { MCP_SCOPE_KEYS, MCP_STATE_KEYS, mcpRequest, newMcpGrant, emptyResources, type McpConfig, type McpResources, type McpGrant, type McpOperation } from '../../utils/mcp.ts';
 import McpGrantForm from './McpGrantForm.tsx';
 import './mcp.css';
 
@@ -65,7 +65,7 @@ export default function McpSettings() {
       <h3>{t('mcp.integrations')}</h3>{!grants.length && <p>{t('mcp.noIntegrations')}</p>}
       {grants.map(grant => <article key={grant.id} className="mcp-card"><div className="mcp-row"><strong>{grant.name}</strong>
         <span>{grant.revoked_at ? t('mcp.revoked') : new Date(grant.expires_at).getTime() <= Date.now() ? t('mcp.expired') : t('mcp.active')}</span></div>
-        <p>{grant.scopes.map(scope => t(`mcp.scopes.${scope.replace('.','_')}`)).join(' · ')}</p>
+        <p>{grant.scopes.map(scope => t(MCP_SCOPE_KEYS[scope])).join(' · ')}</p>
         <small>{t('mcp.expiresAt', { date: new Date(grant.expires_at).toLocaleString() })}</small>
         <details><summary>{t('mcp.permissions')}</summary><pre className="mcp-code">{JSON.stringify(grant.restrictions, null, 2)}</pre><p>{grant.require_confirmation ? t('mcp.confirmWrites') : t('mcp.unattendedWarning')}</p></details>
         {!grant.revoked_at && <div className="mcp-actions">{revokeId === grant.id ? <><span>{t('mcp.revokeQuestion')}</span><Button variant="danger" disabled={busy} onClick={() => void revoke(grant.id)}>{t('mcp.revoke')}</Button><Button disabled={busy} onClick={() => setRevokeId(null)}>{t('mcp.cancel')}</Button></>
@@ -73,7 +73,7 @@ export default function McpSettings() {
       </article>)}
       <h3>{t('mcp.operations')}</h3>{!operations.length && <p>{t('mcp.noOperations')}</p>}
       {operations.map(operation => <article className="mcp-card" key={operation.id}><div className="mcp-row"><span>{operation.integration_name} · <code>{operation.tool}</code></span>
-        <span>{t(`mcp.states.${operation.state}`, { defaultValue: operation.state })}</span></div><a href={`/ai/mcp/confirm/${encodeURIComponent(operation.id)}`} target="_blank" rel="noopener noreferrer">{t('mcp.review')}</a></article>)}
+        <span>{t(MCP_STATE_KEYS[operation.state] ?? 'mcp.states.uncertain')}</span></div><a href={`/ai/mcp/confirm/${encodeURIComponent(operation.id)}`} target="_blank" rel="noopener noreferrer">{t('mcp.review')}</a></article>)}
     </>}
   </section>;
 }

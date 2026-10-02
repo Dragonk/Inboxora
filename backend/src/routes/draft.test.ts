@@ -1,3 +1,4 @@
+import { simpleParser } from 'mailparser';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import type { ImapManager } from '../services/imapManager.js';
@@ -65,6 +66,21 @@ describe('POST /api/mail/draft — local row persistence', () => {
     query.mockResolvedValueOnce({ rows: [{ path: 'Drafts' }] });
     imapManager.appendToFolder.mockResolvedValue({ uid: 5, folder: 'Drafts' });
     imapManager.upsertDraftMessageRecord.mockResolvedValue(undefined);
+  });
+
+  it('saves actual uploaded attachment bytes in the source draft and invalidates attachment metadata', async () => {
+    const response = await fetch(`${base}/api/mail/draft`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ accountId: ACCOUNT_ID, to: [], subject: 'Attachment draft', body: 'Text',
+        attachments: [{ filename: 'invoice.txt', content: Buffer.from('draft attachment').toString('base64'), contentType: 'text/plain' }] }),
+    });
+    expect(response.status).toBe(200);
+    const mime = imapManager.appendToFolder.mock.calls[0][2];
+    const parsed = await simpleParser(mime);
+    expect(parsed.attachments).toHaveLength(1);
+    expect(parsed.attachments[0].filename).toBe('invoice.txt');
+    expect(parsed.attachments[0].content.toString()).toBe('draft attachment');
+    expect(query).toHaveBeenCalledWith(expect.stringContaining('graph_attachment_metadata_complete=false'), [ACCOUNT_ID, 5, 'Drafts', true]);
   });
 
   it('persists a Drafts row with parsed recipient, subject and body after append', async () => {

@@ -27,6 +27,12 @@ domain.use(errorHandler);
 /** Fixed tool paths only: this function is deliberately not exposed as a generic API tool. */
 export async function domainRequest(userId: string, method: BridgeMethod, path: string, body?: Record<string, unknown>, requestId?: string): Promise<DomainResult> {
   const response = await inject((req, res) => {
+    // Express replaces ServerResponse's prototype during initialization. Keep
+    // the injector's capture methods as own methods so JSON bytes are not lost.
+    res.write = res.write.bind(res);
+    res.end = res.end.bind(res);
+    res.writeHead = res.writeHead.bind(res);
+    res.destroy = res.destroy.bind(res);
     setTrustedRequestUser(req, userId);
     domain(req, res);
   }, {
@@ -34,6 +40,7 @@ export async function domainRequest(userId: string, method: BridgeMethod, path: 
       ...(requestId ? { 'x-idempotency-key': `mcp:${requestId}` } : {}) },
     ...(body ? { payload: JSON.stringify(body) } : {}),
   });
+  if (response.statusCode === 204) return { status: 204, body: { ok: true } };
   if (!(response.headers['content-type'] || '').toString().includes('application/json')) {
     throw new McpError('DOMAIN_RESPONSE_INVALID', 'Inboxora returned an unexpected response. Do not retry a mutation automatically.', 502);
   }

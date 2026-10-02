@@ -30,10 +30,10 @@ export interface Grant {
   expires_at: Date | string; revoked_at: Date | string | null;
 }
 export class McpError extends Error {
-  constructor(public code: string, message: string, public status = 403) { super(message); }
+  constructor(public code: string, message: string, public status = 403, public requiredScope?: Scope) { super(message); }
 }
 export function requireScope(grant: Grant, scope: Scope): void {
-  if (!grant.scopes.includes(scope)) throw new McpError('SCOPE_REQUIRED', `This integration needs the ${scope} permission.`);
+  if (!grant.scopes.includes(scope)) throw new McpError('SCOPE_REQUIRED', `This integration needs the ${scope} permission.`, 403, scope);
 }
 export function allowedId(ids: string[] | null, id: string): boolean { return ids === null || ids.includes(id); }
 export function allowedFolder(restrictions: Restrictions, accountId: string, folder: string): boolean {

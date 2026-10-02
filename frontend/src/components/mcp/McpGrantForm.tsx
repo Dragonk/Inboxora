@@ -1,19 +1,19 @@
+import './mcp.css';
 import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { inputStyle } from '../ui.tsx';
 import { Switch } from '../accountUi/AccountUi.tsx';
-import { MCP_SCOPES, type McpGrantInput, type McpResources, type McpScope } from '../../utils/mcp.ts';
-import './mcp.css';
+import { MCP_RESOURCE_KEYS, MCP_SCOPE_KEYS, MCP_SCOPES, type McpGrantInput, type McpResources, type McpScope } from '../../utils/mcp.ts';
 
 interface Props { value: McpGrantInput; onChange: (value: McpGrantInput) => void; resources: McpResources; allowedScopes?: readonly McpScope[]; disabled?: boolean; }
 export default function McpGrantForm({ value, onChange, resources, allowedScopes = MCP_SCOPES, disabled = false }: Props) {
   const { t } = useTranslation(); const prefix = useId();
   const selectIds = (key: 'accounts' | 'calendars' | 'addressBooks', items: { id: string; name: string }[]) => {
     const selected = value.restrictions[key];
-    return <fieldset className="mcp-fieldset"><legend>{t(`mcp.${key}`)}</legend>
+    return <fieldset className="mcp-fieldset"><legend>{t(MCP_RESOURCE_KEYS[key])}</legend>
       <label className="mcp-check"><input type="checkbox" checked={selected === null} disabled={disabled}
         onChange={event => onChange({ ...value, restrictions: { ...value.restrictions, [key]: event.target.checked ? null : [], ...(key === 'accounts' ? { folders: null } : {}) } })}/>{t('mcp.allResources')}</label>
-      {selected !== null && <select aria-label={t(`mcp.${key}`)} multiple size={Math.min(5, Math.max(2, items.length))} value={selected} style={inputStyle} disabled={disabled}
+      {selected !== null && <select aria-label={t(MCP_RESOURCE_KEYS[key])} multiple size={Math.min(5, Math.max(2, items.length))} value={selected} style={inputStyle} disabled={disabled}
         onChange={event => onChange({ ...value, restrictions: { ...value.restrictions, [key]: Array.from(event.target.selectedOptions, option => option.value), ...(key === 'accounts' ? { folders: null } : {}) } })}>
         {items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>}
@@ -26,7 +26,7 @@ export default function McpGrantForm({ value, onChange, resources, allowedScopes
     <fieldset className="mcp-fieldset"><legend>{t('mcp.permissions')}</legend><div className="mcp-scope-grid">
       {allowedScopes.map(scope => <label key={scope} className="mcp-check"><input type="checkbox" checked={value.scopes.includes(scope)} disabled={disabled}
         onChange={event => onChange({ ...value, scopes: event.target.checked ? [...value.scopes, scope] : value.scopes.filter(item => item !== scope) })}/>
-        <span>{t(`mcp.scopes.${scope.replace('.', '_')}`)}<small>{scope}</small></span></label>)}
+        <span>{t(MCP_SCOPE_KEYS[scope])}<small>{scope}</small></span></label>)}
     </div></fieldset>
     <div className="mcp-scope-grid">
       {selectIds('accounts', resources.accounts.map(account => ({ id: account.id, name: `${account.name} — ${account.email_address}` })))}

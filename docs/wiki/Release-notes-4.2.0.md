@@ -296,3 +296,45 @@ including on Windows. Generated locale assets are still checked byte-for-byte; t
 freshness test is not skipped or regenerated over. A build-workflow-only correction may
 run from a newer main revision while checking out and validating the original immutable
 release tag for every app artifact. This does not move the release tag or mix app sources.
+
+
+## Development follow-up: native MCP (not part of the published 4.2.0 images)
+
+The development image adds `/mcp` using Streamable HTTP. ChatGPT-compatible clients can
+use OAuth authorization-code/PKCE with discovery and dynamic client registration.
+Mistral Vibe and other static-credential clients can use a separate revocable Bearer
+token. Settings → AI exposes MCP permissions to every user; installation-wide built-in
+AI configuration remains administrator-only. See [MCP setup](../MCP.md) for client
+configuration, permissions and operational limits.
+
+Tools cover email search/read/threading, attachments, drafts, sending/replies/forwarding,
+mail organization, calendars/recurrence/availability and contact CRUD. Existing source
+write-back permissions still apply. Imported/read-only calendars are readable but cannot
+be silently edited. Importing an email invitation is not an RSVP. Availability describes
+the user's synchronized calendars, not other people's live schedules.
+
+Enable `MCP_ENABLED=true`, keep the existing `ENCRYPTION_KEY`, and set `APP_URL` to the
+public HTTPS origin. Both supplied compose files pass the MCP options. Nginx forwards
+`/mcp`, `/oauth/mcp/*` and OAuth metadata discovery to the backend. Direct browser clients
+may additionally need an exact origin in `MCP_ALLOWED_ORIGINS`; no wildcard is accepted.
+No separate proxy or AI model subscription is required by the Inboxora server.
+
+Migration **0167_mcp_authorization.sql** follows **0166** and must be applied before the
+new backend serves requests; normal startup runs it automatically. It adds isolated MCP
+clients, grants, token hashes, authorization requests and encrypted operation receipts.
+No existing mailbox data is rewritten. Expired requests are scrubbed, result payloads are
+removed after 30 days, and an execution interrupted for over one hour is parked as
+uncertain, never retried automatically. Request IDs/fingerprints remain for replay safety.
+
+Mail search now combines cached matches with bounded server-side Gmail, Graph and IMAP
+searches. It finds server-confirmed body matches without requiring a local body cache,
+handles quoted phrases and literal `%`/`_`, searches recipients, and applies native Gmail
+label permissions before pagination. A server failure or search cap is explicitly marked
+as incomplete. Provider indexing and synchronization can still affect coverage; narrow a
+query or select an account/folder when the incomplete-results warning appears.
+
+Validation includes the full backend/frontend unit suites, real PostgreSQL and MCP SDK
+HTTP/OAuth tests, source-draft MIME tests and browser tests for consent, explicit write
+approval, ordinary-user settings, desktop/mobile layouts and both themes. End-user account
+linking inside ChatGPT or Vibe remains a deployment acceptance check; no claim is made
+that every third-party client's UI has been exercised.

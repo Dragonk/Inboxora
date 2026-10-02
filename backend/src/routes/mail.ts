@@ -440,7 +440,9 @@ router.get('/messages/:id/body', async (req, res) => {
     || (message.gmail_reader_body_complete === true && message.gmail_attachment_metadata_complete === true);
   const graphReaderComplete = message.mail_transport !== 'microsoft_graph'
     || message.graph_attachment_metadata_complete === true;
-  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs && gmailReaderComplete && graphReaderComplete) {
+  const attachmentList = typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments;
+  const attachmentMetadataMissing = message.has_attachments && (!Array.isArray(attachmentList) || attachmentList.length === 0);
+  if ((message.body_html || message.body_text) && !hasCidRefs && !hasHttpImgs && !attachmentMetadataMissing && gmailReaderComplete && graphReaderComplete) {
     const attachments = message.attachments
       ? (typeof message.attachments === 'string' ? JSON.parse(message.attachments) : message.attachments)
       : [];

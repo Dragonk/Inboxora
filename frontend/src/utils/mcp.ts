@@ -45,3 +45,30 @@ export function pendingMcpReturn(): string | null {
   } catch { return null; }
 }
 export function clearMcpReturn(): void { try { sessionStorage.removeItem(pendingKey); } catch { /* optional storage */ } }
+
+export const MCP_SCOPE_KEYS: Record<McpScope, string> = {
+  'mail.read': 'mcp.scopes.mail_read',
+  'mail.draft': 'mcp.scopes.mail_draft',
+  'mail.send': 'mcp.scopes.mail_send',
+  'mail.modify': 'mcp.scopes.mail_modify',
+  'mail.delete': 'mcp.scopes.mail_delete',
+  'mail.spam': 'mcp.scopes.mail_spam',
+  'mail.unsubscribe': 'mcp.scopes.mail_unsubscribe',
+  'calendar.read': 'mcp.scopes.calendar_read',
+  'calendar.write': 'mcp.scopes.calendar_write',
+  'calendar.invite': 'mcp.scopes.calendar_invite',
+  'contacts.read': 'mcp.scopes.contacts_read',
+  'contacts.write': 'mcp.scopes.contacts_write',
+};
+export const MCP_RESOURCE_KEYS = { accounts: 'mcp.accounts', calendars: 'mcp.calendars', addressBooks: 'mcp.addressBooks' };
+export const MCP_STATE_KEYS: Record<string, string> = {
+  pending: 'mcp.states.pending',
+  approved: 'mcp.states.approved',
+  executing: 'mcp.states.executing',
+  succeeded: 'mcp.states.succeeded',
+  partial: 'mcp.states.partial',
+  failed: 'mcp.states.failed',
+  uncertain: 'mcp.states.uncertain',
+  denied: 'mcp.states.denied',
+  expired: 'mcp.states.expired',
+};

@@ -3,7 +3,7 @@ import { useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store/index.ts';
 import { getAuthEpoch, isCurrentAuthEpoch } from '../../utils/authEpoch.ts';
-import { clearMcpReturn, emptyResources, mcpRequest, newMcpGrant, type McpConsent, type McpOperation, type McpResources } from '../../utils/mcp.ts';
+import { MCP_STATE_KEYS, clearMcpReturn, emptyResources, mcpRequest, newMcpGrant, type McpConsent, type McpOperation, type McpResources } from '../../utils/mcp.ts';
 import { Button } from '../ui.tsx';
 import McpGrantForm from './McpGrantForm.tsx';
 import './mcp.css';
@@ -66,7 +66,7 @@ export default function McpPage() {
     {consent && <><div className="mcp-card"><h2>{consent.name}</h2><p className="mcp-warning">{t('mcp.unverifiedClient')}</p><p>{t('mcp.callback')} <code>{consent.redirectUri}</code></p></div>
       <McpGrantForm value={form} onChange={setForm} resources={resources} allowedScopes={consent.scopes} disabled={busy}/>
       <div className="mcp-actions"><Button disabled={busy} onClick={() => void decide(false)}>{t('mcp.deny')}</Button><Button variant="primary" disabled={busy || !form.name.trim() || !form.scopes.length || form.expiresInDays < 1 || form.expiresInDays > 365} onClick={() => void decide(true)}>{t('mcp.connect')}</Button></div></>}
-    {operation && <><div className="mcp-card"><h2>{operation.integrationName}</h2><p><code>{operation.tool}</code> · {t(`mcp.states.${operation.state}`, { defaultValue: operation.state })}</p>
+    {operation && <><div className="mcp-card"><h2>{operation.integrationName}</h2><p><code>{operation.tool}</code> · {t(MCP_STATE_KEYS[operation.state] ?? 'mcp.states.uncertain')}</p>
       {operation.expiresAt && <p>{t('mcp.expiresAt', { date: new Date(operation.expiresAt).toLocaleString() })}</p>}
       {operation.review && <><h3>{t('mcp.exactMessage')}</h3><pre className="mcp-code">{JSON.stringify(operation.review, null, 2)}</pre></>}
       <details open={!operation.review}><summary>{t('mcp.exactArguments')}</summary><pre className="mcp-code">{JSON.stringify(operation.arguments, null, 2)}</pre></details>

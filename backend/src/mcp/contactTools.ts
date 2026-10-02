@@ -27,10 +27,10 @@ const contactShape = {
   organization: text.optional(), notes: z.string().max(100000).nullable().optional(), birthday: z.string().max(10).nullable().optional(), anniversary: z.string().max(10).nullable().optional(),
   title: text.optional(), role: text.optional(), nickname: text.optional(), urls: values.optional(), instantMessages: values.optional(),
   categories: z.array(z.string().max(200)).max(100).optional(),
-  contactDates: z.array(z.object({ date: z.string().max(10), label: z.string().max(100) }).strict()).max(50).optional(),
+  contactDates: z.array(z.object({ value: z.string().max(10), label: z.string().max(100) }).strict()).max(50).optional(),
   addresses: z.array(z.object({ type: z.string().max(100).optional(), label: z.string().max(100).optional(), street: z.string().max(2000).optional(),
-    city: z.string().max(500).optional(), region: z.string().max(500).optional(), postalCode: z.string().max(100).optional(), country: z.string().max(500).optional(),
-    poBox: z.string().max(500).optional(), extended: z.string().max(2000).optional(), pref: z.boolean().optional() }).strict()).max(30).optional(),
+    locality: z.string().max(500).optional(), region: z.string().max(500).optional(), postalCode: z.string().max(100).optional(), country: z.string().max(500).optional(),
+    pobox: z.string().max(500).optional(), extended: z.string().max(2000).optional(), pref: z.boolean().optional() }).strict()).max(30).optional(),
 };
 export const contactTools = [
   readTool('list_address_books', 'List permitted local and synchronized address books with their actual read-only/write-back capabilities.', 'contacts.read', {}, async grant => ({ addressBooks: await permittedBooks(grant) })),

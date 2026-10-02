@@ -9,6 +9,9 @@ describe('MCP operation integrity', () => {
   });
   it('does not misreport an uncertain, partially applied or pending provider write as success', () => {
     expect(classifyOperation({status:200,body:{ok:true}})).toBe('succeeded');
+    expect(classifyOperation({status:202,body:{state:'pending'}})).toBe('partial');
+    expect(classifyOperation({status:200,body:{ok:false,failed:['second'],moved:['first']}})).toBe('partial');
+    expect(classifyOperation({status:200,body:{state:'conflict'}})).toBe('failed');
     expect(classifyOperation({status:200,body:{pending:['message']}})).toBe('partial');
     expect(classifyOperation({status:200,body:{invitationError:'SMTP failed'}})).toBe('partial');
     expect(classifyOperation({status:200,body:{failed:['message']}})).toBe('partial');

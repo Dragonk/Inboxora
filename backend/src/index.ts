@@ -1,3 +1,4 @@
+import { startMcpMaintenance } from './mcp/maintenance.js';
 import { registerImapMailSearch } from './services/mailSearchRemote.js';
 import { createMcpRouter } from './mcp/server.js';
 import mcpApiRouter from './mcp/api.js';
@@ -357,6 +358,7 @@ setupWebSocket(wss, (req, res, next) => {
 
 // Run pending schema migrations then start
 await runMigrations();
+const stopMcpMaintenance = startMcpMaintenance();
 
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
@@ -461,6 +463,7 @@ httpServer.listen(PORT, () => {
 });
 
 process.on('SIGTERM', () => {
+  stopMcpMaintenance();
   stopSignatureTrustRefresh?.();
   console.log('SIGTERM received — shutting down gracefully');
   const scheduledMailStopped = scheduledMailWorker.stop();

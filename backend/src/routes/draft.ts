@@ -1,3 +1,4 @@
+import { draftAttachments } from '../services/draftAttachments.js';
 import { sessionUserId } from '../utils/query.js';
 import nodemailer from 'nodemailer';
 import type { EmailAccountRow } from '../services/imapManager.js';
@@ -59,6 +60,7 @@ type RawDraftInput = {
   replyParentMessageId?: string | null;
   replyParentAccountId?: string | null;
   replyKind?: 'reply' | 'reply_all' | null;
+  attachments?: unknown;
 };
 
 type ExistingDraftIdentity = {
@@ -128,7 +130,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -158,6 +160,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     (effectiveSignature ? `<div style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>` : '') +
     (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
   const { html: draftHtml, attachments: inlineImageAttachments } = embedInlineDataImages(rawHtml);
+  const allAttachments = [...inlineImageAttachments, ...draftAttachments(attachments)];
 
   // Stable Message-ID so the appended MIME and the local DB row reference the same
   // message (and a later sync reconciles cleanly).
@@ -176,7 +179,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     ...(references ? { references: sanitizeHeaderValue(references) } : {}),
     text: textBody,
     html: draftHtml,
-    ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
+    ...(allAttachments.length ? { attachments: allAttachments } : {}),
   };
 
   const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'unix' });
@@ -213,8 +216,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     htmlBody: draftHtml,
     inReplyTo: inReplyTo ? sanitizeHeaderValue(inReplyTo) : null,
     references: references ? sanitizeHeaderValue(references) : null,
-    ...(inlineImageAttachments.length ? {
-      attachments: inlineImageAttachments.map(attachment => ({
+    ...(allAttachments.length ? {
+      attachments: allAttachments.map(attachment => ({
         filename: attachment.filename,
         content: attachment.content,
         contentType: attachment.contentType,
@@ -246,6 +249,13 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
       },
     },
   };
+}
+
+async function resetDraftAttachments(accountId: string, uid: string | number, folder: string, hasAttachments: boolean) {
+  // Attachment IDs are discovered from the saved source, never guessed from indexes.
+  await query(`UPDATE messages SET has_attachments=$4,attachments='[]'::jsonb,
+    graph_attachment_metadata_complete=false,gmail_attachment_metadata_complete=false
+    WHERE account_id=$1 AND uid=$2 AND folder=$3`, [accountId, uid, folder, hasAttachments]);
 }
 
 async function resolveDraftsFolder(account: EmailAccountRow) {
@@ -302,7 +312,7 @@ async function deleteProviderDraftByIdentity(userId: string, identity: ExistingD
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments } = req.body;
   if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
   const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
   const existingDraft = existingDraftIdentity(req.body?.existingDraft);
@@ -315,7 +325,7 @@ router.post('/draft', async (req, res) => {
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind });
+    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -372,6 +382,7 @@ router.post('/draft', async (req, res) => {
 
       // No UIDVALIDITY: a provider draft's identity is its immutable provider id, which the local row
       // holds. `uid` is the compatibility number the rest of the application addresses rows by.
+      if (attachments !== undefined) await resetDraftAttachments(account.id, record.uid, draftsFolder, Boolean(composed.attachments?.length));
       return res.json({ uid: record.uid, folder: draftsFolder, uidValidity: null, rowId: record.rowId });
     }
 
@@ -460,6 +471,7 @@ router.post('/draft', async (req, res) => {
           .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
       }
 
+      if (attachments !== undefined) await resetDraftAttachments(account.id, record.uid, draftsFolder, Boolean(composed.attachments?.length));
       return res.json({ uid: record.uid, folder: draftsFolder, uidValidity: null, rowId: record.rowId });
     }
 
@@ -531,6 +543,7 @@ router.post('/draft', async (req, res) => {
       }
     }
 
+    if (attachments !== undefined && uid != null) await resetDraftAttachments(account.id, uid, draftsFolder, Boolean(composed.attachments?.length));
     res.json({ uid, folder: draftsFolder, uidValidity });
   } catch (caught) {
     const err = toAppError(caught);

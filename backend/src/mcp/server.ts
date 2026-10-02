@@ -50,7 +50,12 @@ export function createProtocolServer(grant: Grant, tools: RegisteredTool[], vers
         : error instanceof ZodError ? { code: 'INVALID_ARGUMENTS', error: error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ') }
           : { code: 'OPERATION_FAILED', error: 'Inboxora could not complete this request. Do not retry a mutation with a different requestId.' };
       if (!(error instanceof McpError) && !(error instanceof ZodError)) console.error('MCP tool failed:', tool.definition.name, error instanceof Error ? error.name : 'UnknownError');
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result, isError: true };
+      const needsAuthentication = error instanceof McpError && ['GRANT_REVOKED','SCOPE_REQUIRED'].includes(error.code);
+      const challenge = needsAuthentication ? {
+        'mcp/www_authenticate': [`Bearer resource_metadata="${publicOrigin()}/.well-known/oauth-protected-resource/mcp", error="${error.code === 'SCOPE_REQUIRED' ? 'insufficient_scope' : 'invalid_token'}", error_description="Reconnect Inboxora with the required permissions"${error.requiredScope ? `, scope="${error.requiredScope}"` : ''}`],
+      } : undefined;
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result, isError: true,
+        ...(challenge ? { _meta: challenge } : {}) };
     }
   });
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [{ uri: 'inboxora://guide', name: 'Inboxora MCP guide', mimeType: 'text/plain', description: 'Permissions, confirmations and safe mail handling.' }] }));
