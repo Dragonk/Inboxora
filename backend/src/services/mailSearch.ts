@@ -246,7 +246,7 @@ export async function searchMail(userId: string, input: Record<string, unknown>,
         const folders = await remoteSearchFolders(account.id, folderScope, folderFuzzy, access?.folders);
         const result = await waitForRemoteSearch(() => searchRemoteAccount(account, { query: trimmed, folders, maxResults: Math.min(1000, Math.max(1, off + cap + 1)) }), remoteDeadline);
         remoteIds.push(...result.rowIds);
-        partial ||= result.coverageIncomplete === true;
+        partial ||= result.coverageIncomplete === true || Boolean(result.errors?.length);
         retryablePartial ||= result.retryable === true;
         if (result.errors?.length) providerErrors.push({ accountId: account.id, code: 'SEARCH_INCOMPLETE', error: result.errors.join(' ') });
       } catch (caught) {
