@@ -455,11 +455,27 @@ export async function _upsertConversationCopyWithClient(
     if (unresolved.length) {
       const known = await client.query(`SELECT id, canonical_message_id FROM logical_messages WHERE user_id = $1 AND account_id = $3 AND canonical_message_id = ANY($2::text[])`, [hydrated.userId, unresolved, hydrated.accountId]);
       const knownIds = new Set(known.rows.map(row => row.canonical_message_id));
+      const inReplyToId = normalizeMessageIdList(hydrated.rawInReplyTo).at(-1);
+
+      const missingReferences = [];
       for (const [position, referenced] of unresolved.entries()) {
-        const relationType = referenced === normalizeMessageIdList(hydrated.rawInReplyTo).at(-1) ? 'in-reply-to' : 'references';
         if (!knownIds.has(referenced)) {
-          await client.query(`INSERT INTO unresolved_message_references (user_id, account_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [hydrated.userId, hydrated.accountId, logical.id, referenced, relationType, position]);
+          const relationType = referenced === inReplyToId ? 'in-reply-to' : 'references';
+          missingReferences.push({ referenced, relationType, position });
         }
+      }
+
+      if (missingReferences.length > 0) {
+        const values = [];
+        const queryParams: any[] = [hydrated.userId, hydrated.accountId, logical.id];
+        let offset = 4;
+
+        for (const ref of missingReferences) {
+          values.push(`($1, $2, $3, $${offset++}, $${offset++}, $${offset++})`);
+          queryParams.push(ref.referenced, ref.relationType, ref.position);
+        }
+
+        await client.query(`INSERT INTO unresolved_message_references (user_id, account_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ${values.join(', ')} ON CONFLICT DO NOTHING`, queryParams);
       }
     }
     const waiting = await client.query(`SELECT id, child_logical_message_id FROM unresolved_message_references WHERE user_id = $1 AND account_id = $3 AND referenced_message_id = $2 AND resolved_at IS NULL FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.accountId]);
