@@ -63,6 +63,13 @@ describe('MCP composition passes the real domain contract',()=>{
     expect(f.scan).toHaveBeenCalledWith(Buffer.from('attachment'),expect.any(AbortSignal));
     expect(f.send).toHaveBeenCalledWith(messageId,expect.objectContaining({forwardedAttachments:[],attachments:[expect.objectContaining({content:Buffer.from('attachment').toString('base64')})]}),null,{prepareOnly:true});
   });
+  it.each([[' Text/Plain; charset=utf-8 ','text/plain'],['invalid header',undefined]])('normalizes forwarded MIME %s before freezing a draft',async(type,expected)=>{
+    f.read.mockResolvedValue({text:'Original',attachments:[{part:'2',filename:'file.txt',type,size:10}]});
+    await invoke('create_draft',{...args,forwardedAttachments:[{messageId,part:'2'}]});
+    expect(f.request).toHaveBeenCalledWith(messageId,'POST','/mail/draft',expect.objectContaining({
+      attachments:[{filename:'file.txt',content:Buffer.from('attachment').toString('base64'),contentType:expected}],
+    }),'operation-test');
+  });
   it('refuses oversized forwarded data before calling the send pipeline',async()=>{
     f.source.mockResolvedValue(Buffer.alloc(1024*1024+1));
     await expect(invoke('send_email',{...args,forwardedAttachments:[{messageId,part:'2'}]})).rejects.toThrow('byte budget');

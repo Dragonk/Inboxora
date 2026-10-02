@@ -14,7 +14,7 @@ import { z } from 'zod';
 // Do not boot the production worker, connect to personal mailboxes or send mail.
 vi.mock('../index.js', () => ({ imapManager: {} }));
 import { pool, query } from '../services/db.js';
-import { createMcpRouter } from './server.js';
+import { createMcpRouter, createProtocolServer } from './server.js';
 import apiRouter from './api.js';
 import { createPersonalToken, oauthProvider } from './oauth.js';
 import { grantSchema, liveGrant, requireAccount } from './policy.js';
@@ -29,7 +29,7 @@ const tokenPair = z.object({ access_token: z.string(), refresh_token: z.string()
 const enabled = process.env.REQUIRE_MCP_POSTGRES === '1';
 describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
   const userId = randomUUID(); const foreignUserId = randomUUID(); const accountId = randomUUID(); const foreignAccountId = randomUUID();
-  let server: HttpServer; let origin: string; let cookie: string; let foreignCookie: string; let calls = 0;
+  let server: HttpServer; let origin: string; let cookie: string; let foreignCookie: string; let calls = 0; let serverCreationFailures = 0;
   const clients: Client[] = []; const registeredClientIds: string[] = [];
   const priorUrl = process.env.APP_URL; const priorEnabled = process.env.MCP_ENABLED;
   async function browser(path: string, body?: unknown, browserCookie = cookie, method = body === undefined ? 'GET' : 'POST') {
@@ -57,7 +57,10 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
         async (grant, args) => requireAccount(grant, args.accountId), async (_grant, args) => { calls++; await new Promise(resolve => setTimeout(resolve, 40)); return { status: 200, body: { subject: args.subject } }; }),
       ...domainTools,
     ];
-    app.use(createMcpRouter('integration-test', fixtureTools));
+    app.use(createMcpRouter('integration-test', fixtureTools, (...args) => {
+      if (serverCreationFailures > 0) { serverCreationFailures--; throw new Error('Synthetic protocol construction failure'); }
+      return createProtocolServer(...args);
+    }));
     app.use(express.json()); app.use(session({ secret: 'synthetic-mcp-test-session', resave: false, saveUninitialized: false }));
     // This route exists only in a loopback, in-process test app, never in production.
     app.post('/fixture/login/:who', (req,res) => { req.session.userId = req.params.who === 'foreign' ? foreignUserId : userId; res.json({ ok: true }); });
@@ -102,6 +105,16 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     expect(forbidden.isError).toBe(true);
     expect(JSON.stringify(forbidden._meta)).toContain('insufficient_scope');
     expect((await client.readResource({ uri:'inboxora://guide' })).contents[0]).toMatchObject({ mimeType:'text/plain' });
+  });
+  it('releases concurrency slots after repeated protocol construction failures', async () => {
+    const grant = await token('Construction failure test');
+    serverCreationFailures = 5;
+    for (let index=0;index<5;index++) {
+      const response = await fetch(`${origin}/mcp`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${grant.token}`},body:'{}'});
+      expect(response.status).toBe(500);
+    }
+    const client = await connect(grant.token);
+    expect((await client.listTools()).tools.length).toBeGreaterThan(0);
   });
   it('stores hashes and ciphertext, not personal tokens, and rejects foreign resource grants', async () => {
     const grant = await token('stored token');
@@ -178,6 +191,16 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     const email = await client.callTool({name:'get_email',arguments:{messageId}});
     expect(email.isError).not.toBe(true);
     expect(record(email.structuredContent).text).toBe('Private synthetic body');
+    const fullText = 'first segment '.repeat(20) + 'second segment '.repeat(20);
+    await query('UPDATE messages SET body_text=$2 WHERE id=$1',[messageId,fullText]);
+    const first = record((await client.callTool({name:'fetch',arguments:{id:messageId,maxCharacters:100}})).structuredContent);
+    expect(first.text).toBe(fullText.slice(0,100));
+    const nextOffset = record(first.metadata).nextTextOffset;
+    expect(nextOffset).toBe(100);
+    const next = record((await client.callTool({name:'fetch',arguments:{id:messageId,textOffset:nextOffset,maxCharacters:100}})).structuredContent);
+    expect(next.text).toBe(fullText.slice(100,200));
+    expect(record(next.metadata).textOffset).toBe(100);
+
     const thread = await client.callTool({name:'get_thread',arguments:{messageId}});
     expect(record(thread.structuredContent).messages).toEqual(expect.arrayContaining([expect.objectContaining({id:messageId})]));
     expect((await query<{is_read:boolean}>('SELECT is_read FROM messages WHERE id=$1',[messageId])).rows[0].is_read).toBe(false);

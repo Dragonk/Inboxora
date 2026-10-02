@@ -72,7 +72,7 @@ export function createProtocolServer(grant: Grant, tools: RegisteredTool[], vers
 }
 
 /** Mount before browser CORS/session middleware. Remote MCP is bearer-only. */
-export function createMcpRouter(version = 'dev', tools?: RegisteredTool[]) {
+export function createMcpRouter(version = 'dev', tools?: RegisteredTool[], serverFactory: typeof createProtocolServer = createProtocolServer) {
   const router = express.Router();
   if (!mcpEnabled()) {
     router.all('/mcp', (_req, res) => { res.status(404).json({ error: 'MCP is disabled by the administrator.' }); });
@@ -117,14 +117,18 @@ export function createMcpRouter(version = 'dev', tools?: RegisteredTool[]) {
     active.set(grant.user_id, (active.get(grant.user_id) ?? 0) + 1);
     // Avoid importing provider routes during application initialization or when
     // MCP is disabled. In particular, do not re-enter the index/worker graph.
-    const server = createProtocolServer(grant, availableTools, version);
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true,
-      enableDnsRebindingProtection: true, allowedHosts: [new URL(origin).host], allowedOrigins: origins });
-    try { await server.connect(transport); await transport.handleRequest(req, res, req.body); }
+    let server: Server | undefined;
+    try {
+      server = serverFactory(grant, availableTools, version);
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true,
+        enableDnsRebindingProtection: true, allowedHosts: [new URL(origin).host], allowedOrigins: origins });
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    }
     finally {
       const remaining = (active.get(grant.user_id) ?? 1) - 1;
       if (remaining) active.set(grant.user_id, remaining); else active.delete(grant.user_id);
-      await server.close();
+      await server?.close();
     }
   });
   router.all('/mcp', (_req, res) => { res.setHeader('Allow', 'POST, OPTIONS'); res.status(405).json({ error: 'Use Streamable HTTP POST; this server is stateless.' }); });

@@ -1,3 +1,4 @@
+import { eventMatchesSearch } from './eventSearch.js';
 import { z } from 'zod';
 import { query } from '../services/db.js';
 import { collectionIsWritable } from '../services/providerAccess.js';
@@ -87,7 +88,7 @@ export const calendarTools = [
   readTool('search_events', 'Search event titles, descriptions, locations, organizers and attendees inside a bounded date range. This includes expanded recurring occurrences.', 'calendar.read',
     { ...rangeShape, query: z.string().trim().min(1).max(500), ...page }, async (grant, args) => {
       const result = await calendarRange(grant, args); const term = args.query.toLocaleLowerCase();
-      const matches = result.events.filter(event => ['summary','description','location','organizer','attendees'].some(key => JSON.stringify(event[key] ?? '').toLocaleLowerCase().includes(term)));
+      const matches = result.events.filter(event => eventMatchesSearch(event, term));
       return { ...result, events: matches.slice(args.offset, args.offset + args.limit), nextOffset: args.offset + args.limit < matches.length ? args.offset + args.limit : null };
     }),
   readTool('get_event', 'Read an event or recurrence master by its series UUID, including its current etag needed for edits. Use series_id from occurrence listings.', 'calendar.read', { eventId: id }, async (grant, args) => {

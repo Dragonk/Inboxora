@@ -342,3 +342,5 @@ that every third-party client's UI has been exercised.
 MCP follow-up checks also cover empty move receipts, manual unsubscribe links, mapped Inbox permissions when marking not-spam, draft priority and OAuth `invalid_grant` after revocation. These paths no longer report an unconfirmed action as completed.
 
 Remote search waiting now shares an eight-second budget across accounts. Slow providers return an explicit partial-results warning without making the local result wait for every account deadline. Already-started reads stay bounded and may populate the cache for the next search.
+
+Research `fetch` now uses character-based `textOffset`/`maxCharacters` with a reusable continuation offset. Event searches match actual field values rather than JSON keys. Forwarded MIME types are normalized before approval, and failed MCP initialization releases its concurrency slot. Regression tests cover these cases.

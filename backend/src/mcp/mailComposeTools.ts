@@ -1,3 +1,4 @@
+import { normalizedAttachmentMimeType } from '../services/draftAttachments.js';
 import { fetchSourceAttachment } from '../services/sourceAttachments.js';
 import { imapManager } from '../index.js';
 import { resolveAllDraftsPaths, type FolderMappings } from '../utils/mailUtils.js';
@@ -63,7 +64,7 @@ async function materializeAttachments(grant: Grant, args: Compose) {
     if (bytes.length > 1024 * 1024 || totalBytes > 3 * 1024 * 1024) throw new McpError('ATTACHMENT_LIMIT', 'MCP attachments exceed their byte budget.', 413);
     await scanAttachment(bytes, AbortSignal.timeout(30000));
     await requireMessage(grant, reference.messageId);
-    attachments.push({ filename, content: bytes.toString('base64'), contentType: typeof attachment.type === 'string' ? attachment.type : undefined });
+    attachments.push({ filename, content: bytes.toString('base64'), contentType: normalizedAttachmentMimeType(attachment.type) });
   }
   return attachments;
 }

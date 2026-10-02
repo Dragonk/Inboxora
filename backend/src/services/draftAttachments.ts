@@ -20,3 +20,10 @@ export function draftAttachments(value: unknown): ComposedAttachment[] {
     return { filename: file.filename, content, contentType: typeof file.contentType === 'string' ? file.contentType : 'application/octet-stream', contentDisposition: 'attachment' };
   });
 }
+
+/** Provider metadata can carry MIME parameters; the outgoing contract uses the media type only. */
+export function normalizedAttachmentMimeType(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const mime = value.split(';', 1)[0].trim().toLowerCase();
+  return mime.length <= 120 && /^[\w.+-]+\/[\w.+-]+$/.test(mime) ? mime : undefined;
+}
