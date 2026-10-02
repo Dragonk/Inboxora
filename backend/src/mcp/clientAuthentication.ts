@@ -41,7 +41,7 @@ export function mcpClientAuthentication(store: OAuthRegisteredClientsStore): Req
     try {
       const credentials = parseClientCredentials(req.get('authorization'),req.body);
       const client = await store.getClient(credentials.clientId);
-      const expected = client?.token_endpoint_auth_method ?? 'client_secret_post';
+      const expected = client?.token_endpoint_auth_method ?? 'client_secret_basic';
       if (!client || expected !== credentials.method) throw new InvalidClientError('Use this client’s registered authentication method.');
       req.body = {...req.body,client_id:credentials.clientId,...(credentials.clientSecret === undefined ? {} : {client_secret:credentials.clientSecret})};
       next();

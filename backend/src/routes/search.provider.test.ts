@@ -91,7 +91,7 @@ describe('GET /api/search provider-side search', () => {
     expect(await response.json()).toMatchObject({ messages: [{ id: 'm1' }], query: 'invoice' });
     expect(ingestMock).toHaveBeenCalledOnce();
     expect(ingestMock).toHaveBeenCalledWith({
-      userId: 'user-1', connectionId: 'connection-1', accountId: 'a1', query: graphSearchQuery('invoice'), folders: null, maxResults: 200,
+      userId: 'user-1', connectionId: 'connection-1', accountId: 'a1', query: graphSearchQuery('invoice'), folders: null, maxResults: 51,
     });
   });
 
@@ -130,7 +130,7 @@ describe('GET /api/search provider-side search', () => {
 
     expect(response.status).toBe(200);
     expect(ingestMock).not.toHaveBeenCalled();
-    expect(gmailMock).toHaveBeenCalledExactlyOnceWith({userId:'user-1',accountId:'g1',connectionId:'google-1',query:'invoice',folders:null,maxResults:200});
+    expect(gmailMock).toHaveBeenCalledExactlyOnceWith({userId:'user-1',accountId:'g1',connectionId:'google-1',query:'invoice',folders:null,maxResults:51});
   });
 
   it('queries remote accounts before reading their updated local projection', async () => {

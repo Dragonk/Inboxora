@@ -7,6 +7,14 @@ describe('mail search tokenization', () => {
       { value: 'invoice number', negate: false }, { value: 'wrong order', negate: true },
     ] });
   });
+  it('treats a token that starts quoted as literal text, not an operator or exclusion', () => {
+    expect(parseSearchQuery('"from:alice newsletter" "-5%"')).toEqual({
+      filters: [], terms: [
+        { value: 'from:alice newsletter', negate: false },
+        { value: '-5%', negate: false },
+      ],
+    });
+  });
   it('does not interpret an operator embedded inside a phrase', () => {
     expect(parseSearchQuery('subject:"from:alice newsletter" from:"Jan Kowalski"')).toEqual({
       filters: [{ key: 'subject', value: 'from:alice newsletter', negate: false }, { key: 'from', value: 'jan kowalski', negate: false }], terms: [],

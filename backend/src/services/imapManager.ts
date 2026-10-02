@@ -6178,7 +6178,7 @@ export class ImapManager {
     if (!account) throw new Error('Search account is unavailable.');
     assertImapAccount(account);
     const folderRows = (await query<{ path: string; special_use: string | null }>(
-      "SELECT path,special_use FROM folders WHERE account_id=$1", [account.id])).rows
+      "SELECT path,special_use FROM folders WHERE account_id=$1 AND no_select IS NOT true", [account.id])).rows
       .filter(folder => input.folders === null || input.folders.includes(folder.path));
     const folders = ImapManager.planSearchFolders(folderRows);
     const selected = folders.slice(0, 50);

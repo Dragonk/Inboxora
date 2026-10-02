@@ -45,7 +45,7 @@ const clientsStore: OAuthRegisteredClientsStore = {
     if (metadata.token_endpoint_auth_method && !['none', 'client_secret_post', 'client_secret_basic'].includes(metadata.token_endpoint_auth_method)) {
       throw new InvalidClientMetadataError('Unsupported token endpoint authentication method.');
     }
-    const client: OAuthClientInformationFull = { ...metadata, client_id: randomUUID(), client_id_issued_at: Math.floor(Date.now() / 1000) };
+    const client: OAuthClientInformationFull = { ...metadata, token_endpoint_auth_method: metadata.token_endpoint_auth_method ?? 'client_secret_basic', client_id: randomUUID(), client_id_issued_at: Math.floor(Date.now() / 1000) };
     await query('INSERT INTO mcp_clients(id,metadata_encrypted) VALUES($1,$2)', [client.client_id, encrypt(JSON.stringify(client))]);
     return client;
   },

@@ -24,7 +24,7 @@ import { secretToken, digest } from './config.js';
 import { readOperation } from './operations.js';
 
 const record = (value: unknown) => z.record(z.string(), z.unknown()).parse(value);
-const oauthClient = z.object({ client_id: z.string(), client_secret: z.string().optional(), redirect_uris: z.array(z.string()).min(1) });
+const oauthClient = z.object({ client_id: z.string(), client_secret: z.string().optional(), token_endpoint_auth_method: z.enum(['none','client_secret_basic','client_secret_post']).optional(), redirect_uris: z.array(z.string()).min(1) });
 const tokenPair = z.object({ access_token: z.string(), refresh_token: z.string() });
 const enabled = process.env.REQUIRE_MCP_POSTGRES === '1';
 describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
@@ -251,6 +251,35 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     expect((await readOperation(await liveGrant(grant.id,userId),String(other.operationId))).state).toBe('uncertain');
     expect(calls).toBe(before);
   });
+  it('defaults omitted dynamic-client auth metadata to client_secret_basic and can exchange a code', async () => {
+    const registration = await fetch(`${origin}/oauth/mcp/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+      client_name:'SDK default auth test',redirect_uris:['http://127.0.0.1:34568/callback'],grant_types:['authorization_code','refresh_token'],response_types:['code'],
+    })});
+    expect(registration.status).toBe(201);
+    const client = oauthClient.parse(await registration.json());
+    registeredClientIds.push(client.client_id);
+    expect(client.token_endpoint_auth_method).toBe('client_secret_basic');
+    expect(client.client_secret).toBeTruthy();
+
+    const verifier = secretToken();
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    const parameters = new URLSearchParams({response_type:'code',client_id:client.client_id,redirect_uri:client.redirect_uris[0],scope:'mail.read',
+      code_challenge:challenge,code_challenge_method:'S256',state:'default-basic',resource:`${origin}/mcp`});
+    const authorization = await fetch(`${origin}/oauth/mcp/authorize?${parameters}`, {redirect:'manual'});
+    expect(authorization.status).toBe(302);
+    const pending = new URL(authorization.headers.get('location')!).searchParams.get('request')!;
+    const approval = await browser(`/authorizations/${pending}`,{approve:true,grant:{name:'Default Basic consent',scopes:['mail.read'],restrictions:{accounts:[accountId]}}});
+    expect(approval.status).toBe(200);
+    const redirect = new URL(z.object({redirectUrl:z.string()}).parse(await approval.json()).redirectUrl);
+    const code = redirect.searchParams.get('code')!;
+    const response = await fetch(`${origin}/oauth/mcp/token`,{method:'POST',headers:{
+      'content-type':'application/x-www-form-urlencoded',
+      authorization:'Basic '+Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64'),
+    },body:new URLSearchParams({client_id:client.client_id,grant_type:'authorization_code',code,code_verifier:verifier,redirect_uri:client.redirect_uris[0],resource:`${origin}/mcp`})});
+    expect(response.status).toBe(200);
+    expect(tokenPair.parse(await response.json()).access_token).toBeTruthy();
+  });
+
   it.each(['none','client_secret_basic','client_secret_post'] as const)('runs OAuth %s with S256, redirect/resource binding, rotation and replay revocation', async method => {
     const registration = await fetch(`${origin}/oauth/mcp/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'SDK OAuth test',redirect_uris:['http://127.0.0.1:34567/callback'],token_endpoint_auth_method:method,grant_types:['authorization_code','refresh_token'],response_types:['code']})});
     expect(registration.status).toBe(201); const client = oauthClient.parse(await registration.json()); registeredClientIds.push(client.client_id);

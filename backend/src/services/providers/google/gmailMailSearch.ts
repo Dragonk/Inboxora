@@ -1,4 +1,4 @@
-import { withTransaction } from '../../db.js';
+import { query, withTransaction } from '../../db.js';
 import { googleConfigFromEnv, type FetchLike, type GoogleConfig } from '../../providerAuthService.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import { gmailSearchQuery } from '../../mailSearchRemoteQuery.js';
@@ -35,7 +35,14 @@ export async function ingestGmailMailSearch(input: {
         pageToken, maxResults: Math.min(100, maximum - providerIds.size) });
       const unique = page.messages.filter((message): message is typeof message & { id: string } => typeof message.id === 'string' && !providerIds.has(message.id)).slice(0, maximum - providerIds.size);
       for (const message of unique) providerIds.add(message.id);
-      await mapConcurrent(unique, 4, async reference => {
+      const pageIds = unique.map(reference => reference.id);
+      const existing = pageIds.length ? await query<{ id: string; provider_message_id: string }>(`SELECT m.id,m.provider_message_id
+        FROM messages m JOIN email_accounts a ON a.id=m.account_id
+        WHERE m.account_id=$1 AND a.user_id=$2 AND m.provider_message_id=ANY($3::text[])`, [input.accountId,input.userId,pageIds]) : { rows: [] };
+      const existingProviderIds = new Set(existing.rows.map(row => row.provider_message_id));
+      for (const row of existing.rows) rowIds.add(row.id);
+      const missing = unique.filter(reference => !existingProviderIds.has(reference.id));
+      await mapConcurrent(missing, 4, async reference => {
         const message = await fetchGmailMessage(api, reference.id, 'full', GMAIL_SEARCH_FIELDS);
         if (!message) { errors.push('A search result disappeared before it could be loaded.'); return; }
         const local = localMessageForGmailMessage(message, { accountId: input.accountId, pathByLabelId: paths });

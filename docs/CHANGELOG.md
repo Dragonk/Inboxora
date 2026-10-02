@@ -40,6 +40,11 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Use the RFC dynamic-client default (`client_secret_basic`) when an MCP client omits `token_endpoint_auth_method`.
+- Skip IMAP `\Noselect` containers during server-side search and preserve quoted search tokens as literal phrases instead of parsing them as operators/exclusions.
+- Reuse locally synchronized Gmail search hits and hydrate only missing provider messages, reducing default remote search work from roughly 200 hits to the requested page plus one.
+- Keep the HTTP reverse-proxy listener private by default and refuse MCP/OAuth credentials on that hop unless a TLS proxy forwards `X-Forwarded-Proto: https`.
+- Stabilize the shared compose signature ref so rerenders cannot replace in-progress signature edits.
 - Support OAuth HTTP Basic client credentials as well as public and form-post clients, rejecting mixed credentials and mismatched registered methods.
 - Search cached and provider-held email across Gmail, Microsoft Graph and IMAP; handle literal phrases, recipients, dates and Gmail label scopes, automatically continue retryable provider searches instead of showing a false empty state, and prioritize broad IMAP `\All` mailboxes where available.
 - Preserve attachment bytes, priority and reply identity when creating or replacing drafts through MCP; freeze the sanitized sender signature and allow an AI-supplied per-message signature override or explicit suppression.

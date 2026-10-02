@@ -244,7 +244,7 @@ export async function searchMail(userId: string, input: Record<string, unknown>,
     await mapConcurrent(accounts.filter(account => targetIds.includes(account.id)), 3, async account => {
       try {
         const folders = await remoteSearchFolders(account.id, folderScope, folderFuzzy, access?.folders);
-        const result = await waitForRemoteSearch(() => searchRemoteAccount(account, { query: trimmed, folders, maxResults: Math.min(1000, Math.max(200, off + cap + 1)) }), remoteDeadline);
+        const result = await waitForRemoteSearch(() => searchRemoteAccount(account, { query: trimmed, folders, maxResults: Math.min(1000, Math.max(1, off + cap + 1)) }), remoteDeadline);
         remoteIds.push(...result.rowIds);
         partial ||= result.truncated;
         retryablePartial ||= result.retryable === true;
