@@ -1021,7 +1021,10 @@ async function computeThreadId(accountId: string, messageId: string, inReplyTo: 
        WHERE account_id = $1 AND message_id = ANY($2::text[]) AND thread_id IS NOT NULL`,
     [accountId, candidates]
   );
-  const found = new Map(rows.rows.map(row => [row.message_id, row.thread_id]));
+  const found = new Map();
+  for (const row of rows.rows) {
+    found.set(row.message_id, row.thread_id);
+  }
   for (const candidate of candidates) if (found.has(candidate)) return found.get(candidate);
   return candidates[0];
 }
