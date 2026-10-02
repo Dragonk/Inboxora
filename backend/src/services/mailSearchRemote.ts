@@ -52,3 +52,26 @@ export async function remoteSearchFolders(accountId: string, scope: string | nul
     || folder.path.toLocaleLowerCase().endsWith(`/${scope.toLocaleLowerCase()}`) : folder.path === scope))
     && (allowed == null || allowed.some(item => item.accountId === accountId && item.path === folder.path))).map(folder => folder.path);
 }
+
+
+/** Bound the whole request, not 35 seconds per account in the worker queue.
+ * In-flight, coalesced provider reads retain their own finite transport deadlines.
+ * A late result never mutates the already returned partial response.
+ */
+export async function waitForRemoteSearch(run: () => Promise<RemoteSearchResult>, deadline: number): Promise<RemoteSearchResult> {
+  const partial = (): RemoteSearchResult => ({rowIds:[],truncated:true,errors:['The remote search deadline was reached. Locally synchronized matches are shown; retry to include newly cached server results.']});
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return partial();
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const operation = run().catch(error => {
+    if (expired) console.warn('Late remote mail search failed:', error instanceof Error ? error.name : 'UnknownError');
+    throw error;
+  });
+  try {
+    return await Promise.race([operation, new Promise<RemoteSearchResult>(resolve => {
+      timer = setTimeout(() => { expired = true; resolve(partial()); }, remaining);
+      timer.unref();
+    })]);
+  } finally { if (timer) clearTimeout(timer); }
+}

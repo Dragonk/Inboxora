@@ -1,5 +1,5 @@
 import { mapConcurrent } from '../utils/mapConcurrent.js';
-import { remoteSearchFolders, searchRemoteAccount } from './mailSearchRemote.js';
+import { remoteSearchFolders, searchRemoteAccount, waitForRemoteSearch } from './mailSearchRemote.js';
 import { searchDate } from './mailSearchRemoteQuery.js';
 import { searchFolderCondition, searchFolderAccessCondition, type MailSearchAccess } from './mailSearchAccess.js';
 import { parseSearchQuery, escapeSearchLike, type SearchFilter } from './mailSearchQuery.js';
@@ -239,10 +239,11 @@ export async function searchMail(userId: string, input: Record<string, unknown>,
   try {
     // A full cached page cannot prove coverage: newer server matches or a
     // different account may be entirely absent from the local sync window.
+    const remoteDeadline = Date.now() + 8000;
     await mapConcurrent(accounts.filter(account => targetIds.includes(account.id)), 3, async account => {
       try {
         const folders = await remoteSearchFolders(account.id, folderScope, folderFuzzy, access?.folders);
-        const result = await searchRemoteAccount(account, { query: trimmed, folders, maxResults: Math.min(1000, Math.max(200, off + cap + 1)) });
+        const result = await waitForRemoteSearch(() => searchRemoteAccount(account, { query: trimmed, folders, maxResults: Math.min(1000, Math.max(200, off + cap + 1)) }), remoteDeadline);
         remoteIds.push(...result.rowIds);
         partial ||= result.truncated;
         if (result.errors?.length) providerErrors.push({ accountId: account.id, code: 'SEARCH_INCOMPLETE', error: result.errors.join(' ') });
