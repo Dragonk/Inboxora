@@ -60,8 +60,8 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   await popup.getByRole('button',{name:'Edit message',exact:true}).click();
   await popup.getByLabel('To').fill('edited@example.test');
   await popup.getByLabel('Subject').fill('Edited subject');
-  await popup.getByTestId('mcp-mail-body-editor').fill('Edited body');
-  await popup.getByTestId('mcp-mail-signature-editor').fill('Edited signature');
+  await popup.getByTestId('mcp-mail-body-editor').locator('[contenteditable=true]').fill('Edited body');
+  await popup.getByTestId('mcp-mail-signature-editor').locator('[contenteditable=true]').fill('Edited signature');
   await popup.getByRole('button',{name:'Save changes',exact:true}).click();
   await expect(popup.getByText('edited@example.test',{exact:true})).toBeVisible();
   await expect(popup.getByText('Edited subject',{exact:true})).toBeVisible();
