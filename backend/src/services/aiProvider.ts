@@ -294,7 +294,6 @@ export function createAiProvider({
       messages,
       ...(Number.isFinite(maxTokens) ? { max_tokens: maxTokens } : {}),
       stream: false,
-      think: false,
     };
     const request = await openApiKeyRequest(`${config.apiKeyConfig.baseUrl}/chat/completions`, {
       method: 'POST',
