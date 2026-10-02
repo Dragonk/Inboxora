@@ -1,3 +1,4 @@
+import { domainRead } from './bridge.js';
 import 'express-async-errors';
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type Server as HttpServer } from 'node:http';
@@ -129,6 +130,41 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     await expect(oauthProvider.verifyAccessToken(grant.token)).rejects.toThrow(/revoked|expired/);
     expect((await browser(`/operations/${operationId}/decision`,{approve:true})).status).toBe(409);
     expect((await query<{state:string}>('SELECT state FROM mcp_operations WHERE id=$1',[operationId])).rows[0].state).toBe('denied');
+  });
+  it('executes real local calendar and contact CRUD through the MCP domain bridge', async () => {
+    const calendarId = randomUUID(); const bookId = randomUUID();
+    await query("INSERT INTO calendars(id,user_id,owner_user_id,name,source) VALUES($1,$2,$2,'MCP calendar','local')",[calendarId,userId]);
+    await query("INSERT INTO address_books(id,user_id,name,source) VALUES($1,$2,'MCP contacts','local')",[bookId,userId]);
+    const grant = await token('Local domain tools',{scopes:['calendar.read','calendar.write','contacts.read','contacts.write'],requireConfirmation:false,
+      restrictions:{calendars:[calendarId],addressBooks:[bookId],accounts:[]}});
+    const client = await connect(grant.token);
+    const invoke = async (name:string,args:Record<string,unknown>) => {
+      const response = await client.callTool({name,arguments:{...args,requestId:randomUUID()}});
+      const result = record(response.structuredContent);
+      expect(result, JSON.stringify(response)).toMatchObject({state:'succeeded'});
+      return record(record(result.result).body);
+    };
+    const event = {calendarId,summary:'Synthetic appointment',startsAt:'2026-10-03T10:00:00Z',endsAt:'2026-10-03T11:00:00Z',
+      description:'MCP integration fixture',location:null,url:null,organizer:null,allDay:false,timezone:'Europe/Warsaw',attendees:[],sendInvites:false};
+    await invoke('create_event',event);
+    const stored = (await query<{id:string;etag:string}>("SELECT id,etag FROM calendar_events WHERE calendar_id=$1 AND summary='Synthetic appointment'",[calendarId])).rows[0];
+    expect(stored).toBeDefined();
+    console.log('Synthetic calendar response:', JSON.stringify(await domainRead(userId, `/calendar/events?from=2026-10-03T00%3A00%3A00Z&to=2026-10-04T00%3A00%3A00Z&calendarIds=${calendarId}`)));
+    const listed = await client.callTool({name:'list_events',arguments:{from:'2026-10-03T00:00:00Z',to:'2026-10-04T00:00:00Z'}});
+    expect(record(listed.structuredContent).events).toEqual(expect.arrayContaining([expect.objectContaining({summary:'Synthetic appointment'})]));
+    await invoke('update_event',{...event,eventId:stored.id,expectedEtag:stored.etag,summary:'Changed appointment'});
+    const updated = (await query<{etag:string}>('SELECT etag FROM calendar_events WHERE id=$1',[stored.id])).rows[0];
+    await invoke('delete_event',{calendarId,eventId:stored.id,expectedEtag:updated.etag});
+    expect((await query('SELECT id FROM calendar_events WHERE id=$1',[stored.id])).rows).toEqual([]);
+    await invoke('create_contact',{addressBookId:bookId,displayName:'Synthetic Contact',emails:[{value:'synthetic@example.test'}]});
+    const contact = (await query<{id:string;etag:string}>("SELECT id,etag FROM contacts WHERE address_book_id=$1 AND display_name='Synthetic Contact'",[bookId])).rows[0];
+    expect(contact).toBeDefined();
+    const found = await client.callTool({name:'search_contacts',arguments:{query:'synthetic'}});
+    expect(record(found.structuredContent).contacts).toEqual(expect.arrayContaining([expect.objectContaining({id:contact.id})]));
+    await invoke('update_contact',{contactId:contact.id,expectedEtag:contact.etag,displayName:'Updated Contact'});
+    const fresh = (await query<{etag:string}>('SELECT etag FROM contacts WHERE id=$1',[contact.id])).rows[0];
+    await invoke('delete_contact',{contactId:contact.id,expectedEtag:fresh.etag});
+    expect((await query('SELECT id FROM contacts WHERE id=$1',[contact.id])).rows).toEqual([]);
   });
   it('runs OAuth with S256, exact redirect/resource binding, rotation and replay revocation', async () => {
     const registration = await fetch(`${origin}/oauth/mcp/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'SDK OAuth test',redirect_uris:['http://127.0.0.1:34567/callback'],token_endpoint_auth_method:'none',grant_types:['authorization_code','refresh_token'],response_types:['code']})});
