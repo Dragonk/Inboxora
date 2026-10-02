@@ -13,6 +13,7 @@ import { useStore } from '../store/index.ts';
 import { createComposeTransactionGuard } from '../utils/composeTransactionGuard.ts';
 import { isDefiniteQueueRejection } from '../utils/queuedSubmission.ts';
 import SchedulePicker from './SchedulePicker.tsx';
+import ComposeSignatureField from './ComposeSignatureField.tsx';
 import { scheduledActionErrorKey } from '../utils/scheduledMail.ts';
 import { Button, Dialog } from './ui.tsx';
 import SendSplitButton from './SendSplitButton.tsx';
@@ -1625,23 +1626,16 @@ export default function ComposeModal() {
     else { setShowCcBccMenu(false); setCcBccMenuPos(null); }
   }, 2101);
 
-  const renderSignatureEditor = () => plaintextCompose ? (
-    <textarea
-      value={plainSig}
-      onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setPlainSig(e.target.value)}
-      style={{
-        width: '100%', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6,
-        background: 'transparent', border: 'none', outline: 'none', resize: 'none',
-        fontFamily: 'var(--font-sans, DM Sans, sans-serif)', boxSizing: 'border-box',
+  const renderSignatureEditor = () => (
+    <ComposeSignatureField
+      html={!plaintextCompose}
+      value={plaintextCompose ? plainSig : signatureContentRef.current}
+      disabled={editorFrozen}
+      htmlRef={signatureRef}
+      onChange={value => {
+        if (plaintextCompose) setPlainSig(value);
+        else { signatureContentRef.current = value; recordDraftEdit(); }
       }}
-    />
-  ) : (
-    <div
-      ref={signatureRef}
-      contentEditable={!editorFrozen}
-      spellCheck={false}
-      onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; recordDraftEdit(); }}
-      style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
   );
 
@@ -3028,7 +3022,7 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled = false, onAiAction, aiPanelOpen }: { editor: Editor; onAttach: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled?: boolean; onAiAction: (id: AiAction) => void; aiPanelOpen: boolean }) {
+export function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled = false, onAiAction = () => {}, aiPanelOpen = false }: { editor: Editor; onAttach?: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled?: boolean; onAiAction?: (id: AiAction) => void; aiPanelOpen?: boolean }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
@@ -3670,7 +3664,7 @@ function AttachmentChips({ attachments, onRemove, onPreview, mobile = false }: {
 }
 
 /** Render editable recipient chips with suggestions and an accessible, independently testable text input. */
-function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { disabled?: boolean; inputTestId?: string; chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
+export function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined, ariaLabel }: { disabled?: boolean; inputTestId?: string; ariaLabel?: string; chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const disabledRef = useRef(disabled);
@@ -3826,6 +3820,7 @@ function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value,
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
           <button
             type="button"
+            aria-label={`${t('common.remove')} ${chip}`}
             disabled={disabled}
             onClick={() => onChipsChange(chips.filter((_, j) => j !== i))}
             style={{ background: 'none', border: 'none', padding: '1px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0, borderRadius: '50%' }}
@@ -3839,6 +3834,7 @@ function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value,
       <input
         ref={inputRef}
         data-testid={inputTestId}
+        aria-label={ariaLabel}
         disabled={disabled}
         type="text"
         value={value}

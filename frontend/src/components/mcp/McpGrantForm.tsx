@@ -5,8 +5,8 @@ import { inputStyle } from '../ui.tsx';
 import { Switch } from '../accountUi/AccountUi.tsx';
 import { MCP_RESOURCE_KEYS, MCP_SCOPE_KEYS, MCP_SCOPES, type McpGrantInput, type McpResources, type McpScope } from '../../utils/mcp.ts';
 
-interface Props { value: McpGrantInput; onChange: (value: McpGrantInput) => void; resources: McpResources; allowedScopes?: readonly McpScope[]; disabled?: boolean; }
-export default function McpGrantForm({ value, onChange, resources, allowedScopes = MCP_SCOPES, disabled = false }: Props) {
+interface Props { value: McpGrantInput; onChange: (value: McpGrantInput) => void; resources: McpResources; allowedScopes?: readonly McpScope[]; disabled?: boolean; showIdentityFields?: boolean; }
+export default function McpGrantForm({ value, onChange, resources, allowedScopes = MCP_SCOPES, disabled = false, showIdentityFields = true }: Props) {
   const { t } = useTranslation(); const prefix = useId();
   const selectIds = (key: 'accounts' | 'calendars' | 'addressBooks', items: { id: string; name: string }[]) => {
     const selected = value.restrictions[key];
@@ -22,7 +22,7 @@ export default function McpGrantForm({ value, onChange, resources, allowedScopes
   };
   const folders = resources.folders.filter(folder => value.restrictions.accounts === null || value.restrictions.accounts.includes(folder.account_id));
   return <div className="mcp-form">
-    <label htmlFor={`${prefix}-name`}>{t('mcp.name')}<input id={`${prefix}-name`} style={inputStyle} maxLength={120} value={value.name} disabled={disabled} autoComplete="off" onChange={event => onChange({ ...value, name: event.target.value })}/></label>
+    {showIdentityFields && <label htmlFor={`${prefix}-name`}>{t('mcp.name')}<input id={`${prefix}-name`} style={inputStyle} maxLength={120} value={value.name} disabled={disabled} autoComplete="off" onChange={event => onChange({ ...value, name: event.target.value })}/></label>}
     <fieldset className="mcp-fieldset"><legend>{t('mcp.permissions')}</legend><div className="mcp-scope-grid">
       {allowedScopes.map(scope => <label key={scope} className="mcp-check"><input type="checkbox" checked={value.scopes.includes(scope)} disabled={disabled}
         onChange={event => onChange({ ...value, scopes: event.target.checked ? [...value.scopes, scope] : value.scopes.filter(item => item !== scope) })}/>
@@ -45,7 +45,7 @@ export default function McpGrantForm({ value, onChange, resources, allowedScopes
     </fieldset>
     <div className="mcp-confirm-setting"><span>{t('mcp.confirmWrites')}</span><Switch checked={value.requireConfirmation} disabled={disabled} onChange={checked => onChange({ ...value, requireConfirmation: checked })} label={t('mcp.confirmWrites')}/></div>
     {!value.requireConfirmation && <p role="alert" className="mcp-warning">{t('mcp.unattendedWarning')}</p>}
-    <label htmlFor={`${prefix}-expiry`}>{t('mcp.expiresDays')}<input id={`${prefix}-expiry`} style={inputStyle} type="number" min={1} max={365} step={1} value={value.expiresInDays} disabled={disabled}
-      onChange={event => onChange({ ...value, expiresInDays: Number(event.target.value) })}/></label>
+    {showIdentityFields && <label htmlFor={`${prefix}-expiry`}>{t('mcp.expiresDays')}<input id={`${prefix}-expiry`} style={inputStyle} type="number" min={1} max={365} step={1} value={value.expiresInDays} disabled={disabled}
+      onChange={event => onChange({ ...value, expiresInDays: Number(event.target.value) })}/></label>}
   </div>;
 }

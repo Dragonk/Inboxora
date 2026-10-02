@@ -33,6 +33,9 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
 
 ### Changed
+- Group AI settings under a new **AI Features** tab with horizontal **AI Assistant**, **AI Actions** and **External AI integrations (MCP)** subtabs; MCP uses the same settings hierarchy and spacing as the rest of Inboxora.
+- Existing MCP connections expose their live scope/resource checkboxes for review and editing. Permission changes apply immediately and cancel pending approvals prepared under the previous permissions.
+- MCP mail approval now reuses the composer recipient chips and signature surface, keeps the signature inline below the message body, and no longer requires a redundant “reviewed” checkbox before Approve/Reject.
 - PDF opens at 100%; compact icon toolbars combine filename/download actions and adapt search to desktop and mobile.
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 

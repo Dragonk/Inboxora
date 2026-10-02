@@ -107,6 +107,30 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     expect(JSON.stringify(forbidden._meta)).toContain('insufficient_scope');
     expect((await client.readResource({ uri:'inboxora://guide' })).contents[0]).toMatchObject({ mimeType:'text/plain' });
   });
+  it('lets the browser edit live integration permissions and cancels approvals prepared under the old grant', async () => {
+    const created = await token('editable permissions', { scopes:['mail.read'], requireConfirmation:true });
+    const client = await connect(created.token);
+    expect((await client.listTools()).tools.some(tool => tool.name==='test_write')).toBe(false);
+
+    const restrictions = { accounts:[accountId], folders:null, calendars:null, addressBooks:null };
+    const expanded = await browser(`/grants/${created.id}`, { scopes:['mail.read','mail.send'], restrictions, requireConfirmation:true });
+    expect(expanded.status).toBe(200);
+    expect(record(record(await expanded.json()).grant).scopes).toEqual(['mail.read','mail.send']);
+    expect((await client.listTools()).tools.some(tool => tool.name==='test_write')).toBe(true);
+
+    const args = { accountId, subject:'Prepared before permission edit', requestId:randomUUID() };
+    const pending = record((await client.callTool({name:'test_write',arguments:args})).structuredContent);
+    expect(pending.state).toBe('pending');
+
+    const reduced = await browser(`/grants/${created.id}`, { scopes:['mail.read'], restrictions, requireConfirmation:true });
+    expect(reduced.status).toBe(200);
+    expect((await client.listTools()).tools.some(tool => tool.name==='test_write')).toBe(false);
+    expect((await query<{state:string}>('SELECT state FROM mcp_operations WHERE id=$1',[pending.operationId])).rows[0].state).toBe('denied');
+
+    const foreign = await browser(`/grants/${created.id}`, { scopes:['mail.read'], restrictions:{...restrictions,accounts:[foreignAccountId]}, requireConfirmation:true });
+    expect(foreign.status).toBe(403);
+  });
+
   it('releases concurrency slots after repeated protocol construction failures', async () => {
     const grant = await token('Construction failure test');
     serverCreationFailures = 5;

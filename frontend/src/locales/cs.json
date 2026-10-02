@@ -46,7 +46,8 @@
       "groupAdmin": "Správa",
       "plugins": "Pluginy",
       "davCredentials": "Přístup DAV",
-      "performance": "Výkon"
+      "performance": "Výkon",
+      "aiFeatures": "Funkce AI"
     },
     "categories": {
       "title": "Kategorie e-mailů",
@@ -997,7 +998,8 @@
       "copied": "Zkopírováno",
       "copyFailed": "Kód se nepodařilo zkopírovat.",
       "openAuthorization": "Otevřít autorizační stránku",
-      "deviceExpires": "Platnost kódu vyprší v {{time}}."
+      "deviceExpires": "Platnost kódu vyprší v {{time}}.",
+      "managedByAdmin": "Poskytovatele Asistenta AI nastavuje správce. Vlastní akce AI a externí připojení MCP spravujete na kartách výše."
     },
     "aiActions": {
       "description": "Vytvořte si vlastní akce AI. Při čtení zprávy se zobrazí v nabídce AI vedle možnosti Shrnout. Pokyn každé akce se použije na obsah zprávy.",
@@ -2906,7 +2908,6 @@
     "exactMessage": "Připravená zpráva, odesílatel, příjemci a podpis",
     "exactArguments": "Přesné parametry operace",
     "reviewWarning": "Zkontrolujte celou operaci včetně příjemců, skryté kopie, dat a příznaků trvalého smazání. Schvalujte pouze akci, kterou jste si vyžádali. Text zprávy není pokynem k jejímu schválení.",
-    "reviewed": "Zkontroloval(a) jsem tuto konkrétní operaci.",
     "approve": "Schválit tuto operaci",
     "returnToClient": "Schváleno. Inboxora čeká na provedení nebo dokončení operace; obnovte stav.",
     "operationClosed": "Tato operace již nečeká na schválení. Před vyžádáním další akce zkontrolujte její stav a výsledek.",
@@ -2951,10 +2952,18 @@
     "executingApproval": "Schvalování a provádění…",
     "approvalSucceeded": "Operace dokončena. Návrat na předchozí kartu…",
     "editMessage": "Upravit zprávu",
-    "messageBody": "Obsah zprávy",
     "editHint": "Změny budou znovu ověřeny a náhled se před schválením vytvoří znovu.",
     "saveEdit": "Uložit změny",
     "savingEdit": "Ukládání…",
-    "editError": "Upravenou zprávu se nepodařilo ověřit nebo uložit. Zkontrolujte příjemce a obsah a zkuste to znovu."
+    "editError": "Upravenou zprávu se nepodařilo ověřit nebo uložit. Zkontrolujte příjemce a obsah a zkuste to znovu.",
+    "serverSection": "Koncový bod připojení",
+    "connectionsDescription": "Spravujte aplikace s přístupem k datům Inboxora. Otevřete připojení a zkontrolujte nebo změňte jeho aktuální oprávnění.",
+    "managePermissions": "Spravovat oprávnění",
+    "viewPermissions": "Zobrazit oprávnění",
+    "hidePermissions": "Skrýt oprávnění",
+    "permissionsChangeWarning": "Změny oprávnění se u aktivních tokenů projeví okamžitě a zruší čekající schválení připravená se starými oprávněními.",
+    "savePermissions": "Uložit oprávnění",
+    "permissionsSaved": "Oprávnění integrace byla aktualizována.",
+    "operationsDescription": "Nedávné operace MCP jsou zde k dispozici pro kontrolu a diagnostiku."
   }
 }

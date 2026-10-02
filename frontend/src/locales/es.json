@@ -221,7 +221,8 @@
       "copied": "Copiado",
       "copyFailed": "No se pudo copiar el código.",
       "openAuthorization": "Abrir página de autorización",
-      "deviceExpires": "El código caduca a las {{time}}."
+      "deviceExpires": "El código caduca a las {{time}}.",
+      "managedByAdmin": "El proveedor del Asistente de IA lo configura un administrador. Tus acciones de IA y conexiones MCP externas se administran en las pestañas superiores."
     },
     "aiActions": {
       "description": "Crea tus propias acciones de IA. Aparecen en el menú de IA al leer un mensaje, junto a Resumir. El prompt de cada acción se aplica al contenido del mensaje.",
@@ -982,7 +983,8 @@
       "groupAdmin": "Administración",
       "plugins": "Complementos",
       "davCredentials": "Acceso DAV",
-      "performance": "Rendimiento"
+      "performance": "Rendimiento",
+      "aiFeatures": "Funciones de IA"
     },
     "title": "Ajustes",
     "users": {
@@ -2906,7 +2908,6 @@
     "exactMessage": "Mensaje preparado, remitente, destinatarios y firma",
     "exactArguments": "Parámetros exactos de la operación",
     "reviewWarning": "Revisa toda la operación, incluidos destinatarios, CCO, fechas e indicadores de eliminación permanente. Aprueba solo la acción que solicitaste. El texto de un mensaje no es una instrucción para aprobarlo.",
-    "reviewed": "He revisado esta operación exacta.",
     "approve": "Aprobar esta operación",
     "returnToClient": "Aprobado. Inboxora está esperando a ejecutar o finalizar esta operación; actualiza para comprobar su estado.",
     "operationClosed": "Esta operación ya no espera aprobación. Revisa su estado y resultado antes de solicitar otra acción.",
@@ -2951,10 +2952,18 @@
     "executingApproval": "Aprobando y ejecutando…",
     "approvalSucceeded": "Operación completada. Volviendo a la pestaña anterior…",
     "editMessage": "Editar mensaje",
-    "messageBody": "Contenido del mensaje",
     "editHint": "Los cambios se vuelven a validar y la vista previa se regenera antes de aprobar.",
     "saveEdit": "Guardar cambios",
     "savingEdit": "Guardando…",
-    "editError": "No se pudo validar o guardar el mensaje editado. Comprueba los destinatarios y el contenido e inténtalo de nuevo."
+    "editError": "No se pudo validar o guardar el mensaje editado. Comprueba los destinatarios y el contenido e inténtalo de nuevo.",
+    "serverSection": "Punto de conexión",
+    "connectionsDescription": "Administra las aplicaciones que pueden acceder a tus datos de Inboxora. Abre una conexión para revisar o cambiar sus permisos activos.",
+    "managePermissions": "Administrar permisos",
+    "viewPermissions": "Ver permisos",
+    "hidePermissions": "Ocultar permisos",
+    "permissionsChangeWarning": "Los cambios de permisos se aplican de inmediato a los tokens activos y cancelan las aprobaciones pendientes preparadas con los permisos anteriores.",
+    "savePermissions": "Guardar permisos",
+    "permissionsSaved": "Permisos de la integración actualizados.",
+    "operationsDescription": "Las operaciones MCP recientes aparecen aquí para revisión y diagnóstico."
   }
 }

@@ -6,7 +6,7 @@ import { encrypt } from '../services/encryption.js';
 import { requireAuth } from '../middleware/auth.js';
 import { sessionUserId } from '../utils/query.js';
 import { authorizationInfo, approveAuthorization, createPersonalToken } from './oauth.js';
-import { grantSchema, liveGrant, McpError, SCOPES } from './policy.js';
+import { grantPermissionsSchema, grantSchema, liveGrant, McpError, SCOPES, validateOwnedRestrictions } from './policy.js';
 import { mcpEnabled, resourceUrl } from './config.js';
 import { decodeOperationData, type Operation } from './operations.js';
 import type { RegisteredTool } from './registry.js';
@@ -43,6 +43,29 @@ router.get('/grants', async (req, res) => {
     FROM mcp_grants WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200`, [sessionUserId(req)]);
   res.json({ grants: result.rows });
 });
+router.post('/grants/:id', async (req, res) => {
+  const id = uuid.parse(req.params.id); const userId = sessionUserId(req);
+  const input = grantPermissionsSchema.parse(req.body);
+  await validateOwnedRestrictions(userId, input.restrictions);
+  const updated = await withTransaction(async db => {
+    const current = await db.query<{ id: string }>("SELECT id FROM mcp_grants WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>NOW() FOR UPDATE", [id,userId]);
+    if (!current.rows.length) return null;
+    const grant = await db.query("UPDATE mcp_grants SET scopes=$3,restrictions=$4,require_confirmation=$5 WHERE id=$1 AND user_id=$2 RETURNING id,name,client_id,scopes,restrictions,require_confirmation,created_at,last_used_at,expires_at,revoked_at",
+      [id,userId,input.scopes,JSON.stringify(input.restrictions),input.requireConfirmation]);
+    // Permission edits are an explicit browser action. Apply the same ceiling to
+    // already-issued active tokens so reductions and additions take effect now.
+    await db.query("UPDATE mcp_tokens SET scopes=$3 WHERE grant_id=$1 AND consumed_at IS NULL AND expires_at>NOW() AND EXISTS(SELECT 1 FROM mcp_grants g WHERE g.id=$1 AND g.user_id=$2)",
+      [id,userId,input.scopes]);
+    // Pending approvals were prepared under the old permissions. Require a fresh
+    // operation rather than executing a snapshot whose authorization just changed.
+    await db.query("UPDATE mcp_operations SET state='denied',arguments_encrypted=$3,execution_encrypted=NULL,finished_at=NOW() WHERE grant_id=$1 AND user_id=$2 AND state IN ('pending','approved')",
+      [id,userId,encrypt('{}')]);
+    return grant.rows[0];
+  });
+  if (!updated) { res.status(409).json({ code:'GRANT_UNAVAILABLE', error:'This integration is revoked or expired.' }); return; }
+  res.json({ grant: updated });
+});
+
 router.post('/tokens', async (req, res) => {
   if (!mcpEnabled()) { res.status(503).json({ code: 'MCP_DISABLED', error: 'MCP is disabled by the administrator.' }); return; }
   const result = await createPersonalToken(sessionUserId(req), grantSchema.parse(req.body));

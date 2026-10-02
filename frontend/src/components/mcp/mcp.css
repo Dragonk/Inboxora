@@ -56,3 +56,40 @@
 .mcp-mail-signature-editor { min-height:72px; max-height:220px; }
 .mcp-mail-editor-hint { margin:8px 0 0; font-size:11px; color:var(--text-tertiary)!important; }
 @media(max-width:700px){.mcp-mail-editor-grid{grid-template-columns:1fr}.mcp-mail-editor-wide{grid-column:auto}}
+
+/* Settings surface: mirror the spacing and hierarchy used by the other settings tabs. */
+.mcp-settings-panel { max-width:760px; margin:0; }
+.mcp-settings-heading,.mcp-settings-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.mcp-settings-heading { margin-bottom:24px; }
+.mcp-settings-heading h2,.mcp-settings-section h3 { margin-top:0; }
+.mcp-settings-heading p,.mcp-settings-section-heading p { margin:4px 0 0; }
+.mcp-settings-section { padding:0 0 28px; margin:0 0 28px; border-bottom:1px solid var(--border-subtle); }
+.mcp-settings-section:last-child { border-bottom:0; margin-bottom:0; }
+.mcp-editor-card,.mcp-permission-editor { margin:14px 0; padding:16px; border:1px solid var(--border-subtle); border-radius:9px; background:var(--bg-secondary); }
+.mcp-connection-list,.mcp-operation-list { display:grid; gap:10px; margin-top:14px; }
+.mcp-connection-card { padding:14px 16px; border:1px solid var(--border); border-radius:9px; background:var(--bg-primary); }
+.mcp-connection-meta { margin-top:4px; color:var(--text-tertiary); font-size:11px; }
+.mcp-status { font-size:11px; color:var(--text-tertiary); border:1px solid var(--border); border-radius:999px; padding:3px 8px; }
+.mcp-status-active { color:var(--green); }
+.mcp-scope-summary { display:flex; flex-wrap:wrap; gap:5px; margin:12px 0 4px; }
+.mcp-scope-summary span { padding:3px 7px; border-radius:999px; background:var(--bg-secondary); border:1px solid var(--border-subtle); color:var(--text-secondary); font-size:11px; }
+.mcp-permission-editor { background:var(--bg-secondary); }
+.mcp-permission-note,.mcp-inline-warning { color:var(--text-tertiary)!important; font-size:12px; }
+.mcp-operation-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:12px; align-items:center; padding:10px 12px; border:1px solid var(--border-subtle); border-radius:8px; background:var(--bg-primary); font-size:12px; }
+.mcp-operation-row div { min-width:0; }
+.mcp-operation-row small { display:block; margin-top:3px; color:var(--text-tertiary); }
+@media(max-width:700px){
+  .mcp-settings-heading,.mcp-settings-section-heading { flex-direction:column; align-items:stretch; }
+  .mcp-operation-row { grid-template-columns:minmax(0,1fr) auto; }
+  .mcp-operation-row a { grid-column:1/-1; }
+}
+
+.mcp-compose-editor { border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated); overflow:hidden; margin:14px 0; }
+.mcp-compose-header { padding:10px 14px; border-bottom:1px solid var(--border-subtle); display:flex; flex-direction:column; gap:3px; color:var(--text-secondary); font-size:12px; }
+.mcp-compose-header strong { color:var(--text-primary); font-size:13px; }
+.mcp-compose-row { display:grid; grid-template-columns:42px minmax(0,1fr); gap:8px; align-items:center; padding:0 14px; border-bottom:1px solid var(--border-subtle); font-size:12px; color:var(--text-tertiary); }
+.mcp-compose-subject { padding:0 14px; border-bottom:1px solid var(--border-subtle); }
+.mcp-compose-subject input { width:100%; box-sizing:border-box; border:0; background:transparent; color:var(--text-primary); padding:10px 0; outline:none; font-size:13px; }
+.mcp-compose-body { padding:10px 14px 12px; }
+.mcp-compose-signature { padding:0 2px 4px; }
+.mcp-compose-signature-label { margin:8px 0 6px; font-size:11px; color:var(--text-tertiary); user-select:none; }

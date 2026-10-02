@@ -24,11 +24,11 @@ The additive migration `0167_mcp_authorization.sql` is applied by the normal bac
 
 ## Create a connection
 
-Open **Settings → AI → External AI integrations (MCP)**. The endpoint is shown there. Choose only the permissions and resources the application needs. Each connection has its own expiration and can be revoked immediately.
+Open **Settings → AI Features → External AI integrations (MCP)**. The endpoint is shown there. Choose only the permissions and resources the application needs. Each connection has its own expiration and can be revoked immediately.
 
 Read permissions are selected initially. Write approval is enabled initially. An empty resource selection means **no access**, while “all” includes current and future resources of that type. Accounts, account/folder pairs, calendars and address books can be restricted independently. A folder's display name is not a permission: its exact account and path are checked. Gmail permissions use current labels rather than the legacy storage folder of an archived message.
 
-A grant is immutable. To change its permissions, revoke it and reconnect. Native provider, DAV and subscribed-calendar read-only restrictions still apply even when a connection has a write scope.
+Existing connections can be opened in **Settings → AI Features → External AI integrations (MCP)** to review or change their live scope/resource checkboxes. Changes apply immediately to active tokens. Inboxora cancels pending approvals prepared under the previous permission set so they cannot be approved after access changed. Revoking still invalidates the whole connection. Native provider, DAV and subscribed-calendar read-only restrictions still apply even when a connection has a write scope.
 
 ### ChatGPT
 
@@ -92,7 +92,7 @@ Reply recipients are explicit: read the original headers, then provide the inten
 
 ## Write approval and retry safety
 
-Each mutation requires a stable `requestId` identifying one exact intended operation. With approval enabled, the first call records a pending operation and returns an Inboxora URL. The user signs in, reviews the resolved operation and approves or denies it. For outgoing mail, the approval page uses Inboxora's message presentation, shows sender/recipients/BCC/subject/body/signature/attachments, and lets the user edit recipients, subject, rich message body and signature before approval. Every edit is revalidated and re-prepared server-side so the refreshed preview is the exact frozen payload that can be sent. A bearer token and the model cannot approve an operation. Clicking **Approve** is the final user action: Inboxora atomically claims and executes that frozen operation immediately. The AI client may poll `get_operation` or repeat the same `requestId` only to read the durable receipt; it does not need to submit the mutation again.
+Each mutation requires a stable `requestId` identifying one exact intended operation. With approval enabled, the first call records a pending operation and returns an Inboxora URL. The user signs in, reviews the resolved operation and approves or denies it. For outgoing mail, the approval page uses Inboxora's message presentation and the same recipient-chip/signature controls as the normal composer. It shows sender/recipients/BCC/subject/body/signature/attachments and lets the user edit recipients, subject, rich message body and the inline composer signature before approval. Every edit is revalidated and re-prepared server-side so the refreshed preview is the exact frozen payload that can be sent. A bearer token and the model cannot approve an operation. Clicking **Approve** is the final user action: Inboxora atomically claims and executes that frozen operation immediately. The AI client may poll `get_operation` or repeat the same `requestId` only to read the durable receipt; it does not need to submit the mutation again.
 
 The AI client's original arguments cannot be changed under an existing request ID. Human edits made inside the Inboxora approval page are stored only in the encrypted prepared snapshot and are revalidated before they replace the pending preview. The server checks current permissions again before dispatch and uses an atomic state transition to prevent concurrent duplicate dispatches. A provider timeout or uncertain SMTP outcome is not reported as definitely unsent. Never change the request ID to retry an `executing`, `partial` or `uncertain` operation. Inspect Inboxora and the provider first. Already dispatched external actions cannot be undone by revoking the connection.
 

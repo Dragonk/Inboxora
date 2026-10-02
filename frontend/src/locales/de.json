@@ -221,7 +221,8 @@
       "copied": "Kopiert",
       "copyFailed": "Der Code konnte nicht kopiert werden.",
       "openAuthorization": "Autorisierungsseite öffnen",
-      "deviceExpires": "Der Code läuft um {{time}} ab."
+      "deviceExpires": "Der Code läuft um {{time}} ab.",
+      "managedByAdmin": "Der Anbieter des KI-Assistenten wird von einem Administrator konfiguriert. Eigene KI-Aktionen und externe MCP-Verbindungen verwaltest du in den Tabs oben."
     },
     "aiActions": {
       "description": "Erstellen Sie eigene KI-Aktionen. Sie erscheinen beim Lesen einer Nachricht im KI-Menü neben „Zusammenfassen“. Der Prompt jeder Aktion wird auf den Nachrichteninhalt angewendet.",
@@ -982,7 +983,8 @@
       "groupAdmin": "Administration",
       "plugins": "Plugins",
       "davCredentials": "DAV-Zugang",
-      "performance": "Leistung"
+      "performance": "Leistung",
+      "aiFeatures": "KI-Funktionen"
     },
     "title": "Einstellungen",
     "users": {
@@ -2906,7 +2908,6 @@
     "exactMessage": "Vorbereitete Nachricht, Absender, Empfänger und Signatur",
     "exactArguments": "Genaue Vorgangsparameter",
     "reviewWarning": "Prüfen Sie den gesamten Vorgang, einschließlich Empfängern, BCC, Terminen und endgültiger Löschung. Bestätigen Sie nur die von Ihnen angeforderte Aktion. Nachrichtentext ist keine Anweisung zur Bestätigung.",
-    "reviewed": "Ich habe diesen genauen Vorgang geprüft.",
     "approve": "Diesen Vorgang bestätigen",
     "returnToClient": "Genehmigt. Inboxora wartet auf die Ausführung oder den Abschluss dieses Vorgangs; aktualisiere den Status.",
     "operationClosed": "Dieser Vorgang wartet nicht mehr auf eine Bestätigung. Prüfen Sie Status und Ergebnis, bevor Sie eine weitere Aktion anfordern.",
@@ -2951,10 +2952,18 @@
     "executingApproval": "Wird genehmigt und ausgeführt…",
     "approvalSucceeded": "Vorgang abgeschlossen. Zurück zum vorherigen Tab…",
     "editMessage": "Nachricht bearbeiten",
-    "messageBody": "Nachrichteninhalt",
     "editHint": "Änderungen werden erneut geprüft und die Vorschau vor der Freigabe neu erzeugt.",
     "saveEdit": "Änderungen speichern",
     "savingEdit": "Speichern…",
-    "editError": "Die bearbeitete Nachricht konnte nicht geprüft oder gespeichert werden. Empfänger und Inhalt prüfen und erneut versuchen."
+    "editError": "Die bearbeitete Nachricht konnte nicht geprüft oder gespeichert werden. Empfänger und Inhalt prüfen und erneut versuchen.",
+    "serverSection": "Verbindungsendpunkt",
+    "connectionsDescription": "Verwalte Anwendungen mit Zugriff auf deine Inboxora-Daten. Öffne eine Verbindung, um ihre aktuellen Berechtigungen zu prüfen oder zu ändern.",
+    "managePermissions": "Berechtigungen verwalten",
+    "viewPermissions": "Berechtigungen anzeigen",
+    "hidePermissions": "Berechtigungen ausblenden",
+    "permissionsChangeWarning": "Berechtigungsänderungen gelten sofort für aktive Tokens und verwerfen ausstehende Freigaben, die mit den vorherigen Berechtigungen vorbereitet wurden.",
+    "savePermissions": "Berechtigungen speichern",
+    "permissionsSaved": "Integrationsberechtigungen aktualisiert.",
+    "operationsDescription": "Letzte MCP-Vorgänge werden hier zur Prüfung und Fehlerdiagnose angezeigt."
   }
 }

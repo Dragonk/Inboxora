@@ -46,7 +46,8 @@
       "groupAdmin": "Administracja",
       "plugins": "Wtyczki",
       "davCredentials": "Dostęp DAV",
-      "performance": "Wydajność"
+      "performance": "Wydajność",
+      "aiFeatures": "Funkcje AI"
     },
     "rules": {
       "valuePlaceholder": "Wartość",
@@ -673,7 +674,8 @@
       "copied": "Skopiowano",
       "copyFailed": "Nie udało się skopiować kodu.",
       "openAuthorization": "Otwórz stronę autoryzacji",
-      "deviceExpires": "Kod wygasa {{time}}."
+      "deviceExpires": "Kod wygasa {{time}}.",
+      "managedByAdmin": "Dostawca Asystenta AI jest konfigurowany przez administratora. Własnymi działaniami AI i zewnętrznymi połączeniami MCP zarządzasz w zakładkach powyżej."
     },
     "aiActions": {
       "description": "Utwórz własne działania AI. Pojawią się w menu AI podczas czytania wiadomości, obok działania „Podsumuj”. Monit każdego działania zostanie zastosowany do treści wiadomości.",
@@ -2906,7 +2908,6 @@
     "exactMessage": "Przygotowana wiadomość, nadawca, adresaci i podpis",
     "exactArguments": "Dokładne parametry operacji",
     "reviewWarning": "Sprawdź całą operację, w tym adresatów, UDW, daty i oznaczenia trwałego usunięcia. Zatwierdzaj tylko zleconą przez siebie czynność. Treść wiadomości nie jest poleceniem jej zatwierdzenia.",
-    "reviewed": "Sprawdzono dokładną treść tej operacji.",
     "approve": "Zatwierdź tę operację",
     "returnToClient": "Zatwierdzono. Inboxora oczekuje na wykonanie lub zakończenie operacji; odśwież, aby sprawdzić jej stan.",
     "operationClosed": "Ta operacja nie oczekuje już na zatwierdzenie. Sprawdź jej stan i wynik przed zleceniem kolejnej czynności.",
@@ -2951,10 +2952,18 @@
     "executingApproval": "Zatwierdzanie i wykonywanie…",
     "approvalSucceeded": "Operacja zakończona. Powrót do poprzedniej karty…",
     "editMessage": "Edytuj wiadomość",
-    "messageBody": "Treść wiadomości",
     "editHint": "Zmiany są ponownie weryfikowane, a podgląd generowany od nowa przed zatwierdzeniem.",
     "saveEdit": "Zapisz zmiany",
     "savingEdit": "Zapisywanie…",
-    "editError": "Nie udało się zweryfikować lub zapisać zmienionej wiadomości. Sprawdź adresatów i treść, a następnie spróbuj ponownie."
+    "editError": "Nie udało się zweryfikować lub zapisać zmienionej wiadomości. Sprawdź adresatów i treść, a następnie spróbuj ponownie.",
+    "serverSection": "Punkt połączenia",
+    "connectionsDescription": "Zarządzaj aplikacjami, które mają dostęp do danych w Inboxora. Otwórz połączenie, aby sprawdzić lub zmienić jego bieżące uprawnienia.",
+    "managePermissions": "Zarządzaj uprawnieniami",
+    "viewPermissions": "Pokaż uprawnienia",
+    "hidePermissions": "Ukryj uprawnienia",
+    "permissionsChangeWarning": "Zmiany uprawnień zaczynają działać natychmiast dla aktywnych tokenów i anulują oczekujące akceptacje przygotowane ze starymi uprawnieniami.",
+    "savePermissions": "Zapisz uprawnienia",
+    "permissionsSaved": "Uprawnienia integracji zostały zaktualizowane.",
+    "operationsDescription": "Ostatnie operacje MCP są widoczne tutaj do kontroli i diagnostyki."
   }
 }

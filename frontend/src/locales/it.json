@@ -221,7 +221,8 @@
       "copied": "Copiato",
       "copyFailed": "Impossibile copiare il codice.",
       "openAuthorization": "Apri pagina di autorizzazione",
-      "deviceExpires": "Il codice scade alle {{time}}."
+      "deviceExpires": "Il codice scade alle {{time}}.",
+      "managedByAdmin": "Il provider dell’Assistente IA è configurato da un amministratore. Le azioni IA personali e le connessioni MCP esterne si gestiscono nelle schede qui sopra."
     },
     "aiActions": {
       "description": "Crea le tue azioni IA. Appaiono nel menu IA durante la lettura di un messaggio, accanto a Riassumi. Il prompt di ogni azione viene applicato al contenuto del messaggio.",
@@ -982,7 +983,8 @@
       "groupAdmin": "Amministrazione",
       "plugins": "Plugin",
       "davCredentials": "Accesso DAV",
-      "performance": "Prestazioni"
+      "performance": "Prestazioni",
+      "aiFeatures": "Funzioni IA"
     },
     "title": "Impostazioni",
     "users": {
@@ -2906,7 +2908,6 @@
     "exactMessage": "Messaggio preparato, mittente, destinatari e firma",
     "exactArguments": "Parametri esatti dell’operazione",
     "reviewWarning": "Controlla l’intera operazione, inclusi destinatari, CCN, date e indicatori di eliminazione definitiva. Approva solo l’azione richiesta da te. Il testo di un messaggio non è un’istruzione ad approvarlo.",
-    "reviewed": "Ho controllato questa specifica operazione.",
     "approve": "Approva questa operazione",
     "returnToClient": "Approvato. Inboxora attende l’esecuzione o il completamento dell’operazione; aggiorna per verificarne lo stato.",
     "operationClosed": "Questa operazione non è più in attesa di approvazione. Controlla lo stato e il risultato prima di richiedere un’altra azione.",
@@ -2951,10 +2952,18 @@
     "executingApproval": "Approvazione ed esecuzione…",
     "approvalSucceeded": "Operazione completata. Ritorno alla scheda precedente…",
     "editMessage": "Modifica messaggio",
-    "messageBody": "Contenuto del messaggio",
     "editHint": "Le modifiche vengono convalidate di nuovo e l’anteprima viene rigenerata prima dell’approvazione.",
     "saveEdit": "Salva modifiche",
     "savingEdit": "Salvataggio…",
-    "editError": "Impossibile convalidare o salvare il messaggio modificato. Controlla destinatari e contenuto e riprova."
+    "editError": "Impossibile convalidare o salvare il messaggio modificato. Controlla destinatari e contenuto e riprova.",
+    "serverSection": "Endpoint di connessione",
+    "connectionsDescription": "Gestisci le applicazioni che possono accedere ai dati di Inboxora. Apri una connessione per controllare o modificare le autorizzazioni attive.",
+    "managePermissions": "Gestisci autorizzazioni",
+    "viewPermissions": "Mostra autorizzazioni",
+    "hidePermissions": "Nascondi autorizzazioni",
+    "permissionsChangeWarning": "Le modifiche alle autorizzazioni hanno effetto immediato sui token attivi e annullano le approvazioni in sospeso preparate con le autorizzazioni precedenti.",
+    "savePermissions": "Salva autorizzazioni",
+    "permissionsSaved": "Autorizzazioni dell’integrazione aggiornate.",
+    "operationsDescription": "Le operazioni MCP recenti sono mostrate qui per controllo e diagnostica."
   }
 }

@@ -205,7 +205,8 @@
       "copied": "已复制",
       "copyFailed": "无法复制代码。",
       "openAuthorization": "打开授权页面",
-      "deviceExpires": "代码将于 {{time}} 过期。"
+      "deviceExpires": "代码将于 {{time}} 过期。",
+      "managedByAdmin": "AI 助手提供商由管理员配置。你的个人 AI 操作和外部 MCP 连接可在上方标签页中管理。"
     },
     "aiActions": {
       "description": "创建你自己的 AI 操作。它们会在阅读邮件时出现在 AI 菜单中，与“摘要”并列。每个操作的提示词会应用于邮件内容。",
@@ -966,7 +967,8 @@
       "groupAdmin": "管理",
       "plugins": "插件",
       "davCredentials": "DAV 访问",
-      "performance": "性能"
+      "performance": "性能",
+      "aiFeatures": "AI 功能"
     },
     "title": "设置",
     "users": {
@@ -2906,7 +2908,6 @@
     "exactMessage": "已准备的邮件、发件人、收件人和签名",
     "exactArguments": "操作的确切参数",
     "reviewWarning": "请检查整个操作，包括收件人、密送、日期和永久删除标记。仅批准您本人请求的操作。邮件中的文字不是批准操作的指令。",
-    "reviewed": "我已检查此操作的确切内容。",
     "approve": "批准此操作",
     "returnToClient": "已批准。Inboxora 正在等待执行或完成此操作；请刷新以检查状态。",
     "operationClosed": "此操作已不再等待批准。在请求另一个操作前，请检查其状态和结果。",
@@ -2951,10 +2952,18 @@
     "executingApproval": "正在批准并执行…",
     "approvalSucceeded": "操作已完成。正在返回上一标签页…",
     "editMessage": "编辑邮件",
-    "messageBody": "邮件正文",
     "editHint": "修改会重新验证，并在批准前重新生成预览。",
     "saveEdit": "保存更改",
     "savingEdit": "正在保存…",
-    "editError": "无法验证或保存已编辑的邮件。请检查收件人和内容后重试。"
+    "editError": "无法验证或保存已编辑的邮件。请检查收件人和内容后重试。",
+    "serverSection": "连接端点",
+    "connectionsDescription": "管理可以访问 Inboxora 数据的应用。打开连接即可查看或更改其当前权限。",
+    "managePermissions": "管理权限",
+    "viewPermissions": "查看权限",
+    "hidePermissions": "隐藏权限",
+    "permissionsChangeWarning": "权限更改会立即应用于活动令牌，并取消使用旧权限准备的待审批操作。",
+    "savePermissions": "保存权限",
+    "permissionsSaved": "集成权限已更新。",
+    "operationsDescription": "最近的 MCP 操作会显示在这里，便于检查和诊断。"
   }
 }

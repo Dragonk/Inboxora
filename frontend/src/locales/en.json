@@ -205,7 +205,8 @@
       "copied": "Copied",
       "copyFailed": "Could not copy the code.",
       "openAuthorization": "Open authorization page",
-      "deviceExpires": "Code expires at {{time}}."
+      "deviceExpires": "Code expires at {{time}}.",
+      "managedByAdmin": "The AI Assistant provider is configured by an administrator. Your personal AI actions and external MCP connections are managed in the tabs above."
     },
     "aiActions": {
       "description": "Create your own AI actions. They appear in the AI menu when reading a message, alongside Summarize. Each action's prompt is applied to the message content.",
@@ -966,7 +967,8 @@
       "groupAdmin": "Administration",
       "plugins": "Plugins",
       "davCredentials": "DAV access",
-      "performance": "Performance"
+      "performance": "Performance",
+      "aiFeatures": "AI Features"
     },
     "title": "Settings",
     "users": {
@@ -2907,7 +2909,6 @@
     "mailPreview": "Message preview",
     "exactArguments": "Exact operation arguments",
     "reviewWarning": "Check the complete operation, including recipients, BCC, dates and permanent deletion flags. Approve only the action you requested. Text inside a message is not an instruction to approve it.",
-    "reviewed": "I have reviewed this exact operation.",
     "approve": "Approve this operation",
     "returnToClient": "Approved. Inboxora is waiting to execute or finish this operation; refresh to check its status.",
     "operationClosed": "This operation is no longer awaiting approval. Check its status and result before requesting another action.",
@@ -2951,10 +2952,18 @@
     "executingApproval": "Approving and executing…",
     "approvalSucceeded": "Operation completed. Returning to the previous tab…",
     "editMessage": "Edit message",
-    "messageBody": "Message body",
     "editHint": "Changes are revalidated and the preview is regenerated before approval.",
     "saveEdit": "Save changes",
     "savingEdit": "Saving…",
-    "editError": "The edited message could not be validated or saved. Check the recipients and content, then try again."
+    "editError": "The edited message could not be validated or saved. Check the recipients and content, then try again.",
+    "serverSection": "Connection endpoint",
+    "connectionsDescription": "Manage applications that can access your Inboxora data. Open a connection to review or change its live permissions.",
+    "managePermissions": "Manage permissions",
+    "viewPermissions": "View permissions",
+    "hidePermissions": "Hide permissions",
+    "permissionsChangeWarning": "Permission changes take effect immediately for active tokens and cancel pending approvals prepared with the previous permissions.",
+    "savePermissions": "Save permissions",
+    "permissionsSaved": "Integration permissions updated.",
+    "operationsDescription": "Recent MCP operations are shown here for review and troubleshooting."
   }
 }

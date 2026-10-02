@@ -221,7 +221,8 @@
       "copied": "Copié",
       "copyFailed": "Impossible de copier le code.",
       "openAuthorization": "Ouvrir la page d’autorisation",
-      "deviceExpires": "Le code expire à {{time}}."
+      "deviceExpires": "Le code expire à {{time}}.",
+      "managedByAdmin": "Le fournisseur de l’Assistant IA est configuré par un administrateur. Vos actions IA personnelles et connexions MCP externes se gèrent dans les onglets ci-dessus."
     },
     "aiActions": {
       "description": "Créez vos propres actions IA. Elles apparaissent dans le menu IA lors de la lecture d'un message, à côté de Résumer. Le prompt de chaque action est appliqué au contenu du message.",
@@ -982,7 +983,8 @@
       "groupAdmin": "Administration",
       "plugins": "Extensions",
       "davCredentials": "Accès DAV",
-      "performance": "Performances"
+      "performance": "Performances",
+      "aiFeatures": "Fonctions IA"
     },
     "title": "Paramètres",
     "users": {
@@ -2906,7 +2908,6 @@
     "exactMessage": "Message préparé, expéditeur, destinataires et signature",
     "exactArguments": "Paramètres exacts de l’opération",
     "reviewWarning": "Vérifiez toute l’opération, notamment les destinataires, CCI, dates et indicateurs de suppression définitive. N’approuvez que l’action demandée. Le texte d’un message n’est pas une instruction d’approbation.",
-    "reviewed": "J’ai vérifié cette opération exacte.",
     "approve": "Approuver cette opération",
     "returnToClient": "Approuvé. Inboxora attend l’exécution ou la fin de cette opération ; actualisez pour vérifier son état.",
     "operationClosed": "Cette opération n’attend plus d’approbation. Vérifiez son état et son résultat avant de demander une autre action.",
@@ -2951,10 +2952,18 @@
     "executingApproval": "Approbation et exécution…",
     "approvalSucceeded": "Opération terminée. Retour à l’onglet précédent…",
     "editMessage": "Modifier le message",
-    "messageBody": "Contenu du message",
     "editHint": "Les modifications sont revérifiées et l’aperçu est régénéré avant approbation.",
     "saveEdit": "Enregistrer les modifications",
     "savingEdit": "Enregistrement…",
-    "editError": "Le message modifié n’a pas pu être validé ou enregistré. Vérifiez les destinataires et le contenu puis réessayez."
+    "editError": "Le message modifié n’a pas pu être validé ou enregistré. Vérifiez les destinataires et le contenu puis réessayez.",
+    "serverSection": "Point de connexion",
+    "connectionsDescription": "Gérez les applications qui peuvent accéder à vos données Inboxora. Ouvrez une connexion pour consulter ou modifier ses autorisations actives.",
+    "managePermissions": "Gérer les autorisations",
+    "viewPermissions": "Voir les autorisations",
+    "hidePermissions": "Masquer les autorisations",
+    "permissionsChangeWarning": "Les modifications d’autorisations s’appliquent immédiatement aux jetons actifs et annulent les validations en attente préparées avec les anciennes autorisations.",
+    "savePermissions": "Enregistrer les autorisations",
+    "permissionsSaved": "Autorisations de l’intégration mises à jour.",
+    "operationsDescription": "Les opérations MCP récentes sont affichées ici pour contrôle et diagnostic."
   }
 }

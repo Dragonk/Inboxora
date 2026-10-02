@@ -51,6 +51,7 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   const popupPromise=page.waitForEvent('popup');
   await page.evaluate(url=>window.open(url,'_blank'),`/ai/mcp/confirm/${operationId}`);
   const popup=await popupPromise;
+  await expect.poll(() => popup.url()).toContain(`/ai/mcp/confirm/${operationId}`);
   await expect(popup.getByRole('heading',{name:'Review an AI operation'})).toBeVisible();
   await expect(popup.getByText('Inboxora Sender',{exact:true})).toBeVisible();
   await expect(popup.getByText('private@example.test',{exact:true})).toBeVisible();
@@ -58,10 +59,11 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   await expect(popup.getByText('invoice.pdf',{exact:true})).toBeVisible();
 
   await popup.getByRole('button',{name:'Edit message',exact:true}).click();
+  await popup.getByText('recipient@example.test',{exact:true}).dblclick();
   await popup.getByLabel('To').fill('edited@example.test');
   await popup.getByLabel('Subject').fill('Edited subject');
   await popup.getByTestId('mcp-mail-body-editor').locator('[contenteditable=true]').fill('Edited body');
-  await popup.getByTestId('mcp-mail-signature-editor').locator('[contenteditable=true]').fill('Edited signature');
+  await popup.locator('.mcp-compose-signature [contenteditable=true]').fill('Edited signature');
   await popup.getByRole('button',{name:'Save changes',exact:true}).click();
   await expect(popup.getByText('edited@example.test',{exact:true})).toBeVisible();
   await expect(popup.getByText('Edited subject',{exact:true})).toBeVisible();
@@ -69,8 +71,7 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   expect(editCount).toBe(1);
 
   const approve=popup.getByRole('button',{name:'Approve this operation',exact:true});
-  await expect(approve).toBeDisabled();
-  await popup.getByRole('checkbox',{name:'I have reviewed this exact operation.'}).check();
+  await expect(approve).toBeEnabled();
   await approve.click();
   await expect.poll(() => popup.isClosed()).toBe(true);
   expect(postCount).toBe(1);
@@ -78,15 +79,19 @@ test('MCP mail approval can be edited, executes once and closes the approval tab
   await expect(page.getByTestId('message-list-scroll')).toBeVisible();
 });
 
-test('a regular user can create a read-only MCP token without opening administrator AI settings',async({page,fixtureApi})=>{
+test('AI Features groups assistant, actions and MCP; a regular user can edit MCP permissions and create a token',async({page,fixtureApi})=>{
   await fixtureApi; await setupV3(page);page.__languageOverride='en';
   await page.route('**/api/auth/me',route=>route.fulfill({json:{user:{id:'e2e-user',username:'regular@example.test',isAdmin:false}}}));
-  let created:Record<string,unknown>|null=null;
+  const grantId='33333333-3333-4333-8333-333333333333';
+  const grant={id:grantId,name:'Existing client',client_id:null,scopes:['mail.read'],restrictions:{accounts:[accountId],folders:null,calendars:[],addressBooks:[]},require_confirmation:true,
+    created_at:'2026-10-01T10:00:00Z',last_used_at:null,expires_at:'2099-01-01T00:00:00Z',revoked_at:null};
+  let created:Record<string,unknown>|null=null; let permissionEdit:Record<string,unknown>|null=null;
   await page.route('**/api/mcp/**',route=>{
     const path=new URL(route.request().url()).pathname;
-    if(path.endsWith('/config'))return route.fulfill({json:{enabled:true,configurationError:false,endpoint:'https://inboxora.example.test/mcp',scopes:['mail.read','calendar.read','contacts.read']}});
+    if(path.endsWith('/config'))return route.fulfill({json:{enabled:true,configurationError:false,endpoint:'https://inboxora.example.test/mcp',scopes:['mail.read','mail.send','calendar.read','contacts.read']}});
     if(path.endsWith('/resources'))return route.fulfill({json:resources});
-    if(path.endsWith('/grants'))return route.fulfill({json:{grants:[]}});
+    if(path.endsWith('/grants') && route.request().method()==='GET')return route.fulfill({json:{grants:[grant]}});
+    if(path.endsWith(`/grants/${grantId}`) && route.request().method()==='POST') {permissionEdit=route.request().postDataJSON();return route.fulfill({json:{grant:{...grant,...permissionEdit}}});}
     if(path.endsWith('/operations'))return route.fulfill({json:{operations:[]}});
     if(path.endsWith('/tokens')) {created=route.request().postDataJSON();return route.fulfill({json:{token:'synthetic-browser-token-not-a-real-credential'}});}
     return route.fulfill({status:404,json:{error:'Unexpected fixture path'}});
@@ -96,9 +101,19 @@ test('a regular user can create a read-only MCP token without opening administra
   await page.getByTestId('sidebar-user-menu').click();
   if((page.viewportSize()?.width||1280)<768)await page.getByTestId('mobile-settings').click();
   else await page.getByText('Settings',{exact:true}).first().click();
-  await page.getByTestId('admin-tab-ai').click();
+  await page.getByTestId('admin-tab-ai-features').click();
+  await expect(page.getByRole('button',{name:'AI Assistant',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'AI Actions',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'External AI integrations (MCP)',exact:true}).click();
   const panel=page.getByRole('region',{name:'External AI integrations (MCP)'});
   await expect(panel).toBeVisible();
+
+  await panel.getByRole('button',{name:'Manage permissions',exact:true}).click();
+  const send=panel.getByRole('checkbox',{name:/Send email and replies/});
+  await expect(send).not.toBeChecked(); await send.check();
+  await panel.getByRole('button',{name:'Save permissions',exact:true}).click();
+  expect(permissionEdit).toMatchObject({scopes:['mail.read','mail.send'],requireConfirmation:true,restrictions:{accounts:[accountId]}});
+
   await panel.getByRole('button',{name:'Create access token',exact:true}).click();
   await panel.getByLabel('Integration name',{exact:true}).fill('Vibe fixture');
   await panel.getByRole('button',{name:'Create access token',exact:true}).click();

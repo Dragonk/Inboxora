@@ -15,15 +15,19 @@ export const restrictionsSchema = z.object({
   addressBooks: z.array(z.uuid()).max(500).nullable().default(null),
 }).strict();
 export type Restrictions = z.infer<typeof restrictionsSchema>;
-export const grantSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  scopes: z.array(z.enum(SCOPES)).min(1).max(SCOPES.length).transform(value => [...new Set(value)]),
+const scopeListSchema = z.array(z.enum(SCOPES)).min(1).max(SCOPES.length).transform(value => [...new Set(value)]);
+export const grantPermissionsSchema = z.object({
+  scopes: scopeListSchema,
   restrictions: restrictionsSchema.default({ accounts: null, folders: null, calendars: null, addressBooks: null }),
   requireConfirmation: z.boolean().default(true),
+}).strict();
+export type GrantPermissionsInput = z.infer<typeof grantPermissionsSchema>;
+export const grantSchema = grantPermissionsSchema.extend({
+  name: z.string().trim().min(1).max(120),
   expiresInDays: z.number().int().min(1).max(365).default(90),
 }).strict();
 export type GrantInput = z.infer<typeof grantSchema>;
-/** Grants are immutable. Changing permissions means revoking and reconnecting the client. */
+/** Grants are live browser-managed permissions. Token scopes are still an explicit ceiling. */
 export interface Grant {
   id: string; user_id: string; client_id: string | null; name: string;
   scopes: Scope[]; restrictions: Restrictions; require_confirmation: boolean;

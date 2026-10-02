@@ -12,7 +12,7 @@ export interface McpResources {
   calendars: { id: string; name: string; source: string; read_only: boolean }[];
   addressBooks: { id: string; name: string; source: string }[];
 }
-export interface McpGrant extends McpGrantInput { id: string; created_at: string; expires_at: string; revoked_at: string | null; last_used_at: string | null; require_confirmation: boolean; }
+export interface McpGrant extends Omit<McpGrantInput, 'requireConfirmation' | 'expiresInDays'> { id: string; client_id?: string | null; created_at: string; expires_at: string; revoked_at: string | null; last_used_at: string | null; require_confirmation: boolean; }
 export interface McpOperation { id: string; tool: string; state: string; created_at?: string; expiresAt?: string; integration_name?: string; integrationName?: string; arguments?: Record<string, unknown>; review?: Record<string, unknown> | null; result?: unknown; }
 export interface McpConsent { name: string; clientId: string; scopes: McpScope[]; redirectUri: string; }
 export const emptyResources: McpResources = { accounts: [], folders: [], calendars: [], addressBooks: [] };
