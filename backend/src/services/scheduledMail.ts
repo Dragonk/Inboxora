@@ -254,15 +254,33 @@ export async function enqueueMailMerge(userId: string, inputValue: unknown, key:
     let scheduledAt = new Date(Date.now() + delay * 1000);
     const batchId = randomUUID();
     const itemIds = recipients.map(() => randomUUID());
+    const insertIds: string[] = [];
+    const insertKeys: string[] = [];
+    const insertFingerprints: string[] = [];
+    const insertSubjects: string[] = [];
+    const insertPayloads: string[] = [];
+
     for (const [index, recipient] of recipients.entries()) {
       const item: PreparedSend = { senderEmail: first.senderEmail,
         payload: { ...frozen, to: [recipient] } };
+      insertIds.push(itemIds[index]);
+      insertKeys.push(`merge:${batchId}:${index}`);
+      insertFingerprints.push(createHash('sha256').update(JSON.stringify({ fingerprint, recipient })).digest('hex'));
+      insertSubjects.push(item.payload.subject ?? '');
+      insertPayloads.push(JSON.stringify(item));
+    }
+
+    if (insertIds.length > 0) {
       const inserted = await client.query(`INSERT INTO scheduled_mail
         (id,user_id,account_id,idempotency_key,request_fingerprint,subject,mode,scheduled_at,time_zone,payload)
-        SELECT $1,$2,a.id,$4,$5,$6,'undo',$7,'UTC',$8::jsonb FROM email_accounts a WHERE a.id=$3 AND a.user_id=$2
-        RETURNING id`, [itemIds[index], userId, message.accountId, `merge:${batchId}:${index}`,
-        createHash('sha256').update(JSON.stringify({ fingerprint, recipient: recipients[index] })).digest('hex'),
-        item.payload.subject ?? '', scheduledAt, JSON.stringify(item)]);
+        SELECT u.id,$1,a.id,u.key,u.fingerprint,u.subject,'undo',$3,'UTC',u.payload::jsonb
+        FROM unnest($4::uuid[], $5::text[], $6::text[], $7::text[], $8::jsonb[]) AS u(id, key, fingerprint, subject, payload)
+        CROSS JOIN email_accounts a
+        WHERE a.id=$2 AND a.user_id=$1
+        RETURNING id`, [
+          userId, message.accountId, scheduledAt,
+          insertIds, insertKeys, insertFingerprints, insertSubjects, insertPayloads
+        ]);
       if (!inserted.rows[0]) throw new ScheduledMailError(404, 'SCHEDULE_ACCOUNT_MISSING', 'Sending account is no longer available');
     }
     // Large batches can spend time writing attachment snapshots. No worker can

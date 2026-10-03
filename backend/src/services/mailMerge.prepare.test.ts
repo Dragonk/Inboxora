@@ -41,6 +41,17 @@ beforeEach(() => {
     if (sql.includes('SELECT preferences FROM users')) return { rows: [{ preferences: { undoSendSeconds: 0 } }] };
     if (sql.includes('FROM users WHERE id =')) return { rows: [{ preferences: {} }] };
     if (sql.includes('FROM email_accounts WHERE id =')) return { rows: [{ ...account, email_address: sender, signature }] };
+    if (sql.includes('FROM unnest($4::uuid[], $5::text[], $6::text[], $7::text[], $8::jsonb[])')) {
+      const ids = params[3] as string[];
+      const payloads = params[7] as string[];
+      const rows = [];
+      for (let i = 0; i < ids.length; i++) {
+        const row = { id: ids[i], payload: JSON.parse(payloads[i]) as { payload: SendRequestBody; senderEmail: string } };
+        stored.push(row);
+        rows.push({ id: row.id });
+      }
+      return { rows: [rows[0]] }; // at least one row to avoid error
+    }
     if (sql.includes('FROM email_accounts a WHERE a.id=')) {
       const row = { id: params[0] as string, payload: JSON.parse(params[7] as string) as { payload: SendRequestBody; senderEmail: string } };
       stored.push(row); return { rows: [{ id: row.id }] };
