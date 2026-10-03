@@ -1,3 +1,7 @@
+import { startMcpMaintenance } from './mcp/maintenance.js';
+import { registerImapMailSearch } from './services/mailSearchRemote.js';
+import { createMcpRouter } from './mcp/server.js';
+import mcpApiRouter from './mcp/api.js';
 import { startSignatureTrustRefresh } from './services/attachments/signatureTrust.js';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
@@ -148,6 +152,8 @@ const sessionMiddleware = session({
   }
 });
 
+app.use(createMcpRouter(APP_VERSION));
+
 app.use(createBrowserCors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
@@ -185,6 +191,8 @@ app.use('/api/mail/send', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/scheduled', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/merge', express.json({ limit: sendHttpBodyWindowBytes() }));
 app.use('/api/mail/draft', express.json({ limit: '35mb' }));
+// Human MCP mail approval can add the same attachment payloads as the normal composer.
+app.use(/^\/api\/mcp\/operations\/[0-9a-f-]+\/edit$/i, express.json({ limit: sendHttpBodyWindowBytes() }));
 // A pet-import body carries a base64 spritesheet (~33% larger than the 5 MB sheet cap
 // enforced after decode in gtdPet.importPet), so it needs more than the global 1 MB.
 app.use('/api/gtd/pet/import', express.json({ limit: '8mb' }));
@@ -243,6 +251,7 @@ app.use('/api', (req: Request, res: Response, next: NextFunction) => {
 
 // Make imap manager available globally
 export const imapManager = new ImapManager(wss);
+registerImapMailSearch(input => imapManager.searchAccountMessages(input));
 app.set('imapManager', imapManager);
 // Hand the mail engine to the plugin platform so plugin-api capabilities (labels, archive,
 // broadcast) can be bound to it without any plugin importing the mail engine or this entry file.
@@ -252,6 +261,7 @@ setMailEngine(imapManager);
 // Secret calendar feeds intentionally sit outside the authenticated API mount;
 // their anonymous GET is protected by the high-entropy bearer token.
 app.use('/', calendarFeedRouter);
+app.use('/api/mcp', mcpApiRouter);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/oidc', oidcApiRouter);
 app.use('/auth/oidc', oidcBrowserRouter);
@@ -350,6 +360,7 @@ setupWebSocket(wss, (req, res, next) => {
 
 // Run pending schema migrations then start
 await runMigrations();
+const stopMcpMaintenance = startMcpMaintenance();
 
 // One-time backfill: populate photo_data from existing vcard column for contacts
 // that were synced before CardDAV PUT started persisting photo_data.
@@ -454,6 +465,7 @@ httpServer.listen(PORT, () => {
 });
 
 process.on('SIGTERM', () => {
+  stopMcpMaintenance();
   stopSignatureTrustRefresh?.();
   console.log('SIGTERM received — shutting down gracefully');
   const scheduledMailStopped = scheduledMailWorker.stop();

@@ -18,11 +18,11 @@ suite('account default recipients migration (PostgreSQL)', () => {
     const schema = `default_recipients_${randomUUID().replaceAll('-', '')}`;
     await client.query(`CREATE SCHEMA ${schema}`);
     await client.query(`SET LOCAL search_path TO ${schema}`);
-    // Minimal pre-0150 account schema; exercise both consecutive real migrations.
+    // Minimal pre-0150 account schema; exercise the account defaults and alias follow-up migrations.
     await client.query(`CREATE TABLE email_accounts (id UUID PRIMARY KEY);
       CREATE TABLE account_aliases (id UUID PRIMARY KEY, account_id UUID REFERENCES email_accounts(id));
       INSERT INTO email_accounts (id) VALUES ('11111111-1111-4111-8111-111111111111')`);
-    for (const name of ['0150_account_default_sender.sql', '0151_account_default_recipients.sql']) {
+    for (const name of ['0150_account_default_sender.sql', '0151_account_default_recipients.sql', '0168_alias_default_recipients.sql']) {
       await client.query(readFileSync(new URL(`../../migrations/${name}`, import.meta.url), 'utf8'));
     }
   });
@@ -41,6 +41,18 @@ suite('account default recipients migration (PostgreSQL)', () => {
     await db().query('INSERT INTO email_accounts (id) VALUES ($1)', [randomUUID()]);
     const rows = await db().query('SELECT default_cc, default_bcc FROM email_accounts');
     expect(rows.rows).toEqual([{ default_cc: [], default_bcc: [] }, { default_cc: [], default_bcc: [] }]);
+  });
+  it('aliases inherit with NULL and accept explicit empty or populated overrides', async () => {
+    const aliasId = randomUUID();
+    await db().query('INSERT INTO account_aliases (id, account_id) VALUES ($1, $2)', [aliasId, id]);
+    expect((await db().query('SELECT default_cc, default_bcc FROM account_aliases WHERE id = $1', [aliasId])).rows)
+      .toEqual([{ default_cc: null, default_bcc: null }]);
+    await db().query('UPDATE account_aliases SET default_cc = $1, default_bcc = $2 WHERE id = $3',
+      [['alias@example.com'], [], aliasId]);
+    expect((await db().query('SELECT default_cc, default_bcc FROM account_aliases WHERE id = $1', [aliasId])).rows)
+      .toEqual([{ default_cc: ['alias@example.com'], default_bcc: [] }]);
+    await expect(db().query('UPDATE account_aliases SET default_cc = $1 WHERE id = $2',
+      [Array(51).fill('overflow@example.com'), aliasId])).rejects.toMatchObject({ code: '23514' });
   });
   it('persists multiple values and overlaps, preserves omission and clears explicitly', async () => {
     const cc = ['a@example.com', 'shared@example.com'];

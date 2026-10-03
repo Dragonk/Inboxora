@@ -270,7 +270,7 @@ router.get('/address-books', async (req, res) => {
     // and the write-back was unreachable for every address book.
     const result = await query<{ id: string; source?: string | null; source_access?: string | null; user_access?: string | null; [key: string]: unknown }>(
       ADDRESS_BOOK_PRESENTATION_SQL,
-      [req.session.userId],
+      [sessionUserId(req)],
     );
     const addressBooks = await mapConcurrent(result.rows, 4, async row => {
       let deletion: { supported: boolean; reason?: string } | undefined = row.source === 'local' ? { supported: true } : undefined;
@@ -302,7 +302,7 @@ router.post('/address-books', async (req, res) => {
   const name = localBookName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Address book name must be 1 to 120 characters' });
   try {
-    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible, dav_mode`, [req.session.userId, name]);
+    const result = await query(`INSERT INTO address_books (user_id, name, source, visible) VALUES ($1, $2, 'local', true) RETURNING id, name, source, visible, dav_mode`, [sessionUserId(req), name]);
     res.status(201).json(result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);
@@ -330,7 +330,7 @@ router.patch('/address-books/:id', async (req, res) => {
       const local = await requireLocalAddressBook(sessionUserId(req), req.params.id);
       if ('error' in local) return res.status(local.status).json({ error: local.error });
     }
-    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), dav_mode = COALESCE($3, dav_mode), updated_at = NOW() WHERE id = $4 AND user_id = $5 RETURNING id, name, source, visible, dav_mode`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, davMode ?? null, req.params.id, req.session.userId]);
+    const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), dav_mode = COALESCE($3, dav_mode), updated_at = NOW() WHERE id = $4 AND user_id = $5 RETURNING id, name, source, visible, dav_mode`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, davMode ?? null, req.params.id, sessionUserId(req)]);
     res.json(result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);
@@ -368,9 +368,9 @@ router.delete('/address-books/:id', async (req, res) => {
       const status = result.status === 'confirmed' ? 200 : result.status === 'pending' ? 202 : result.status === 'conflict' ? 409 : result.status === 'permanent' ? 422 : result.status === 'retryable' ? 503 : 502;
       return res.status(status).json({state:result.status,operationId:result.operationId,replayed:result.replayed,code:result.code});
     }
-    const count = await query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [req.session.userId]);
+    const count = await query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM address_books WHERE user_id = $1 AND source = 'local'`, [sessionUserId(req)]);
     if (count.rows[0].count <= 1) return res.status(409).json({ error: 'At least one local address book is required' });
-    await query("DELETE FROM address_books WHERE id = $1 AND user_id = $2 AND source = 'local'", [req.params.id, req.session.userId]);
+    await query("DELETE FROM address_books WHERE id = $1 AND user_id = $2 AND source = 'local'", [req.params.id, sessionUserId(req)]);
     res.status(204).end();
   } catch (err) {
     if (err instanceof AddressBookCollectionError) return res.status(err.status).json({code:err.code,error:err.message});

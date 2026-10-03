@@ -23,6 +23,8 @@ const technical: Record<string, readonly string[]> = {
   'components/ContactsPage.tsx': ['email@example.com', 'https://example.com', 'matrix:@name:example.com'],
   'components/LoginPage.tsx': ['Inboxora'],
   'components/LogoMark.tsx': ['Inboxora'],
+  'components/mcp/McpPage.tsx': ['Inboxora'],
+  'components/mcp/McpSettings.tsx': ['MCP_ENABLED=true APP_URL=https://inboxora.example.com'],
   'components/MailApp.tsx': ['Inboxora'],
   'components/RichTextEditor.tsx': ['B', 'I', 'U', 'S'],
   'components/Sidebar.tsx': ['Inboxora'],

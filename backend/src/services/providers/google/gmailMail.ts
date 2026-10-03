@@ -274,10 +274,12 @@ export async function fetchGmailMessage(
   api: GoogleApiOptions,
   messageId: string,
   format: 'metadata' | 'full' | 'raw' = 'metadata',
+  fields?: string,
 ): Promise<GmailMessage | null> {
   return googleApiJson<GmailMessage>(api, gmailUrl(`users/${GMAIL_USER}/messages/${encodeURIComponent(messageId)}`, {
     format,
     ...(format === 'metadata' ? { metadataHeaders: GMAIL_METADATA_HEADERS } : {}),
+    ...(fields ? { fields } : {}),
   }), { method: 'GET' });
 }
 

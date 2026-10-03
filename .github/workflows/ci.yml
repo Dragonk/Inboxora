@@ -158,6 +158,7 @@ jobs:
           REQUIRE_SEND_POSTGRES: "1"
           REQUIRE_DEFAULT_RECIPIENTS_POSTGRES: "1"
           REQUIRE_SCHEDULED_MAIL_POSTGRES: "1"
+          REQUIRE_MCP_POSTGRES: "1"
           ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         # `providerSchemaUpgrade.integration.test.ts` creates and drops a database of
         # its own, so the role needs CREATEDB (the service user has it) and this job
@@ -168,6 +169,8 @@ jobs:
           # Integration fixtures intentionally share one PostgreSQL database. Run them in one
           # worker so fixed fixture identities cannot race across suites under SERIALIZABLE.
           npx vitest run --no-file-parallelism --maxWorkers=1 \
+            src/mcp/mcp.integration.test.ts \
+            src/services/mailSearch.integration.test.ts \
             src/services/storageMaintenance.integration.test.ts \
             src/services/conversationStorage.integration.test.ts \
             src/services/storageRetention.integration.test.ts \

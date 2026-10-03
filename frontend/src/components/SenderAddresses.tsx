@@ -7,6 +7,8 @@ export interface SenderAlias {
   email?: string | null;
   reply_to?: string | null;
   signature?: string | null;
+  default_cc?: string[] | null;
+  default_bcc?: string[] | null;
 }
 interface Props {
   account: { id: string; email_address?: string | null; default_alias_id?: string | null; aliases?: SenderAlias[] };

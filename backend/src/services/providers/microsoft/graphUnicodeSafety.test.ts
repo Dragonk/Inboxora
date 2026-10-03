@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderGraphMessage } from './graphMailSend.js';
 import { graphEventPayloadFor } from './graphCalendarWrites.js';
 import { graphContactPayloadFor } from './graphContactWrites.js';
-import { boundGraphSearchQuery, escapeGraphSearchQuery, graphMailSearchUrl } from './graphMailSearch.js';
+import { GRAPH_SEARCH_MAX_QUERY_LENGTH, boundGraphSearchQuery, graphMailSearchUrl } from './graphMailSearch.js';
 import type { ComposedMail } from '../../composedMail.js';
 
 /**
@@ -113,29 +113,21 @@ describe('Polish text in Graph payloads', () => {
   });
 });
 
-describe('Polish text in a Graph search', () => {
-  it('percent-encodes the query as UTF-8 and keeps the KQL literal intact', () => {
-    const query = `zażółć "gęślą" jaźń`;
-    const url = graphMailSearchUrl(query, { top: 5 });
-
-    // The URL is UTF-8 percent-encoded, so a client or proxy cannot corrupt it, and decoding it returns the
-    // query exactly as the user typed it (with the KQL quote escaped inside the literal).
-    const parsed = new URL(url);
-    expect(parsed.searchParams.get('$search')).toBe(`"${escapeGraphSearchQuery(query)}"`);
-    expect(parsed.searchParams.get('$search')).toContain('zażółć');
-    expect(decodeURIComponent(url)).toContain('zażółć');
+describe('Graph search Unicode and URL safety', () => {
+  it.each(['Zażółć gęślą jaźń','invoice 😀 100%','a & b # value + plus','日本語の件名'])('preserves a bounded literal without URL parameter injection: %s', value => {
+    expect(boundGraphSearchQuery(value)).toBe(value);
+    const url = new URL(graphMailSearchUrl(value));
+    expect(url.searchParams.get('$search')).toBe(`"${value}"`);
+    expect(url.hash).toBe('');
+    expect([...url.searchParams.keys()].filter(key => !['$search','$select','$top'].includes(key))).toEqual([]);
   });
-
-  it('escapes the KQL quote and backslash without touching Polish letters', () => {
-    const escaped = escapeGraphSearchQuery('a\\b "ćma"');
-    expect(escaped).toBe('a\\\\b \\"ćma\\"');
-    expect(escaped).toContain('ćma');
+  it('rejects oversized compiled Unicode instead of silently changing its meaning', () => {
+    const query = 'ż'.repeat(GRAPH_SEARCH_MAX_QUERY_LENGTH + 1);
+    expect(() => boundGraphSearchQuery(query)).toThrow('too long');
+    expect(() => graphMailSearchUrl(query)).toThrow('too long');
   });
-
-  it('bounds the query by characters, never mid-character', () => {
-    const long = 'ż'.repeat(600);
-    const bounded = boundGraphSearchQuery(long);
-    expect(bounded).toHaveLength(500);
-    expect(bounded).not.toContain('\uFFFD');
+  it('escapes quotes and backslashes inside the KQL search literal', () => {
+    const url = new URL(graphMailSearchUrl('quote " and \\ path'));
+    expect(url.searchParams.get('$search')).toBe('"quote \\" and \\\\ path"');
   });
 });
