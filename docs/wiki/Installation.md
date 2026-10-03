@@ -25,13 +25,13 @@ candidates for testing only and must not be used for a server people depend on.
 
    ```bash
    mkdir inboxora && cd inboxora
-   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.2.0/docker-compose.ghcr.yml
+   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.0/docker-compose.ghcr.yml
    mv docker-compose.ghcr.yml docker-compose.yml
-   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.2.0/.env.example
+   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.0/.env.example
    cp .env.example .env
    ```
 
-2. Set a pinned `INBOXORA_VERSION` in `.env` (`4.2.0`) instead of relying on a
+2. Set a pinned `INBOXORA_VERSION` in `.env` (`4.3.0`) instead of relying on a
    mutable tag.
 
 3. Generate unique secrets and write them into `.env`:
@@ -123,6 +123,8 @@ migrations as a release, and rolling back to an older image is not supported.
 | `MS_PROVIDER_REDIRECT_URI` | No | The Graph connector's own callback; derived from `APP_URL` when unset. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | No | The Google OAuth client for the Gmail, Calendar and People APIs. Optional: Google mail keeps working over IMAP/SMTP with an app password without it. |
 | `POSTGRES_DATA` / `REDIS_DATA` / `PUID` / `PGID` | No | Bind mounts and ownership for Unraid-style deployments. |
+| `MCP_ENABLED` | No | Enables the native Streamable HTTP MCP endpoint and OAuth discovery. Disabled by default. |
+| `MCP_ALLOWED_ORIGINS` | No | Exact comma-separated browser origins allowed for MCP requests that send an `Origin` header. Do not use wildcards. |
 | `UPDATE_CHECK_DISABLED` | No | Disables the server-side GitHub release check. |
 
 `VITE_EMAIL_DIV_RENDER` is an experimental renderer switch; leave it unset.
@@ -158,6 +160,8 @@ All three are configured inside the application after startup:
   Integrations.
 - **DAV access** — Settings → DAV access. Generate an application password per device for
   CardDAV/CalDAV. See [Contacts and DAV](Contacts-and-DAV.md).
+- **External AI / MCP** — Settings → AI Features → External AI integrations (MCP), after an
+  administrator enables `MCP_ENABLED=true`. See [External AI applications (MCP)](MCP.md).
 - **Web Push** — Settings → Notifications, once the VAPID key pair is present in the
   environment.
 - **Android instant notifications** — install the **ntfy** app on the phone and set its server
@@ -194,14 +198,14 @@ procedure with its own traps around database and volume names: see
 [Migrating from MailFlow](Migrating-from-MailFlow.md). Only MailFlow 3.3.0 is supported as a
 migration source.
 
-## Application downloads for 4.2.0
+## Application downloads for 4.3.0
 
-The [4.2.0 release](https://github.com/Dragonk/Inboxora/releases/tag/v4.2.0) provides a Windows
+The [4.3.0 release](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.0) provides a Windows
 installer, Linux DEB/RPM packages for x64 and ARM64, and Android APK/AAB files. These clients
 connect to your server. Install the APK directly on Android; the AAB is for distribution tooling.
-The Android versionCode is **4020000**, above 4.1.2, and uses the existing release identity.
+The Android versionCode is **4030000**, above 4.1.2, and uses the existing release identity.
 Checksums and their detached GPG signature accompany the downloads. No macOS package is published.
 
-Stable backend/frontend tags are `4.2.0`, `v4.2.0` and `latest`, with both AMD64 and ARM64 in
+Stable backend/frontend tags are `4.3.0`, `v4.3.0` and `latest`, with both AMD64 and ARM64 in
 each manifest. The versioned tag is preferable for a controlled rollout. See
-[Upgrading](Upgrading.md#upgrading-to-420) before replacing an existing deployment.
+[Upgrading](Upgrading.md#upgrading-to-430) before replacing an existing deployment.
