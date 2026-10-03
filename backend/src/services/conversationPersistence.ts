@@ -478,9 +478,8 @@ export async function _upsertConversationCopyWithClient(
         await client.query(`INSERT INTO unresolved_message_references (user_id, account_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ${values.join(', ')} ON CONFLICT DO NOTHING`, queryParams);
       }
     }
-    const waiting = await client.query(`SELECT id, child_logical_message_id FROM unresolved_message_references WHERE user_id = $1 AND account_id = $3 AND referenced_message_id = $2 AND resolved_at IS NULL FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.accountId]);
+    const waiting = await client.query(`UPDATE unresolved_message_references SET resolved_logical_message_id = $1, resolved_at = NOW() WHERE user_id = $2 AND account_id = $4 AND referenced_message_id = $3 AND resolved_at IS NULL RETURNING id, child_logical_message_id`, [logical.id, hydrated.userId, hydrated.canonicalMessageId, hydrated.accountId]);
     for (const reference of waiting.rows) {
-      await client.query('UPDATE unresolved_message_references SET resolved_logical_message_id = $1, resolved_at = NOW() WHERE id = $2', [logical.id, reference.id]);
       const component = await client.query(`WITH RECURSIVE component(id, path) AS (
         SELECT id, ARRAY[id] FROM logical_messages WHERE id = $1 AND user_id = $2 AND account_id = $3
         UNION ALL
