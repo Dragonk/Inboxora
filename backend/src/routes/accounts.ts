@@ -35,7 +35,7 @@ import { reduceProviderSyncResult } from '../services/providerSyncOutcome.js';
 import type { MicrosoftMailCutoverAccount } from '../services/providerMailCutover.js';
 import { cutOverGoogleMailAccount } from '../services/providerGoogleMailCutover.js';
 import type { GoogleMailCutoverAccount } from '../services/providerGoogleMailCutover.js';
-import { normalizeDefaultRecipients } from '../services/accountDefaultRecipients.js';
+import { normalizeAliasDefaultRecipients, normalizeDefaultRecipients } from '../services/accountDefaultRecipients.js';
 import calendarManagementRouter from './accountsCalendarManagement.js';
 
 // Serialize an account's reconnect triggers so a rapid settings change (e.g. a
@@ -105,6 +105,8 @@ type AccountAliasRow = {
   email?: string | null;
   reply_to?: string | null;
   signature?: string | null;
+  default_cc?: string[] | null;
+  default_bcc?: string[] | null;
   created_at?: string | Date | null;
 };
 
@@ -128,7 +130,7 @@ router.get('/', async (req, res) => {
   const aliasMap: Record<string, AccountAliasRow[]> = {};
   if (accountIds.length) {
     const aliasResult = await query<AccountAliasRow>(
-      `SELECT id, account_id, name, email, reply_to, signature, created_at
+      `SELECT id, account_id, name, email, reply_to, signature, default_cc, default_bcc, created_at
        FROM account_aliases WHERE account_id = ANY($1) ORDER BY created_at`,
       [accountIds]
     );
@@ -840,8 +842,8 @@ router.get('/:id/aliases', async (req, res) => {
   const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const result = await query<{ id: string; account_id: string; name?: string | null; email?: string | null; reply_to?: string | null; signature?: string | null; created_at?: string | Date | null }>(
-    'SELECT id, account_id, name, email, reply_to, signature, created_at FROM account_aliases WHERE account_id = $1 ORDER BY created_at',
+  const result = await query<AccountAliasRow>(
+    'SELECT id, account_id, name, email, reply_to, signature, default_cc, default_bcc, created_at FROM account_aliases WHERE account_id = $1 ORDER BY created_at',
     [id]
   );
   res.json(result.rows.map(alias => ({
@@ -857,13 +859,15 @@ router.post('/:id/aliases', async (req, res) => {
   if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email) || hasHeaderInjectionChars(reply_to)) {
     return res.status(400).json({ error: 'Fields cannot contain control characters' });
   }
+  const defaults = normalizeAliasDefaultRecipients(req.body);
+  if ('error' in defaults) return res.status(400).json({ error: defaults.error });
 
   const check = await query<{ id: string }>('SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
   if (!check.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   const result = await query(
-    'INSERT INTO account_aliases (account_id, name, email, reply_to, signature) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-    [id, name, email, reply_to || null, sanitizeSignature(signature) || null]
+    'INSERT INTO account_aliases (account_id, name, email, reply_to, signature, default_cc, default_bcc) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+    [id, name, email, reply_to || null, sanitizeSignature(signature) || null, defaults.default_cc ?? null, defaults.default_bcc ?? null]
   );
   pluginRegistry.runHook('onAccountIdentityChanged', { accountId: id }).catch(err => console.warn('onAccountIdentityChanged hook failed:', err.message));
   res.json(result.rows[0]);
@@ -876,18 +880,23 @@ router.put('/:id/aliases/:aliasId', async (req, res) => {
   if (hasHeaderInjectionChars(name) || hasHeaderInjectionChars(email) || hasHeaderInjectionChars(reply_to)) {
     return res.status(400).json({ error: 'Fields cannot contain control characters' });
   }
+  const defaults = normalizeAliasDefaultRecipients(req.body);
+  if ('error' in defaults) return res.status(400).json({ error: defaults.error });
 
-  const check = await query<{ id: string; account_id: string }>(
-    `SELECT a.id, a.account_id FROM account_aliases a
+  const check = await query<{ id: string; account_id: string; default_cc?: string[] | null; default_bcc?: string[] | null }>(
+    `SELECT a.id, a.account_id, a.default_cc, a.default_bcc FROM account_aliases a
      JOIN email_accounts e ON a.account_id = e.id
      WHERE a.id = $1 AND e.user_id = $2 AND e.id = $3`,
     [aliasId, req.session.userId, id]
   );
   if (!check.rows.length) return res.status(404).json({ error: 'Alias not found' });
+  const previous = check.rows[0];
+  const defaultCc = Object.hasOwn(defaults, 'default_cc') ? defaults.default_cc : previous.default_cc ?? null;
+  const defaultBcc = Object.hasOwn(defaults, 'default_bcc') ? defaults.default_bcc : previous.default_bcc ?? null;
 
   const result = await query(
-    'UPDATE account_aliases SET name = $1, email = $2, reply_to = $3, signature = $4 WHERE id = $5 RETURNING *',
-    [name, email, reply_to || null, sanitizeSignature(signature) || null, aliasId]
+    'UPDATE account_aliases SET name = $1, email = $2, reply_to = $3, signature = $4, default_cc = $5, default_bcc = $6 WHERE id = $7 RETURNING *',
+    [name, email, reply_to || null, sanitizeSignature(signature) || null, defaultCc, defaultBcc, aliasId]
   );
   pluginRegistry.runHook('onAccountIdentityChanged', { accountId: check.rows[0].account_id }).catch(err => console.warn('onAccountIdentityChanged hook failed:', err.message));
   res.json(result.rows[0]);

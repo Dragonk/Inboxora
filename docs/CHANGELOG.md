@@ -21,6 +21,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 ## [Unreleased]
 
 ### Added
+- **Per-alias default CC/BCC (#6).** Sender aliases can optionally override the account-level default CC and BCC lists. Aliases inherit the account settings until the override is enabled; an explicitly empty alias field disables that recipient type for the alias. Switching sender identities replaces only untouched automatic recipients and keeps manual recipient edits. Migration `0168_alias_default_recipients.sql` adds nullable, bounded alias overrides after `0167_mcp_authorization.sql`; update backend and frontend together.
 - Native MCP endpoint with OAuth/PKCE, revocable personal tokens, per-client resource permissions and approval-bound operation receipts.
 - Email, draft, attachment, calendar, availability and contact tools, with localized settings and approval screens for every user. Mail approvals now use a real Inboxora message preview and allow human edits to recipients, subject, body and signature before sending.
 - Composer attachment previews and archive folder browsing with list/thumbnail views.

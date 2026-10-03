@@ -38,6 +38,17 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+email_accounts|ALTER TABLE account_aliases/i);
   });
 
+  it('adds nullable per-alias recipient overrides after the current migration chain', () => {
+    const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
+    expect(files[files.indexOf('0167_mcp_authorization.sql') + 1]).toBe('0168_alias_default_recipients.sql');
+    const sql = readFileSync(join(process.cwd(), 'migrations/0168_alias_default_recipients.sql'), 'utf8');
+    for (const field of ['default_cc', 'default_bcc']) {
+      expect(sql).toContain(`ADD COLUMN ${field} TEXT[] DEFAULT NULL`);
+      expect(sql).toContain(`${field} IS NULL OR account_default_recipients_bounded(${field})`);
+    }
+    expect(sql).not.toMatch(/UPDATE\s+account_aliases|ALTER TABLE email_accounts/i);
+  });
+
   it('adds an account-scoped optional sender alias without changing historical migrations', () => {
     const sql = readFileSync(join(process.cwd(), 'migrations/0150_account_default_sender.sql'), 'utf8');
     expect(sql).toContain('UNIQUE (id, account_id)');

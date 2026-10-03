@@ -75,6 +75,8 @@ interface AdminAlias {
   email?: string | null;
   reply_to?: string | null;
   signature?: string | null;
+  default_cc?: string[] | null;
+  default_bcc?: string[] | null;
   [key: string]: unknown;
 }
 interface AdminAccount {
@@ -797,7 +799,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
 
   // Alias form state
   const [aliasFormMode, setAliasFormMode] = useState<'add' | 'edit' | null>(null);
-  const [aliasFormData, setAliasFormData] = useState({ name: '', email: '', reply_to: '', signature: '' });
+  const [aliasFormData, setAliasFormData] = useState({ name: '', email: '', reply_to: '', signature: '', override_default_recipients: false, default_cc: '', default_bcc: '' });
   const [aliasFormId, setAliasFormId] = useState<string | null>(null);
   const [aliasFormError, setAliasFormError] = useState('');
   const [aliasFormSaving, setAliasFormSaving] = useState(false);
@@ -952,6 +954,8 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         email: aliasFormData.email,
         reply_to: aliasFormData.reply_to || null,
         signature: aliasFormData.signature || null,
+        default_cc: aliasFormData.override_default_recipients ? splitDefaultRecipients(aliasFormData.default_cc) : null,
+        default_bcc: aliasFormData.override_default_recipients ? splitDefaultRecipients(aliasFormData.default_bcc) : null,
       };
       let saved: AdminAlias;
       if (aliasFormMode === 'add') {
@@ -969,7 +973,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
       }
       setAliasFormMode(null);
-      setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
+      setAliasFormData({ name: '', email: '', reply_to: '', signature: '', override_default_recipients: false, default_cc: '', default_bcc: '' });
       setAliasFormId(null);
     } catch (err) {
       if (operation.current()) setAliasFormError(toAppError(err).message);
@@ -986,6 +990,9 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       email: alias.email || '',
       reply_to: alias.reply_to || '',
       signature: alias.signature || '',
+      override_default_recipients: alias.default_cc !== null && alias.default_cc !== undefined || alias.default_bcc !== null && alias.default_bcc !== undefined,
+      default_cc: (alias.default_cc ?? editTarget?.default_cc ?? []).join(', '),
+      default_bcc: (alias.default_bcc ?? editTarget?.default_bcc ?? []).join(', '),
     });
     setAliasFormError('');
     setAliasFormMode('edit');
@@ -1124,6 +1131,40 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
             onChange={val => setAliasFormData(f => ({ ...f, signature: val }))}
           />
 
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            {t('admin.aliases.defaultRecipientsSection')}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{t('admin.aliases.overrideDefaultRecipients')}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5, marginTop: 3 }}>{t('admin.aliases.overrideDefaultRecipientsNote')}</div>
+            </div>
+            <SettingSwitch
+              data-testid="alias-default-recipients-override"
+              label={t('admin.aliases.overrideDefaultRecipients')}
+              checked={aliasFormData.override_default_recipients}
+              onChange={checked => setAliasFormData(f => ({ ...f, override_default_recipients: checked }))}
+            />
+          </div>
+          {aliasFormData.override_default_recipients && <>
+            <Field label={t('admin.accounts.defaultCc')}>
+              <input data-testid="alias-default-cc" value={aliasFormData.default_cc}
+                onChange={e => setAliasFormData(f => ({ ...f, default_cc: e.target.value }))} style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </Field>
+            <Field label={t('admin.accounts.defaultBcc')}>
+              <input data-testid="alias-default-bcc" value={aliasFormData.default_bcc}
+                onChange={e => setAliasFormData(f => ({ ...f, default_bcc: e.target.value }))} style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </Field>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5, marginTop: -4, marginBottom: 14 }}>
+              {t('admin.aliases.defaultRecipientsHelp')}
+            </div>
+          </>}
+
           {aliasFormError && (
             <div style={{
               padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
@@ -1171,7 +1212,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
 
         <button
           disabled={defaultSenderSaving || aliasFormSaving}
-          onClick={() => { setAliasFormData({ name: '', email: '', reply_to: '', signature: '' }); setAliasFormMode('add'); }}
+          onClick={() => { setAliasFormData({ name: '', email: '', reply_to: '', signature: '', override_default_recipients: false, default_cc: '', default_bcc: '' }); setAliasFormMode('add'); }}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 12px', background: 'var(--accent)',

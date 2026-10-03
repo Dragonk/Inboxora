@@ -133,6 +133,23 @@ function expectNoIdentityInvalidation() {
 }
 
 describe('account alias mutations invalidate the owner-address cache', () => {
+  it('normalizes alias recipient overrides before INSERT', async () => {
+    const res = await request('POST', `${URL_ACCOUNT_ID}/aliases`, {
+      ...aliasBody, default_cc: [' One@Example.com ', 'ONE@example.com'], default_bcc: [],
+    });
+    expect(res.status).toBe(200);
+    const insert = query.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO account_aliases'));
+    expect(insert?.[1]).toEqual([URL_ACCOUNT_ID, 'Work', 'work@example.com', null, null, ['one@example.com'], []]);
+    expectIdentityInvalidated(URL_ACCOUNT_ID);
+  });
+
+  it('rejects malformed alias recipient overrides before ownership or mutation', async () => {
+    const res = await request('POST', `${URL_ACCOUNT_ID}/aliases`, { ...aliasBody, default_cc: ['Name <bad@example.com>'] });
+    expect(res.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+    expectNoIdentityInvalidation();
+  });
+
   it('invalidates the URL account once after a successful INSERT', async () => {
     const res = await request('POST', `${URL_ACCOUNT_ID}/aliases`, aliasBody);
 
