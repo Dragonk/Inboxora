@@ -7,6 +7,8 @@ const path='/api/mail/messages/message-1/attachments/part%252F1';
 test('attachment sources cannot point to a remote URL or an unrelated application endpoint',()=>{
   for(const value of ['https://example.test/file','//evil/file','/api/users','/api/mail/messages/x/attachments/y?password=x']) assert.throws(()=>attachmentPath(value));
   assert.equal(attachmentPath('/api/mail/scheduled/q/attachments/0?revision=7'),'/api/mail/scheduled/q/attachments/0?revision=7');
+  assert.equal(attachmentPath('/api/mcp/operations/22222222-2222-4222-8222-222222222222/attachments/3'),'/api/mcp/operations/22222222-2222-4222-8222-222222222222/attachments/3');
+  assert.throws(()=>attachmentPath('/api/mcp/operations/not-a-uuid/attachments/3'));
 });
 test('shared subscribers fetch once, release independently and retain immutable queue revisions',async()=>{
   const original=globalThis.fetch;let reads=0;setAuthEpoch(810);clearAttachmentCache();

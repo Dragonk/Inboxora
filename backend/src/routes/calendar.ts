@@ -297,17 +297,17 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
   const key = invitationOperationKey(req);
   const fingerprint = invitationRequestFingerprint(req, fields);
   return withTransaction(async client => {
-    const prior = await client.query('SELECT id, event_id, request_fingerprint, status, last_error, payload FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, key]);
+    const prior = await client.query('SELECT id, event_id, request_fingerprint, status, last_error, payload FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [sessionUserId(req), key]);
     if (prior.rows[0]) {
       if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
-      const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [prior.rows[0].event_id, calendarId, req.session.userId])).rows[0];
+      const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [prior.rows[0].event_id, calendarId, sessionUserId(req)])).rows[0];
       if (!event || event.id !== req.params.eventId) return { conflict: true };
       // An identical retry of an undelivered invitation must actually resend it,
       // not just replay the earlier error. The caller delivers after commit.
       if (prior.rows[0].status === 'sent') return { event, duplicate: true, delivered: { status: 'sent', lastError: null } };
       return { event, duplicate: true, outboxId: prior.rows[0].id, payload: prior.rows[0].payload };
     }
-    const existing = (await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId])).rows[0];
+    const existing = (await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, sessionUserId(req)])).rows[0];
     if (!existing) return { notFound: true };
     const hadInvitation = Boolean(existing.invite_account_id && Array.isArray(existing.attendees) && existing.attendees.length);
     const senderChanged = hadInvitation && (invitationAccount.id !== existing.invite_account_id || (invitationAccount.invitation_alias_id || null) !== (existing.invite_alias_id || null));
@@ -318,7 +318,7 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
     if (cancelledAttendees.length) {
       cancellationAccount = !senderChanged && invitationAccount.id === existing.invite_account_id
         ? invitationAccount
-        : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [existing.invite_account_id, req.session.userId])).rows[0] || null;
+        : (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [existing.invite_account_id, sessionUserId(req)])).rows[0] || null;
       if (!cancellationAccount) return { cancelFailed: true };
       cancellationAccount = await withInvitationAlias(cancellationAccount, existing.invite_alias_id, (sql,values) => client.query(sql,values));
     }
@@ -326,12 +326,12 @@ async function updateInvitedEvent(req: Request, fields: InvitationFields) {
     // `mergeCalendarResource` deliberately leaves RRULE alone (the DAV resource may
     // carry exceptions); a series-level edit applies the validated rule explicitly.
     const rawIcal = rrule === undefined ? mergedIcal : (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal);
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invite_alias_id = $16, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, req.session.userId, invitationAccount.invitation_alias_id || null]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invite_alias_id = $16, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, req.params.eventId, calendarId, sessionUserId(req), invitationAccount.invitation_alias_id || null]);
     const event = result.rows[0];
     const actions = [];
     if (cancelledAttendees.length) actions.push({ account: cancellationAccount, attendees: cancelledAttendees, summary: existing.summary, description: existing.description, location: existing.location, uid: existing.uid, allDay: Boolean(existing.all_day), method: 'CANCEL', sequence: Number(existing.invitation_sequence || 0) + 1, startsAt: new Date(existing.starts_at).toISOString(), endsAt: new Date(existing.ends_at).toISOString() });
     actions.push({ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid: event.uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(), rrule });
-    const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, event.id, key, fingerprint, JSON.stringify({ actions: invitationActionsForStorage(actions) })]);
+    const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [sessionUserId(req), event.id, key, fingerprint, JSON.stringify({ actions: invitationActionsForStorage(actions) })]);
     return { event, outboxId: outbox.rows[0].id, actions };
   });
 }
@@ -545,7 +545,7 @@ router.delete('/invitations/:messageId', async (req, res) => {
     `DELETE FROM calendar_events
      WHERE id = $1 AND user_id = $2 AND source_message_id = $3 AND invite_account_id IS NULL
      RETURNING id`,
-    [localEvent.id, req.session.userId, req.params.messageId],
+    [localEvent.id, sessionUserId(req), req.params.messageId],
   );
   if (!removed.rows[0]) return res.status(409).json({ error: 'This event can no longer be removed automatically' });
   res.json({ removed: true, calendarId: localEvent.calendarId });
@@ -584,7 +584,7 @@ router.post('/invitations/:messageId', async (req, res) => {
       organizer = EXCLUDED.organizer, attendees = EXCLUDED.attendees, invitation_sequence = EXCLUDED.invitation_sequence,
       source_message_id = COALESCE(EXCLUDED.source_message_id, calendar_events.source_message_id), updated_at = NOW()
     WHERE calendar_events.invitation_sequence < EXCLUDED.invitation_sequence AND calendar_events.invite_account_id IS NULL
-    RETURNING id`, [req.body.calendarId, req.session.userId, uid, raw, event.summary, event.startsAt, event.endsAt,
+    RETURNING id`, [req.body.calendarId, sessionUserId(req), uid, raw, event.summary, event.startsAt, event.endsAt,
       event.allDay, event.timeZone, event.description, event.location, event.url, event.organizer, JSON.stringify(event.attendees), invitation.sequence,
       req.params.messageId]);
   res.json({ added: true, changed: Boolean(result.rows[0]), calendarId: req.body.calendarId });
@@ -741,7 +741,7 @@ router.get('/calendars', async (req, res) => {
        ) account ON true
       WHERE c.user_id = $1 AND c.owner_user_id = $1
       ORDER BY c.created_at ASC`,
-    [req.session.userId],
+    [sessionUserId(req)],
   );
   const userId = sessionUserId(req);
   const [appearance, preferences] = await Promise.all([
@@ -792,7 +792,7 @@ router.post('/calendars', async (req, res) => {
       `INSERT INTO calendars (user_id, owner_user_id, name, color, display_visible, source, read_only)
        VALUES ($1, $1, $2, $3, $4, 'local', false)
        RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
-      [req.session.userId, name, color, displayVisible],
+      [sessionUserId(req), name, color, displayVisible],
     );
     return res.status(201).json({ calendar: result.rows[0] });
   } catch (caught) {
@@ -821,14 +821,14 @@ router.patch('/calendars/:calendarId', async (req, res) => {
     const customName = req.body.customName === false ? null : name;
     await query(
       "UPDATE users SET preferences = COALESCE(preferences, '{}'::jsonb) || jsonb_build_object('calendarContactAppearance', $2::jsonb) WHERE id = $1",
-      [req.session.userId, JSON.stringify({ name: customName, color, displayVisible })],
+      [sessionUserId(req), JSON.stringify({ name: customName, color, displayVisible })],
     );
     return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true, dav_mode: 'off' } });
   }
   try {
     const existing = await query<{ source: string | null }>(
       'SELECT source FROM calendars WHERE id = $1 AND owner_user_id = $2 AND user_id = $2',
-      [req.params.calendarId, req.session.userId],
+      [req.params.calendarId, sessionUserId(req)],
     );
     if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
     // Generic local metadata mutations are not provider collection operations.
@@ -839,7 +839,7 @@ router.patch('/calendars/:calendarId', async (req, res) => {
        SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode), updated_at = NOW()
        WHERE id = $5 AND owner_user_id = $6 AND user_id = $6 AND source = 'local'
        RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
-      [name, color, displayVisible, davMode ?? null, req.params.calendarId, req.session.userId],
+      [name, color, displayVisible, davMode ?? null, req.params.calendarId, sessionUserId(req)],
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
     return res.json({ calendar: result.rows[0] });
@@ -874,7 +874,7 @@ router.delete('/calendars/:calendarId', async (req, res) => {
     `DELETE FROM calendars
      WHERE id = $1 AND owner_user_id = $2 AND user_id = $2 AND name = $3 AND source = 'local'
      RETURNING id`,
-    [req.params.calendarId, req.session.userId, confirmName],
+    [req.params.calendarId, sessionUserId(req), confirmName],
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
   res.status(204).end();
@@ -909,7 +909,7 @@ router.get('/events', async (req, res) => {
   let materializedRows: CalendarEventRow[] = [];
   let eventRows: CalendarEventRow[] = [];
   if (selectedIds === null || selectedIds.length > 0) {
-    const params: unknown[] = [req.session.userId, from, to];
+    const params: unknown[] = [sessionUserId(req), from, to];
     let calendarFilter = '';
     if (selectedIds !== null) { params.push(selectedIds); calendarFilter = ' AND c.id = ANY($4::uuid[])'; }
     // Materialised occurrences: a plain indexed range scan, with no recurrence expansion at
@@ -978,7 +978,7 @@ router.get('/events', async (req, res) => {
     const [contactResult, appearance] = await Promise.all([
       query(
         'SELECT id, display_name, primary_email, birthday, anniversary, contact_dates FROM contacts WHERE user_id = $1 AND (birthday IS NOT NULL OR anniversary IS NOT NULL OR (jsonb_typeof(contact_dates) = \'array\' AND jsonb_array_length(contact_dates) > 0))',
-        [req.session.userId],
+        [sessionUserId(req)],
       ),
       contactCalendarAppearance(sessionUserId(req)),
     ]);
@@ -989,7 +989,7 @@ router.get('/events', async (req, res) => {
   // Only the events the fast read could not serve are expanded here — normally none. The
   // worker pool still bounds the CPU when it does happen, so a single request cannot stall
   // the process on a series the worker has not reached yet.
-  const projection = await projectCalendarResources(eventRows, from, to, { userId: req.session.userId });
+  const projection = await projectCalendarResources(eventRows, from, to, { userId: sessionUserId(req) });
   const colorPreferences = await loadCalendarColorPreferences(sessionUserId(req));
   const events = [...materializedRows, ...projection.events, ...contactEvents]
     .map(event => withCalendarPresentationColor(event, colorPreferences))
@@ -998,7 +998,7 @@ router.get('/events', async (req, res) => {
     // A partial result must never look complete. Only the series id and a reason
     // category cross the wire; internal error text stays in the server log.
     for (const failure of projection.failures) {
-      console.warn('Calendar projection incomplete:', JSON.stringify({ userId: req.session.userId, seriesId: failure.id, reason: failure.reason }));
+      console.warn('Calendar projection incomplete:', JSON.stringify({ userId: sessionUserId(req), seriesId: failure.id, reason: failure.reason }));
     }
     return res.json({
       events,
@@ -1041,7 +1041,7 @@ router.post('/events', async (req, res) => {
   if (sendInvites && !invitesHandledByProvider) {
     const sender = await query<EmailAccountRow>(
       'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))',
-      [inviteAccountId, req.session.userId],
+      [inviteAccountId, sessionUserId(req)],
     );
     try {
       invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
@@ -1063,7 +1063,7 @@ router.post('/events', async (req, res) => {
   };
   if (target.kind === 'graph') {
     const attempt = await writeGraphCalendarEvent({
-      userId: req.session.userId!,
+      userId: sessionUserId(req),
       target,
       operation: 'create',
       idempotencyKey: providerIdempotencyKey,
@@ -1079,7 +1079,7 @@ router.post('/events', async (req, res) => {
     // Google sends the invitation from this one call when the user asked for it; with `none` it sends
     // nothing, so the choice is stated rather than left to Google's default.
     const attempt = await writeGoogleCalendarEvent({
-      userId: req.session.userId!,
+      userId: sessionUserId(req),
       target,
       operation: 'create',
       idempotencyKey: providerIdempotencyKey,
@@ -1098,14 +1098,14 @@ router.post('/events', async (req, res) => {
     const caldavUid = crypto.randomUUID();
     const caldavRaw = localEventIcal({ uid: caldavUid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times, rrule });
     const written = await writeCaldavEventResource({
-      userId: req.session.userId!, target, method: 'PUT', filename: `${caldavUid}.ics`, uid: caldavUid,
+      userId: sessionUserId(req), target, method: 'PUT', filename: `${caldavUid}.ics`, uid: caldavUid,
       raw: caldavRaw, exists: false, localObjectId: null, localRevision: null,
     });
     if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
 
     const stored = await query<{ id: string }>(
       'SELECT id FROM calendar_events WHERE calendar_id = $1 AND uid = $2 AND user_id = $3',
-      [calendarId, caldavUid, req.session.userId],
+      [calendarId, caldavUid, sessionUserId(req)],
     );
     // Invitations are Inboxora's on this path: a plain CalDAV server is not a scheduling service, so the
     // organiser's own mail client behaviour is reproduced here rather than assumed.
@@ -1131,7 +1131,7 @@ router.post('/events', async (req, res) => {
     let outcome;
     try {
       outcome = await withTransaction(async client => {
-      const prior = await client.query('SELECT id, event_id, request_fingerprint, status, last_error, payload FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [req.session.userId, idempotencyKey]);
+      const prior = await client.query('SELECT id, event_id, request_fingerprint, status, last_error, payload FROM calendar_invitation_outbox WHERE user_id = $1 AND idempotency_key = $2 FOR UPDATE', [sessionUserId(req), idempotencyKey]);
       if (prior.rows[0]) {
         if (prior.rows[0].request_fingerprint !== fingerprint) return { conflict: true };
         const event = (await client.query('SELECT id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at FROM calendar_events WHERE id = (SELECT event_id FROM calendar_invitation_outbox WHERE id = $1)', [prior.rows[0].id])).rows[0];
@@ -1144,12 +1144,12 @@ router.post('/events', async (req, res) => {
         `INSERT INTO calendar_events (calendar_id, user_id, uid, raw_ical, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`,
-        [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, invitationAccount.invitation_alias_id || null],
+        [calendarId, sessionUserId(req), uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount.id, invitationAccount.invitation_alias_id || null],
       );
       const event = result.rows[0];
       const outbox = await client.query(
         `INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id`,
-        [req.session.userId, event.id, idempotencyKey, fingerprint, JSON.stringify({ actions: invitationActionsForStorage([{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(), rrule }]) })],
+        [sessionUserId(req), event.id, idempotencyKey, fingerprint, JSON.stringify({ actions: invitationActionsForStorage([{ account: invitationAccount, attendees: normalizedAttendees, summary, description, location, uid, allDay: Boolean(allDay), method: 'REQUEST', sequence: event.invitation_sequence ?? 0, startsAt: times.startsAt.toISOString(), endsAt: times.endsAt.toISOString(), rrule }]) })],
       );
         return { event, outboxId: outbox.rows[0].id };
       });
@@ -1163,10 +1163,10 @@ router.post('/events', async (req, res) => {
       if (outcome.delivered) return res.status(201).json(invitationDeliveryResponse(outcome.event, outcome.delivered));
       // Same request, same key, invitation not delivered yet: resend it now rather
       // than replaying the stale error. The account is resolved from the payload.
-      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
+      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: sessionUserId(req) });
       return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
+    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: sessionUserId(req) });
     return res.status(201).json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
@@ -1179,21 +1179,21 @@ router.post('/events', async (req, res) => {
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer,
                starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`,
-    [calendarId, req.session.userId, uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, invitationAccount?.invitation_alias_id || null],
+    [calendarId, sessionUserId(req), uid, rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, invitationAccount?.invitation_alias_id || null],
   );
   if (providerEvent) {
     // The link is recorded after the local row exists, so the next delta updates this row instead of
     // inserting a second copy of the event.
     if (target.kind === 'graph') {
       await recordGraphCalendarEventLink({
-        userId: req.session.userId!,
+        userId: sessionUserId(req),
         target,
         providerEventId: providerEvent.providerEventId,
         localId: result.rows[0].id,
       });
     } else if (target.kind === 'google') {
       await recordGoogleCalendarEventLink({
-        userId: req.session.userId!,
+        userId: sessionUserId(req),
         target,
         providerEventId: providerEvent.providerEventId,
         localId: result.rows[0].id,
@@ -1481,7 +1481,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
       `SELECT uid, raw_ical, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location,
               starts_at, ends_at, all_day, ${READ_ATTENDEES}
          FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`,
-      [req.params.eventId, calendarId, req.session.userId],
+      [req.params.eventId, calendarId, sessionUserId(req)],
     )).rows[0];
     if (!row) return { status: 404 };
     // An invited series is mutated **and** its attendees are told, in one RFC-compliant sequence: each
@@ -1496,7 +1496,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
     if (row.invite_account_id && Array.isArray(row.attendees) && row.attendees.length) {
       const sender = (await client.query<EmailAccountRow>(
         'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))',
-        [row.invite_account_id, req.session.userId],
+        [row.invite_account_id, sessionUserId(req)],
       )).rows[0];
       if (!sender) return { status: 502, invitedFailure: true };
       invitationPlan = { account: await withInvitationAlias(sender,row.invite_alias_id,(sql,values)=>client.query(sql,values)), messages: [] };
@@ -1508,11 +1508,11 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
       if (truncated.empty) {
         // Acting from the series' own first occurrence leaves nothing of it, so remove the event rather
         // than keep a series that produces no occurrences.
-        await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, req.session.userId]);
+        await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, sessionUserId(req)]);
         return { status: 200 };
       }
       if (cancel) {
-        await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+        await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, sessionUserId(req)]);
         if (invitationPlan) {
           // There is no iTIP "cancel the rest" primitive: the invitee's copy is corrected by an update that
           // no longer contains those occurrences, which is what the truncated rule says.
@@ -1537,7 +1537,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
         url: values.url, organizer: values.organizer, attendees: values.attendees!, allDay: values.allDay,
         ...values.times!, rrule: remainderRrule,
       });
-      await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, req.session.userId]);
+      await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [truncated.raw, req.params.eventId, calendarId, sessionUserId(req)]);
       if (invitationPlan) {
         // The earlier part is an update that ends where the split is; the remainder is a new series, which
         // the invitee learns from its own REQUEST.
@@ -1563,7 +1563,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
            starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, all_day = EXCLUDED.all_day,
            timezone = EXCLUDED.timezone, attendees = EXCLUDED.attendees, etag = gen_random_uuid()::text,
            updated_at = NOW()`,
-        [calendarId, req.session.userId, remainderUid, remainderRaw, values.summary, values.description, values.location, values.url, values.organizer, values.times!.startsAt, values.times!.endsAt, values.allDay, values.timezone, jsonbAttendees(values.attendees!)],
+        [calendarId, sessionUserId(req), remainderUid, remainderRaw, values.summary, values.description, values.location, values.url, values.organizer, values.times!.startsAt, values.times!.endsAt, values.allDay, values.timezone, jsonbAttendees(values.attendees!)],
       );
       return { status: 200, invitationPlan };
     }
@@ -1571,7 +1571,7 @@ router.all('/events/:eventId/occurrence', async (req, res) => {
     if (!event) return { status: 409 };
     const replacement = localEventIcal(cancel ? { ...event, allDay: event.allDay } : { ...req.body, description: values.description, attendees: values.attendees!, ...values.times!, uid: row.uid });
     const raw = mergeCalendarResource(row.raw_ical, replacement, recurrenceId, cancel);
-    await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, req.session.userId]);
+    await client.query('UPDATE calendar_events SET raw_ical = $1, etag = gen_random_uuid()::text, invitation_sequence = invitation_sequence + 1, updated_at = NOW() WHERE id = $2 AND calendar_id = $3 AND user_id = $4', [raw, req.params.eventId, calendarId, sessionUserId(req)]);
     if (invitationPlan) {
       const occurrenceTimes = cancel
         ? { startsAt: event.startsAt, endsAt: event.endsAt }
@@ -1622,11 +1622,11 @@ router.get('/events/:eventId/cancellation-delivery', async (req, res) => {
      FROM calendar_events e
      JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id AND o.user_id = e.user_id
      WHERE e.id = $1 AND e.user_id = $2`,
-    [req.params.eventId, req.session.userId],
+    [req.params.eventId, sessionUserId(req)],
   );
   const event = operation.rows[0];
   if (!event) return res.json({ operation: null, invitationStatus: null });
-  const delivery = await readInvitationDeliveryStatus(event.cancellation_outbox_id, req.session.userId || null);
+  const delivery = await readInvitationDeliveryStatus(event.cancellation_outbox_id, sessionUserId(req) || null);
   return res.json({
     operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id },
     invitationStatus: delivery,
@@ -1639,11 +1639,11 @@ router.post('/events/:eventId/cancellation-delivery/retry', async (req, res) => 
      FROM calendar_events e
      JOIN calendar_invitation_outbox o ON o.id = e.cancellation_outbox_id AND o.user_id = e.user_id
      WHERE e.id = $1 AND e.user_id = $2`,
-    [req.params.eventId, req.session.userId],
+    [req.params.eventId, sessionUserId(req)],
   );
   const event = operation.rows[0];
   if (!event) return res.status(404).json({ error: 'Invitation cancellation operation not found' });
-  const delivery = await deliverStoredInvitation({ outboxId: event.cancellation_outbox_id, userId: req.session.userId });
+  const delivery = await deliverStoredInvitation({ outboxId: event.cancellation_outbox_id, userId: sessionUserId(req) });
   return res.json({ operation: { kind: 'cancellation', outboxId: event.cancellation_outbox_id }, invitationStatus: delivery });
 });
 
@@ -1663,7 +1663,7 @@ router.get('/events/:eventId', async (req, res) => {
        FROM calendar_events e
        JOIN calendars c ON c.id = e.calendar_id
       WHERE e.id = $1 AND e.user_id = $2 AND c.user_id = $2 AND c.owner_user_id = $2`,
-    [req.params.eventId, req.session.userId],
+    [req.params.eventId, sessionUserId(req)],
   );
   const event = result.rows[0];
   if (!event) return res.status(404).json({ error: 'Event not found' });
@@ -1695,8 +1695,8 @@ router.patch('/events/:eventId', async (req, res) => {
     // Provider first: an edit the provider refuses must not change the local copy, and the provider
     // notifies attendees itself, so Inboxora's own invitation mail is skipped on this path.
     const providerEventId = target.kind === 'graph'
-      ? await graphEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId)
-      : await googleEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId);
+      ? await graphEventIdForLocalRow(sessionUserId(req), target.collectionId, req.params.eventId)
+      : await googleEventIdForLocalRow(sessionUserId(req), target.collectionId, req.params.eventId);
     if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
     const eventWrite = {
       summary: summary || null, description, location, url, startsAt: times.startsAt, endsAt: times.endsAt,
@@ -1706,11 +1706,11 @@ router.patch('/events/:eventId', async (req, res) => {
       ...(recurrenceProvided ? { recurrence } : {}),
     };
     if (target.kind === 'graph') {
-      const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target, operation: 'update', providerEventId, event: eventWrite, localResourceId: req.params.eventId });
+      const attempt = await writeGraphCalendarEvent({ userId: sessionUserId(req), target, operation: 'update', providerEventId, event: eventWrite, localResourceId: req.params.eventId });
       if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
     } else {
       const attempt = await writeGoogleCalendarEvent({
-        userId: req.session.userId!, target, operation: 'update', providerEventId, event: eventWrite,
+        userId: sessionUserId(req), target, operation: 'update', providerEventId, event: eventWrite,
         sendUpdates: sendInvites ? 'all' : 'none', localResourceId: req.params.eventId,
       });
       if (attempt.status === 'failed') return providerWriteRefusal(res, attempt.failure);
@@ -1720,7 +1720,7 @@ router.patch('/events/:eventId', async (req, res) => {
     let davInvitationAccount: (EmailAccountRow & InvitationAliasFields) | null = null;
     if (sendInvites) {
       if (typeof inviteAccountId !== 'string' || !UUID_PATTERN.test(inviteAccountId)) return res.status(400).json({ error: 'Select a sender account' });
-      const account = (await query<EmailAccountRow>(`SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2 AND enabled=true AND (NULLIF(smtp_host, '') IS NOT NULL OR mail_transport IN ('gmail_api','microsoft_graph'))`, [inviteAccountId,req.session.userId])).rows[0];
+      const account = (await query<EmailAccountRow>(`SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2 AND enabled=true AND (NULLIF(smtp_host, '') IS NOT NULL OR mail_transport IN ('gmail_api','microsoft_graph'))`, [inviteAccountId,sessionUserId(req)])).rows[0];
       if (!account) return res.status(400).json({ error: 'The selected sender account is unavailable' });
       try {
         davInvitationAccount = await withInvitationAlias(account,inviteAliasId);
@@ -1730,18 +1730,18 @@ router.patch('/events/:eventId', async (req, res) => {
         throw caught;
       }
     }
-    const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
+    const existing = await readCaldavEventRow(sessionUserId(req), calendarId, req.params.eventId);
     if (!existing) return res.status(404).json({ error: 'Event not found' });
     const merged = mergeCalendarResource(existing.raw_ical, localEventIcal({ uid: existing.uid, summary, description, location, url, organizer, attendees: normalizedAttendees, allDay: Boolean(allDay), ...times }));
     const raw = seriesRecurrence ? (setSeriesRecurrence(merged, rrule) ?? merged) : merged;
     const written = await writeCaldavEventResource({
-      userId: req.session.userId!, target, method: 'PUT',
+      userId: sessionUserId(req), target, method: 'PUT',
       filename: existing.dav_filename ?? `${existing.uid}.ics`, uid: existing.uid, raw,
       exists: true, localObjectId: req.params.eventId, localRevision: existing.etag,
     });
     if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
     if (davInvitationAccount && normalizedAttendees.length) {
-      const stored = await query<{ invitation_sequence: number }>('SELECT invitation_sequence FROM calendar_events WHERE id=$1 AND calendar_id=$2 AND user_id=$3',[req.params.eventId,calendarId,req.session.userId]);
+      const stored = await query<{ invitation_sequence: number }>('SELECT invitation_sequence FROM calendar_events WHERE id=$1 AND calendar_id=$2 AND user_id=$3',[req.params.eventId,calendarId,sessionUserId(req)]);
       try {
         await sendCalendarInvitation({
           account: davInvitationAccount, attendees: normalizedAttendees, summary: summary || null, description,
@@ -1761,7 +1761,7 @@ router.patch('/events/:eventId', async (req, res) => {
 
   let invitationAccount = null;
   if (sendInvites && !invitesHandledByProvider) {
-    const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [inviteAccountId, req.session.userId]);
+    const sender = await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND enabled = true AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [inviteAccountId, sessionUserId(req)]);
     try {
       invitationAccount = sender.rows[0] ? await withInvitationAlias(sender.rows[0], inviteAliasId) : null;
     } catch (caught) {
@@ -1787,15 +1787,15 @@ router.patch('/events/:eventId', async (req, res) => {
     if (outcome.duplicate) {
       if (outcome.delivered) return res.json(invitationDeliveryResponse(outcome.event, outcome.delivered));
       // An identical retry must resend an undelivered invitation, not replay the error.
-      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
+      const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: sessionUserId(req) });
       return res.json(invitationDeliveryResponse(outcome.event, delivered));
     }
-    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: req.session.userId });
+    const delivered = await deliverStoredInvitation({ outboxId: outcome.outboxId, userId: sessionUserId(req) });
     return res.json(invitationDeliveryResponse(outcome.event, delivered));
   }
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, sessionUserId(req)]);
     const existingEvent = existing.rows[0];
     if (!existingEvent) return { notFound: true };
 
@@ -1807,7 +1807,7 @@ router.patch('/events/:eventId', async (req, res) => {
       : cancelledAttendees.length
         // A disabled account retains SMTP settings for cancellation; referenced
         // sender accounts cannot be deleted because the FK is ON DELETE RESTRICT.
-        ? (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [existingEvent.invite_account_id, req.session.userId])).rows[0] || null
+        ? (await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [existingEvent.invite_account_id, sessionUserId(req)])).rows[0] || null
         : null;
     if (cancelledAttendees.length && !cancellationAccount) return { cancelFailed: true };
     if (cancellationAccount) cancellationAccount = await withInvitationAlias(cancellationAccount, existingEvent.invite_alias_id, (sql,values) => client.query(sql,values));
@@ -1819,15 +1819,15 @@ router.patch('/events/:eventId', async (req, res) => {
     // A series-level edit applies the validated rule; an occurrence edit or a plain
     // single-event edit leaves the stored rule (there is none) untouched.
     const rawIcal = seriesRecurrence ? (setSeriesRecurrence(mergedIcal, rrule) ?? mergedIcal) : mergedIcal;
-    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invite_alias_id = $16, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, req.session.userId, invitationAccount?.invitation_alias_id || null]);
+    const result = await client.query(`UPDATE calendar_events SET raw_ical = $1, summary = $2, description = $3, location = $4, url = $5, organizer = $6, starts_at = $7, ends_at = $8, all_day = $9, timezone = $10, attendees = $11, invite_account_id = $12, invite_alias_id = $16, invitation_sequence = CASE WHEN (invite_account_id IS NOT NULL AND ${ATTENDEES_IS_ARRAY} AND jsonb_array_length(attendees) > 0) OR invitation_sequence > 0 THEN invitation_sequence + 1 ELSE 0 END, etag = gen_random_uuid()::text, updated_at = NOW() WHERE id = $13 AND calendar_id = $14 AND user_id = $15 RETURNING id, calendar_id, uid, etag, summary, description, location, url, organizer, starts_at, ends_at, all_day, timezone, attendees, invite_account_id, invite_alias_id, invitation_sequence, created_at, updated_at`, [rawIcal, summary || null, description, location, url, organizer, times.startsAt, times.endsAt, Boolean(allDay), timezone, jsonbAttendees(normalizedAttendees), invitationAccount?.id || null, req.params.eventId, calendarId, sessionUserId(req), invitationAccount?.invitation_alias_id || null]);
     if (!result.rows[0]) return { notFound: true };
 
     let cancellationOutboxId: string | null = null;
     if (cancellationAction) {
-      const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, result.rows[0].id, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([cancellationAction]) })]);
+      const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [sessionUserId(req), result.rows[0].id, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([cancellationAction]) })]);
       cancellationOutboxId = outbox?.rows?.[0]?.id || null;
       if (cancellationOutboxId) {
-        await client.query('UPDATE calendar_events SET cancellation_outbox_id = $1 WHERE id = $2 AND user_id = $3', [cancellationOutboxId, result.rows[0].id, req.session.userId]);
+        await client.query('UPDATE calendar_events SET cancellation_outbox_id = $1 WHERE id = $2 AND user_id = $3', [cancellationOutboxId, result.rows[0].id, sessionUserId(req)]);
       }
     }
 
@@ -1850,7 +1850,7 @@ router.patch('/events/:eventId', async (req, res) => {
   if (outcome.notFound || !outcome.event) return res.status(404).json({ error: 'Event not found' });
 
   const cancellationDelivery = outcome.cancellationOutboxId
-    ? await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: req.session.userId })
+    ? await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: sessionUserId(req) })
     : null;
   const delivery = cancellationDelivery || outcome.delivered || { status: 'sent', lastError: null };
   res.json(invitationDeliveryResponse(
@@ -1872,37 +1872,37 @@ router.delete('/events/:eventId', async (req, res) => {
     // Provider first, and the provider notifies attendees itself. An event the provider no longer has is
     // the end state the caller asked for, so the local row is still removed and the link tombstoned.
     const providerEventId = target.kind === 'graph'
-      ? await graphEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId)
-      : await googleEventIdForLocalRow(req.session.userId!, target.collectionId, req.params.eventId);
+      ? await graphEventIdForLocalRow(sessionUserId(req), target.collectionId, req.params.eventId)
+      : await googleEventIdForLocalRow(sessionUserId(req), target.collectionId, req.params.eventId);
     if (!providerEventId) return res.status(409).json({ error: 'This event is not linked to its provider copy yet' });
     if (target.kind === 'graph') {
-      const attempt = await writeGraphCalendarEvent({ userId: req.session.userId!, target, operation: 'delete', providerEventId, localResourceId: req.params.eventId });
+      const attempt = await writeGraphCalendarEvent({ userId: sessionUserId(req), target, operation: 'delete', providerEventId, localResourceId: req.params.eventId });
       if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
         return providerWriteRefusal(res, attempt.failure);
       }
-      await removeGraphCalendarEventLink({ userId: req.session.userId!, target, providerEventId });
+      await removeGraphCalendarEventLink({ userId: sessionUserId(req), target, providerEventId });
     } else {
       // The cancellation is sent from the provider's own delete, so attendees are told once.
-      const attempt = await writeGoogleCalendarEvent({ userId: req.session.userId!, target, operation: 'delete', providerEventId, sendUpdates: 'all', localResourceId: req.params.eventId });
+      const attempt = await writeGoogleCalendarEvent({ userId: sessionUserId(req), target, operation: 'delete', providerEventId, sendUpdates: 'all', localResourceId: req.params.eventId });
       if (attempt.status === 'failed' && attempt.failure.code !== 'RESOURCE_NOT_FOUND') {
         return providerWriteRefusal(res, attempt.failure);
       }
-      await removeGoogleCalendarEventLink({ userId: req.session.userId!, target, providerEventId });
+      await removeGoogleCalendarEventLink({ userId: sessionUserId(req), target, providerEventId });
     }
   }
 
   if (target.kind === 'caldav') {
-    const existing = await readCaldavEventRow(req.session.userId!, calendarId, req.params.eventId);
+    const existing = await readCaldavEventRow(sessionUserId(req), calendarId, req.params.eventId);
     if (!existing) return res.status(404).json({ error: 'Event not found' });
     // An event the source no longer has is the end state the caller asked for, so the local row is removed
     // by the projection and the caller is told the deletion happened.
     const written = await writeCaldavEventResource({
-      userId: req.session.userId!, target, method: 'DELETE',
+      userId: sessionUserId(req), target, method: 'DELETE',
       filename: existing.dav_filename ?? `${existing.uid}.ics`, uid: existing.uid, raw: '',
       exists: true, localObjectId: req.params.eventId, localRevision: existing.etag,
     });
     if (written.status === 'permanent' && written.code === 'RESOURCE_NOT_FOUND') {
-      await query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, req.session.userId]);
+      await query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3', [req.params.eventId, calendarId, sessionUserId(req)]);
       return res.status(204).end();
     }
     if (written.status !== 'confirmed') return respondCaldavWriteBack(res, written);
@@ -1910,7 +1910,7 @@ router.delete('/events/:eventId', async (req, res) => {
   }
 
   const outcome = await withTransaction(async client => {
-    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, req.session.userId]);
+    const existing = await client.query(`SELECT uid, raw_ical, ${READ_ATTENDEES}, invite_account_id, invite_alias_id, invitation_sequence, summary, description, location, starts_at, ends_at, all_day FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 FOR UPDATE`, [req.params.eventId, calendarId, sessionUserId(req)]);
     const event = existing.rows[0];
     if (!event) return { notFound: true };
 
@@ -1918,14 +1918,14 @@ router.delete('/events/:eventId', async (req, res) => {
     if (event.invite_account_id && Array.isArray(event.attendees) && event.attendees.length) {
       // A disabled account retains SMTP settings for cancellation. Persist the
       // action before deleting the event; migration 0086 keeps this outbox row.
-      const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [event.invite_account_id, req.session.userId]);
+      const sender = await client.query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2 AND (smtp_host IS NOT NULL OR mail_transport IN (\'gmail_api\', \'microsoft_graph\'))', [event.invite_account_id, sessionUserId(req)]);
       if (!sender.rows[0]) return { cancelFailed: true };
       const action = { account: await withInvitationAlias(sender.rows[0], event.invite_alias_id, (sql,values) => client.query(sql,values)), attendees: event.attendees, summary: event.summary, description: event.description, location: event.location, uid: event.uid, allDay: Boolean(event.all_day), method: 'CANCEL', sequence: Number(event.invitation_sequence || 0) + 1, startsAt: new Date(event.starts_at).toISOString(), endsAt: new Date(event.ends_at).toISOString() };
-      const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [req.session.userId, req.params.eventId, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([action]) })]);
+      const outbox = await client.query('INSERT INTO calendar_invitation_outbox (user_id, event_id, idempotency_key, request_fingerprint, payload) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id', [sessionUserId(req), req.params.eventId, `cancel:${crypto.randomUUID()}`, crypto.randomUUID(), JSON.stringify({ actions: invitationActionsForStorage([action]) })]);
       cancellationOutboxId = outbox?.rows?.[0]?.id || null;
     }
 
-    const result = await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 RETURNING id', [req.params.eventId, calendarId, req.session.userId]);
+    const result = await client.query('DELETE FROM calendar_events WHERE id = $1 AND calendar_id = $2 AND user_id = $3 RETURNING id', [req.params.eventId, calendarId, sessionUserId(req)]);
     return { deleted: Boolean(result.rows[0]), cancellationOutboxId };
   });
   if (outcome.cancelFailed) return res.status(502).json({ error: 'The invitation could not be cancelled, so the event was not deleted.' });
@@ -1933,7 +1933,7 @@ router.delete('/events/:eventId', async (req, res) => {
 
   // The deletion is durable even if SMTP only accepts a subset: the outbox row
   // retains rejected recipients for the worker and a later retry.
-  if (outcome.cancellationOutboxId) await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: req.session.userId });
+  if (outcome.cancellationOutboxId) await deliverStoredInvitation({ outboxId: outcome.cancellationOutboxId, userId: sessionUserId(req) });
   res.status(204).end();
 });
 
@@ -1975,7 +1975,7 @@ function publicSource(source: CalendarSourceRow) {
 router.get('/sources', async (req, res) => {
   const result = await query<CalendarSourceRow>(
     `SELECT id, kind, url, username, display_name, color, interval_min, enabled, last_sync_at, last_error
-     FROM calendar_import_sources WHERE user_id = $1 ORDER BY created_at ASC`, [req.session.userId],
+     FROM calendar_import_sources WHERE user_id = $1 ORDER BY created_at ASC`, [sessionUserId(req)],
   );
   res.json({ sources: result.rows.map(publicSource) });
 });
@@ -2004,7 +2004,7 @@ router.post('/sources', async (req, res) => {
     const result = await query<CalendarSourceRow>(
       `INSERT INTO calendar_import_sources (user_id, kind, url, url_fingerprint, username, password, display_name, color, interval_min)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [req.session.userId, kind, encrypt(normalizedUrl), urlFingerprint, username || null, password ? encrypt(password) : null, displayName, color, interval],
+      [sessionUserId(req), kind, encrypt(normalizedUrl), urlFingerprint, username || null, password ? encrypt(password) : null, displayName, color, interval],
     );
     const source = result.rows[0];
     scheduleCalendarSource(source);
@@ -2052,7 +2052,7 @@ router.patch('/sources/:sourceId', async (req, res) => {
     `UPDATE calendar_import_sources SET interval_min = COALESCE($1, interval_min), enabled = COALESCE($2, enabled),
       display_name = COALESCE($5, display_name), password = COALESCE($6, password), updated_at = NOW()
       WHERE id = $3 AND user_id = $4 AND ($6::text IS NULL OR kind = 'caldav') RETURNING *`,
-    [interval, hasEnabled ? req.body.enabled : null, req.params.sourceId, req.session.userId, name, hasPassword ? encrypt(req.body.password) : null],
+    [interval, hasEnabled ? req.body.enabled : null, req.params.sourceId, sessionUserId(req), name, hasPassword ? encrypt(req.body.password) : null],
   );
   const source = result.rows[0];
   if (!source) return res.status(404).json({ error: 'Calendar source not found' });
@@ -2162,18 +2162,18 @@ router.delete('/legacy-sources/:sourceIdentity', async (req, res) => {
 });
 
 router.delete('/sources/:sourceId', async (req, res) => {
-  const existing = await query('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2', [req.params.sourceId, req.session.userId]);
+  const existing = await query('SELECT * FROM calendar_import_sources WHERE id = $1 AND user_id = $2', [req.params.sourceId, sessionUserId(req)]);
   if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar source not found' });
   let sourceDeleted = false;
   try {
     await stopCalendarSource(req.params.sourceId);
-    const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, req.session.userId]);
+    const result = await query('DELETE FROM calendar_import_sources WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.sourceId, sessionUserId(req)]);
     if (!result.rows[0]) {
       releaseCalendarSource(req.params.sourceId);
       return res.status(404).json({ error: 'Calendar source not found' });
     }
     sourceDeleted = true;
-    await query('DELETE FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [req.session.userId, `source:${req.params.sourceId}`]);
+    await query('DELETE FROM calendars WHERE user_id = $1 AND owner_user_id = $1 AND external_url = $2', [sessionUserId(req), `source:${req.params.sourceId}`]);
     releaseCalendarSource(req.params.sourceId);
     res.status(204).end();
   } catch (error) {

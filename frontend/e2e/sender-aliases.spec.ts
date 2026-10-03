@@ -60,6 +60,41 @@ test('primary address is protected; default selection persists and seeds new mes
   expect(account.default_alias_id).toBe('work');
 });
 
+test('alias editor persists recipient overrides and can return to account inheritance', async ({ page, fixtureApi }) => {
+  await fixtureApi;
+  const account = { ...createAccount(), default_cc: ['account-cc@example.test'], default_bcc: ['account-bcc@example.test'] };
+  const writes: Array<Record<string, unknown>> = [];
+  await page.route('**/api/accounts', route => route.fulfill({ json: [account] }));
+  await page.route('**/api/accounts/account-gmail/aliases/work', route => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    const body = route.request().postDataJSON() as Record<string, unknown>; writes.push(body);
+    const current = account.aliases.find(alias => alias.id === 'work');
+    const saved = { ...current, ...body, id: 'work', account_id: account.id };
+    account.aliases = account.aliases.map(alias => alias.id === 'work' ? saved : alias);
+    return route.fulfill({ json: saved });
+  });
+  await page.goto('/'); await openSettings(page); await openAliases(page);
+  const work = page.getByTestId('sender-alias-work');
+  await work.getByRole('button', { name: /^Edytuj$|^Edit$/ }).click();
+  const override = page.getByTestId('alias-default-recipients-override');
+  await expect(override).toHaveAttribute('aria-checked', 'false');
+  await override.click();
+  await expect(page.getByTestId('alias-default-cc')).toHaveValue('account-cc@example.test');
+  await expect(page.getByTestId('alias-default-bcc')).toHaveValue('account-bcc@example.test');
+  await page.getByTestId('alias-default-cc').fill('alias-one@example.test; alias-two@example.test');
+  await page.getByTestId('alias-default-bcc').fill('');
+  await page.getByRole('button', { name: /^Zapisz alias$|^Save alias$/ }).click();
+  await expect(page.getByTestId('sender-addresses')).toBeVisible();
+  expect(writes[0]).toMatchObject({ default_cc: ['alias-one@example.test', 'alias-two@example.test'], default_bcc: [] });
+  await page.getByTestId('sender-alias-work').getByRole('button', { name: /^Edytuj$|^Edit$/ }).click();
+  await expect(page.getByTestId('alias-default-recipients-override')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('alias-default-cc')).toHaveValue('alias-one@example.test, alias-two@example.test');
+  await page.getByTestId('alias-default-recipients-override').click();
+  await page.getByRole('button', { name: /^Zapisz alias$|^Save alias$/ }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1]).toMatchObject({ default_cc: null, default_bcc: null });
+});
+
 test('deleting the default alias restores primary without removing the mailbox', async ({ page, fixtureApi }) => {
   await fixtureApi;
   const account = createAccount(); account.default_alias_id = 'work';

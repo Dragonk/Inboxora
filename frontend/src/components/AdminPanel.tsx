@@ -1,3 +1,4 @@
+import McpSettings from './mcp/McpSettings.tsx';
 import AttachmentDisplaySettings from './AttachmentDisplaySettings.tsx';
 import { Switch as SettingSwitch, IconButton as AccountIconButton } from './accountUi/AccountUi.tsx';
 import { DavAccountsList, DavAccountEditor, type DavAccount } from './accountUi/DavAccounts.tsx';
@@ -74,6 +75,8 @@ interface AdminAlias {
   email?: string | null;
   reply_to?: string | null;
   signature?: string | null;
+  default_cc?: string[] | null;
+  default_bcc?: string[] | null;
   [key: string]: unknown;
 }
 interface AdminAccount {
@@ -796,7 +799,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
 
   // Alias form state
   const [aliasFormMode, setAliasFormMode] = useState<'add' | 'edit' | null>(null);
-  const [aliasFormData, setAliasFormData] = useState({ name: '', email: '', reply_to: '', signature: '' });
+  const [aliasFormData, setAliasFormData] = useState({ name: '', email: '', reply_to: '', signature: '', override_default_recipients: false, default_cc: '', default_bcc: '' });
   const [aliasFormId, setAliasFormId] = useState<string | null>(null);
   const [aliasFormError, setAliasFormError] = useState('');
   const [aliasFormSaving, setAliasFormSaving] = useState(false);
@@ -951,6 +954,8 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         email: aliasFormData.email,
         reply_to: aliasFormData.reply_to || null,
         signature: aliasFormData.signature || null,
+        default_cc: aliasFormData.override_default_recipients ? splitDefaultRecipients(aliasFormData.default_cc) : null,
+        default_bcc: aliasFormData.override_default_recipients ? splitDefaultRecipients(aliasFormData.default_bcc) : null,
       };
       let saved: AdminAlias;
       if (aliasFormMode === 'add') {
@@ -968,7 +973,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
         setEditTarget(prev => prev ? { ...prev, aliases: newAliases } : prev);
       }
       setAliasFormMode(null);
-      setAliasFormData({ name: '', email: '', reply_to: '', signature: '' });
+      setAliasFormData({ name: '', email: '', reply_to: '', signature: '', override_default_recipients: false, default_cc: '', default_bcc: '' });
       setAliasFormId(null);
     } catch (err) {
       if (operation.current()) setAliasFormError(toAppError(err).message);
@@ -985,6 +990,9 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
       email: alias.email || '',
       reply_to: alias.reply_to || '',
       signature: alias.signature || '',
+      override_default_recipients: alias.default_cc !== null && alias.default_cc !== undefined || alias.default_bcc !== null && alias.default_bcc !== undefined,
+      default_cc: (alias.default_cc ?? editTarget?.default_cc ?? []).join(', '),
+      default_bcc: (alias.default_bcc ?? editTarget?.default_bcc ?? []).join(', '),
     });
     setAliasFormError('');
     setAliasFormMode('edit');
@@ -1123,6 +1131,40 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
             onChange={val => setAliasFormData(f => ({ ...f, signature: val }))}
           />
 
+          <div style={{ height: 1, background: 'var(--border-subtle)', margin: '16px 0' }} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            {t('admin.aliases.defaultRecipientsSection')}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{t('admin.aliases.overrideDefaultRecipients')}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5, marginTop: 3 }}>{t('admin.aliases.overrideDefaultRecipientsNote')}</div>
+            </div>
+            <SettingSwitch
+              data-testid="alias-default-recipients-override"
+              label={t('admin.aliases.overrideDefaultRecipients')}
+              checked={aliasFormData.override_default_recipients}
+              onChange={checked => setAliasFormData(f => ({ ...f, override_default_recipients: checked }))}
+            />
+          </div>
+          {aliasFormData.override_default_recipients && <>
+            <Field label={t('admin.accounts.defaultCc')}>
+              <input data-testid="alias-default-cc" value={aliasFormData.default_cc}
+                onChange={e => setAliasFormData(f => ({ ...f, default_cc: e.target.value }))} style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </Field>
+            <Field label={t('admin.accounts.defaultBcc')}>
+              <input data-testid="alias-default-bcc" value={aliasFormData.default_bcc}
+                onChange={e => setAliasFormData(f => ({ ...f, default_bcc: e.target.value }))} style={inputStyle}
+                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={e => e.target.style.borderColor = 'var(--border)'} />
+            </Field>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5, marginTop: -4, marginBottom: 14 }}>
+              {t('admin.aliases.defaultRecipientsHelp')}
+            </div>
+          </>}
+
           {aliasFormError && (
             <div style={{
               padding: '10px 14px', background: 'rgba(248,113,113,0.1)',
@@ -1170,7 +1212,7 @@ function AccountsTab({ onNavigate = undefined }: { onNavigate?: (tab: string) =>
 
         <button
           disabled={defaultSenderSaving || aliasFormSaving}
-          onClick={() => { setAliasFormData({ name: '', email: '', reply_to: '', signature: '' }); setAliasFormMode('add'); }}
+          onClick={() => { setAliasFormData({ name: '', email: '', reply_to: '', signature: '', override_default_recipients: false, default_cc: '', default_bcc: '' }); setAliasFormMode('add'); }}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 12px', background: 'var(--accent)',
@@ -4783,6 +4825,18 @@ function AiActionsTab() {
   );
 }
 
+// ─── AI Features ───────────────────────────────────────────────────────────────
+function AiFeaturesTab({ initialSubTab, isAdmin, authEpoch }: { initialSubTab?: string | null; isAdmin: boolean; authEpoch: number }) {
+  const { t } = useTranslation();
+  return <SubTabs initialTab={initialSubTab || 'assistant'} tabs={[
+    { id: 'assistant', label: t('admin.tabs.ai'), content: isAdmin ? <AISection /> : <div style={{ maxWidth: 680 }}>
+      <h2 style={{ marginTop: 0 }}>{t('admin.ai.title')}</h2><p style={{ color: 'var(--text-secondary)' }}>{t('admin.ai.managedByAdmin')}</p>
+    </div> },
+    { id: 'actions', label: t('admin.tabs.aiActions'), content: <AiActionsTab /> },
+    { id: 'mcp', label: t('mcp.title'), content: <McpSettings key={authEpoch} /> },
+  ]} />;
+}
+
 // ─── Categories Section ───────────────────────────────────────────────────────
 function CategoriesSection({ initialSubTab }: SubTabSectionProps) {
   const { t } = useTranslation();
@@ -7530,7 +7584,7 @@ function MailboxCleanupTab() {
 const TAB_GROUPS = [
   { id: 'account-mail', labelKey: 'admin.tabs.groupAccountMail', tabIds: ['accounts', 'calendar', 'contacts', 'notifications', 'rules', 'categories', 'cleanup'] },
   { id: 'display', labelKey: 'admin.tabs.groupDisplay', tabIds: ['appearance', 'shortcuts'] },
-  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai', 'ai-actions', 'plugins'] },
+  { id: 'security-integrations', labelKey: 'admin.tabs.groupSecurityIntegrations', tabIds: ['security', 'dav-credentials', 'integrations', 'ai-features', 'plugins'] },
   { id: 'admin', labelKey: 'admin.tabs.groupAdmin', tabIds: ['users', 'sso', 'performance'] },
 ];
 
@@ -7582,13 +7636,8 @@ const TABS = [
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"><circle cx="12" cy="12" r="3"/><path d="M6.343 6.343a8 8 0 000 11.314M17.657 6.343a8 8 0 010 11.314M3 12h1m16 0h1M12 3v1m0 16v1"/></svg>,
   },
   {
-    id: 'ai', labelKey: 'admin.tabs.ai',
-    adminOnly: true,
+    id: 'ai-features', labelKey: 'admin.tabs.aiFeatures',
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4M19 17v4M3 5h4M17 19h4"/></svg>,
-  },
-  {
-    id: 'ai-actions', labelKey: 'admin.tabs.aiActions',
-    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M15 9h.01M17.8 6.2 19 5M3 21l9-9M12.2 6.2 11 5"/></svg>,
   },
   {
     id: 'plugins', labelKey: 'admin.tabs.plugins', beta: true,
@@ -9089,7 +9138,9 @@ function makeSearchIndex(t: TFunction): SearchIndexItem[] {
     { label: t('admin.appearance.typography'), keywords: ['font', 'typography', 'typeface', 'serif', 'sans', 'monospace', 'reading font'], tab: 'appearance', subtab: 'fonts', breadcrumb: fontsCrumb },
     // Integrations
     { label: t('admin.integrations.microsoft.title'), keywords: ['microsoft', 'outlook', '365', 'oauth', 'azure', 'client id', 'tenant', 'ms365', 'office'], tab: 'integrations', breadcrumb: tabLabel('integrations') },
-    { label: t('admin.ai.title'), keywords: ['ai', 'artificial intelligence', 'chatgpt', 'ollama', 'llm', 'language model', 'summarize', 'draft', 'compose assistant', 'openai', 'local ai', 'inference', 'gpt'], tab: 'ai', adminOnly: true, breadcrumb: tabLabel('ai') },
+    { label: t('admin.ai.title'), keywords: ['ai', 'artificial intelligence', 'chatgpt', 'ollama', 'llm', 'language model', 'summarize', 'draft', 'compose assistant', 'openai', 'local ai', 'inference', 'gpt'], tab: 'ai-features', subtab: 'assistant', adminOnly: true, breadcrumb: `${tabLabel('aiFeatures')} › ${tabLabel('ai')}` },
+    { label: tabLabel('aiActions'), keywords: ['ai actions', 'custom action', 'prompt', 'automation', 'summarize action'], tab: 'ai-features', subtab: 'actions', breadcrumb: `${tabLabel('aiFeatures')} › ${tabLabel('aiActions')}` },
+    { label: t('mcp.title'), keywords: ['mcp', 'external ai', 'chatgpt connector', 'mistral vibe', 'oauth', 'bearer token', 'ai integration'], tab: 'ai-features', subtab: 'mcp', breadcrumb: `${tabLabel('aiFeatures')} › ${t('mcp.title')}` },
     { label: t('admin.plugins.title'), keywords: ['plugin', 'plugins', 'extension', 'extensions', 'add-on', 'addon', 'gtd', 'activate', 'enable feature', 'modules'], tab: 'plugins', breadcrumb: tabLabel('plugins') },
     { label: t('admin.categories.title'), keywords: ['categories', 'categorize', 'newsletter', 'promotion', 'social', 'automated', 'inbox tabs', 'sort emails', 'classify'], tab: 'categories', breadcrumb: tabLabel('categories') },
     { label: t('admin.categories.gtdReveal'), keywords: ['gtd', 'todo', 'getting things done', 'watch', 'delegated', 'someday', 'reference', 'next action', 'waiting', 'inbox zero', 'pet'], tab: 'categories', subtab: 'gtd', breadcrumb: `${tabLabel('categories')} › ${t('admin.categories.gtdReveal')}` },
@@ -9195,7 +9246,7 @@ function DavCredentialsTab() {
 
 export default function AdminPanel() {
   const { t } = useTranslation();
-  const { setShowAdmin, adminTab, setAdminTab, user } = useStore();
+  const { setShowAdmin, adminTab, setAdminTab, user, authEpoch } = useStore();
   const isMobile = useMobile();
   const orderedTabs = [
     ...TAB_GROUPS.flatMap(group => group.tabIds.flatMap(id => TABS.filter(tab => tab.id === id))),
@@ -9217,6 +9268,10 @@ export default function AdminPanel() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingSubTab, setPendingSubTab] = useState<string | null>(null);
+  useEffect(() => {
+    if (adminTab === 'ai') { setPendingSubTab('assistant'); setAdminTab('ai-features'); }
+    else if (adminTab === 'ai-actions') { setPendingSubTab('actions'); setAdminTab('ai-features'); }
+  }, [adminTab, setAdminTab]);
   useBackLayer(searchQuery, () => setSearchQuery(''), 2005);
 
   const searchIndex = useMemo(() => makeSearchIndex(t), [t]);
@@ -9293,8 +9348,7 @@ export default function AdminPanel() {
       {adminTab === 'dav-credentials' && <DavCredentialsTab />}
       {adminTab === 'notifications' && <NotificationsTab />}
       {adminTab === 'shortcuts' && !isMobile && <ShortcutsTab />}
-      {adminTab === 'ai' && <AISection />}
-      {adminTab === 'ai-actions' && <AiActionsTab />}
+      {adminTab === 'ai-features' && <AiFeaturesTab initialSubTab={pendingSubTab} isAdmin={isAdmin} authEpoch={authEpoch} />}
       {adminTab === 'plugins' && <PluginsSection onNavigate={navigateTo} />}
       {adminTab === 'about' && <AboutTab />}
     </>

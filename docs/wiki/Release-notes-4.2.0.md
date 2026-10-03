@@ -296,3 +296,73 @@ including on Windows. Generated locale assets are still checked byte-for-byte; t
 freshness test is not skipped or regenerated over. A build-workflow-only correction may
 run from a newer main revision while checking out and validating the original immutable
 release tag for every app artifact. This does not move the release tag or mix app sources.
+
+
+## Development follow-up: native MCP (not part of the published 4.2.0 images)
+
+The development image adds `/mcp` using Streamable HTTP. ChatGPT-compatible clients can
+use OAuth authorization-code/PKCE with discovery and dynamic client registration.
+Mistral Vibe and other static-credential clients can use a separate revocable Bearer
+token. Settings → AI exposes MCP permissions to every user; installation-wide built-in
+AI configuration remains administrator-only. See [MCP setup](../MCP.md) for client
+configuration, permissions and operational limits.
+
+Tools cover email search/read/threading, attachments, drafts, sending/replies/forwarding,
+mail organization, calendars/recurrence/availability and contact CRUD. Existing source
+write-back permissions still apply. Imported/read-only calendars are readable but cannot
+be silently edited. Importing an email invitation is not an RSVP. Availability describes
+the user's synchronized calendars, not other people's live schedules.
+
+Enable `MCP_ENABLED=true`, keep the existing `ENCRYPTION_KEY`, and set `APP_URL` to the
+public HTTPS origin. Both supplied compose files pass the MCP options. Nginx forwards
+`/mcp`, `/oauth/mcp/*` and OAuth metadata discovery to the backend. Direct browser clients
+may additionally need an exact origin in `MCP_ALLOWED_ORIGINS`; no wildcard is accepted.
+No separate proxy or AI model subscription is required by the Inboxora server.
+
+Migration **0167_mcp_authorization.sql** follows **0166** and must be applied before the
+new backend serves requests; normal startup runs it automatically. It adds isolated MCP
+clients, grants, token hashes, authorization requests and encrypted operation receipts.
+No existing mailbox data is rewritten. Expired requests are scrubbed, result payloads are
+removed after 30 days, and an execution interrupted for over one hour is parked as
+uncertain, never retried automatically. Request IDs/fingerprints remain for replay safety.
+
+Mail search now combines cached matches with bounded server-side Gmail, Graph and IMAP
+searches. It finds server-confirmed body matches without requiring a local body cache,
+handles quoted phrases and literal `%`/`_`, searches recipients, and applies native Gmail
+label permissions before pagination. A server failure or search cap is explicitly marked
+as incomplete. Provider indexing and synchronization can still affect coverage; narrow a
+query or select an account/folder when the incomplete-results warning appears.
+
+Validation includes the full backend/frontend unit suites, real PostgreSQL and MCP SDK
+HTTP/OAuth tests, source-draft MIME tests and browser tests for consent, explicit write
+approval, ordinary-user settings, desktop/mobile layouts and both themes. End-user account
+linking inside ChatGPT or Vibe remains a deployment acceptance check; no claim is made
+that every third-party client's UI has been exercised.
+
+MCP follow-up checks also cover empty move receipts, manual unsubscribe links, mapped Inbox permissions when marking not-spam, draft priority and OAuth `invalid_grant` after revocation. These paths no longer report an unconfirmed action as completed.
+
+Remote search waiting now shares an eight-second budget across accounts. Slow providers return an explicit partial-results warning without making the local result wait for every account deadline. Already-started reads stay bounded and may populate the cache for the next search.
+
+Research `fetch` now uses character-based `textOffset`/`maxCharacters` with a reusable continuation offset. Event searches match actual field values rather than JSON keys. Forwarded MIME types are normalized before approval, and failed MCP initialization releases its concurrency slot. Regression tests cover these cases.
+
+OAuth token exchange and revocation support public clients (`none`), HTTP Basic (`client_secret_basic`) and form-post client secrets (`client_secret_post`). Inboxora enforces the registered method and rejects conflicting header/body credentials. All three flows are covered by the PostgreSQL HTTP integration suite.
+
+
+The development MCP approval flow now treats browser approval as the final action. For mail sends, Inboxora renders a normal message preview with sender, recipients (including BCC), subject, body, signature and attachment metadata. Recipients, subject, rich message body and signature can be edited in the approval page; saving edits re-runs server-side recipient validation, sanitization, sender checks and message preparation before the preview is replaced. Approving then atomically dispatches that exact frozen version and the approval tab returns to its opener when the browser allows it. The AI client can read the durable receipt with the same request ID and cannot turn the approval into a duplicate send.
+
+MCP composition also understands the configured sender signature as a first-class default: omit `signature` to use it, supply a per-message override, or pass an empty signature to suppress it. The final sanitized signature is what the approval preview shows and what the delivery snapshot retains.
+
+Mail search no longer treats the first provider-response deadline as a completed empty search. Retryable partial responses keep the UI in a searching state and are retried automatically against the coalesced provider operation. IMAP search also prioritizes `\All` when the server advertises it (plus Junk separately); without `\All`, Inbox, Sent and Archive are searched before narrow folders.
+
+AI integration settings are now grouped under **Settings → AI Features** with the same horizontal subtab pattern used by Appearance: **AI Assistant**, **AI Actions** and **External AI integrations (MCP)**. MCP is no longer nested inside the built-in assistant settings. Existing MCP connections can be expanded to inspect and change scope/resource checkboxes. These changes are live for active tokens, and Inboxora cancels pending approvals created under the previous permission set.
+
+The mail approval editor now shares the normal composer recipient-chip and signature components. The signature remains inline below the rich message body rather than appearing as a separate settings-like text field. The redundant “reviewed exact operation” checkbox was removed: the user can edit, review the regenerated preview, then choose **Approve** or **Deny** directly. Approval still executes the exact frozen version once and closes the approval tab after confirmed completion.
+
+
+CodeRabbit follow-up fixes tighten the development MCP/search implementation: dynamic OAuth registration now records the RFC default Basic client authentication method; IMAP search skips `\Noselect` namespace containers; quoted terms remain literal across local/Gmail/Graph/IMAP search; Gmail reuses already synchronized rows and fetches only missing hits. The default remote provider page budget is now the requested page plus one instead of a 200-message minimum.
+
+MCP credentials are also protected from accidental cleartext publication. Compose binds the HTTP reverse-proxy listener to loopback by default (`APP_HTTP_BIND=127.0.0.1`), native Nginx documents a loopback/private listener, and MCP/OAuth routes on that internal hop require `X-Forwarded-Proto: https`. The shared compose signature editor now uses a stable ref callback so rerenders cannot overwrite in-progress HTML edits.
+
+The development MCP approval surface now uses the same attachment workflow as normal compose. The read-only approval view uses Inboxora's regular attachment chips and full preview surface. Edit mode exposes the shared recipient chips, rich-text toolbar, inline-image action and inline signature editor; users may add new files, preview or remove AI-prepared files, and then save the edited snapshot. Inboxora re-prepares the complete message server-side against sender/provider limits before replacing the preview. Only the refreshed encrypted snapshot can be dispatched. Denying a mail operation also closes the approval tab/window and returns focus to its opener when the browser allows it.
+
+Mail-search coverage reporting now separates normal provider pagination from an actual coverage failure. A Gmail/Graph/IMAP search that successfully returns the requested page and has additional matching messages no longer sets partial merely because another provider page exists. The incomplete-results banner is reserved for provider/deadline errors, IMAP folders that could not be searched, or provider hits that cannot be projected into the user's permitted mailbox model.

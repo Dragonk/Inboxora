@@ -1,3 +1,5 @@
+import { trustedRequestUser } from '../services/trustedRequestUser.js';
+
 // Express parses query strings into `string | string[] | ParsedQs`. Routes almost
 // always want a single string or integer; these accessors narrow the union
 // explicitly instead of asserting, so a malformed `?a[]=x` can never silently
@@ -33,7 +35,7 @@ export function routeParam(value: unknown): string {
 // The authenticated user id. The auth middleware guarantees a session user; a missing one is a
 // programming error, so this narrows once instead of every route asserting it.
 export function sessionUserId(req: { session?: { userId?: string } }): string {
-  const id = req.session?.userId;
+  const id = req.session?.userId ?? trustedRequestUser(req);
   if (!id) throw Object.assign(new Error('Not authenticated'), { statusCode: 401 });
   return id;
 }

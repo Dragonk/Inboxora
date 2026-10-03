@@ -3,6 +3,12 @@
 These changes follow [4.2.0](Release-notes-4.2.0.md) and are intended for the `dev` test images.
 They do not change the released version number or the `latest` image tags.
 
+## Per-alias default CC/BCC
+
+Sender aliases can now override the account-level default CC and BCC recipients from **General → Accounts → Aliases**. By default an alias inherits both account lists. Enabling **Override account defaults** gives the alias its own lists; an empty CC or BCC field explicitly disables that recipient type for the alias. The recipients remain visible and removable in the composer, and manual recipient edits are preserved while switching between the primary address and aliases. An alias that still inherits the account settings keeps the existing same-account behavior, so changing only the sender identity does not re-add a default recipient the user already removed.
+
+This follow-up adds `0168_alias_default_recipients.sql` after `0167_mcp_authorization.sql`. It adds nullable, bounded `default_cc` and `default_bcc` arrays to `account_aliases`; `NULL` means inherit the account value and an array, including an empty array, is an explicit override. The normal migration runner applies it before the updated accounts API starts. Deploy matching backend and frontend development images together. No new environment setting or provider permission is required.
+
 ## Attachment previews
 
 Click an attachment to read it inside Inboxora instead of immediately downloading it. The
@@ -169,7 +175,7 @@ only verification metadata, not the document, is sent in those requests.
 
 ## Operator notes
 
-Deploy matching frontend and backend development images together. No schema migration is required.
+Deploy matching frontend and backend development images together. The current development schema includes `0168_alias_default_recipients.sql`; installations that manage migrations manually must apply it after `0167_mcp_authorization.sql` before starting the updated backend.
 Docker images include the pinned Python validator, native archive libraries, syscall-filter support
 and time-zone data. Non-Docker Linux installations must install `backend/preview/requirements.txt`
 with its hashes plus libarchive/libseccomp and set `ATTACHMENT_PREVIEW_PYTHON` to that interpreter.

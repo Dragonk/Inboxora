@@ -21,6 +21,9 @@ configuration requirements, the **known safe limitations**, and what was verifie
 ## [Unreleased]
 
 ### Added
+- **Per-alias default CC/BCC (#6).** Sender aliases can optionally override the account-level default CC and BCC lists. Aliases inherit the account settings until the override is enabled; an explicitly empty alias field disables that recipient type for the alias. Switching sender identities replaces only untouched automatic recipients and keeps manual recipient edits. Migration `0168_alias_default_recipients.sql` adds nullable, bounded alias overrides after `0167_mcp_authorization.sql`; update backend and frontend together.
+- Native MCP endpoint with OAuth/PKCE, revocable personal tokens, per-client resource permissions and approval-bound operation receipts.
+- Email, draft, attachment, calendar, availability and contact tools, with localized settings and approval screens for every user. Mail approvals now use a real Inboxora message preview and allow human edits to recipients, subject, body and signature before sending.
 - Composer attachment previews and archive folder browsing with list/thumbnail views.
 - PDF signature details and current-time integrity, certificate-chain and revocation checks, with distinct valid/invalid/unavailable indicators.
 - Optional private ClamAV container and a fail-closed preview gate; warned downloads remain available without changing original bytes.
@@ -31,10 +34,27 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
 
 ### Changed
+- MCP mail approval now reuses the normal composer attachment chips/preview, rich-text toolbar, inline images and signature surface; users can add/remove/preview files before Approve or Deny, and either final action returns to the previous tab.
+- Group AI settings under a new **AI Features** tab with horizontal **AI Assistant**, **AI Actions** and **External AI integrations (MCP)** subtabs; MCP uses the same settings hierarchy and spacing as the rest of Inboxora.
+- Existing MCP connections expose their live scope/resource checkboxes for review and editing. Permission changes apply immediately and cancel pending approvals prepared under the previous permissions.
+- MCP mail approval now reuses the composer recipient chips and signature surface, keeps the signature inline below the message body, and no longer requires a redundant “reviewed” checkbox before Approve/Reject.
 - PDF opens at 100%; compact icon toolbars combine filename/download actions and adapt search to desktop and mobile.
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Distinguish ordinary provider search pagination from genuine coverage failures so a normal next page does not trigger the incomplete-results banner.
+- Use the RFC dynamic-client default (`client_secret_basic`) when an MCP client omits `token_endpoint_auth_method`.
+- Skip IMAP `\Noselect` containers during server-side search and preserve quoted search tokens as literal phrases instead of parsing them as operators/exclusions.
+- Reuse locally synchronized Gmail search hits and hydrate only missing provider messages, reducing default remote search work from roughly 200 hits to the requested page plus one.
+- Keep the HTTP reverse-proxy listener private by default and refuse MCP/OAuth credentials on that hop unless a TLS proxy forwards `X-Forwarded-Proto: https`.
+- Stabilize the shared compose signature ref so rerenders cannot replace in-progress signature edits.
+- Support OAuth HTTP Basic client credentials as well as public and form-post clients, rejecting mixed credentials and mismatched registered methods.
+- Search cached and provider-held email across Gmail, Microsoft Graph and IMAP; handle literal phrases, recipients, dates and Gmail label scopes, automatically continue retryable provider searches instead of showing a false empty state, and prioritize broad IMAP `\All` mailboxes where available.
+- Preserve attachment bytes, priority and reply identity when creating or replacing drafts through MCP; freeze the sanitized sender signature and allow an AI-supplied per-message signature override or explicit suppression.
+- Bound remote search waiting across all accounts to eight seconds and report partial coverage.
+- Fix research fetch continuation offsets, event text matching, forwarded MIME parameters and MCP concurrency cleanup after initialization errors.
+- Require positive move/unsubscribe confirmation, authorize mapped spam destinations, and return OAuth reauthorization errors for revoked grants.
+- Route MCP through the restart-safe Nginx upstream and clean up expired MCP payloads without replaying uncertain writes. Browser approval now executes the exact frozen operation immediately and returns to the previous tab on successful completion; the client only reads the receipt afterwards.
 - Return empty PDF signature fields without loading trust lists; retry failed trust-list refreshes with bounded backoff instead of waiting six hours after a cold-start outage.
 - Validate PDF certificate paths against authenticated EU Trusted Lists instead of the TLS root store. Refresh signed lists automatically, show the verified path and distinguish missing revocation evidence from missing trust or an absent timestamp.
 - Preserve signature metadata line breaks; keep PDF search text readable and allow typed zoom percentages.

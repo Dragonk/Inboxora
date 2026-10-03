@@ -21,6 +21,7 @@
     "diagnose:conversation": "tsx src/scripts/conversationDiagnostic.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "busboy": "1.6.0",
@@ -35,6 +36,7 @@
     "ical.js": "^2.2.1",
     "imapflow": "^1.0.162",
     "jose": "^6.2.3",
+    "light-my-request": "6.6.0",
     "mailparser": "3.9.32",
     "nodemailer": "^10.0.13",
     "office-crypto": "0.1.0",
@@ -46,7 +48,8 @@
     "sanitize-html": "^2.17.4",
     "undici": "^6.29.0",
     "web-push": "^3.6.7",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

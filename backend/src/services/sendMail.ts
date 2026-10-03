@@ -443,7 +443,7 @@ async function completeIdempotencyLease(key: string, token: string, result: unkn
 
 
 /** Frozen, ownership-validated input retained by the durable send queue. */
-export interface PreparedSend { payload: SendRequestBody; senderEmail: string }
+export interface PreparedSend { payload: SendRequestBody; senderEmail: string; senderName?: string | null }
 /** Application-level delivery result, independent of Express and HTTP sessions. */
 export interface SendExecutionResult {
   status: number;
@@ -457,6 +457,7 @@ export interface SendExecutionOptions {
   /** Keep exact Sent-copy identity in a queued delivery receipt, not a second message snapshot. */
   includeSentReference?: boolean;
   expectedSenderEmail?: string;
+  expectedSenderName?: string | null;
   beforeDispatch?: () => Promise<boolean>;
 }
 /** Positive evidence that the queue gate declined before any transport call. */
@@ -561,6 +562,9 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
   const { fromName, fromEmail, fromReplyTo, fromSignature } = sender;
   if (options.expectedSenderEmail && fromEmail.toLowerCase() !== options.expectedSenderEmail.toLowerCase()) {
     return sendResponse(409, { code: 'SCHEDULE_SENDER_CHANGED', error: 'The scheduled sender address changed. Edit the message and select its sender again.' });
+  }
+  if (options.expectedSenderName !== undefined && (fromName ?? null) !== options.expectedSenderName) {
+    return sendResponse(409, { code: 'SCHEDULE_SENDER_CHANGED', error: 'The scheduled sender display name changed. Review the message again before sending.' });
   }
 
   // Allow the client to override the signature per-send (editedSignature === undefined means use DB value).
@@ -1028,6 +1032,7 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
       }
       return { status: 200, body: { ok: true }, prepared: {
         senderEmail: fromEmail,
+        senderName: fromName ?? null,
         payload: {
           ...payload,
           // Preserve the legacy headers-only reply contract when the kind was
@@ -1036,8 +1041,11 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
           ...(forwardedAttachments?.length ? { sendKind: effectiveSendKind } : {}),
           to: normalizedTo, cc: normalizedCc, bcc: normalizedBcc,
           subject: normalizedSubject,
-          editedSignature: editedSignature ?? fromSignature ?? '',
-          editedSignatureIsHtml: editedSignature === undefined ? true : editedSignatureIsHtml !== false,
+          // Freeze the exact signature representation that passed validation/sanitization.
+          // The approval preview and later dispatch therefore render the same content even
+          // if the account signature changes in the meantime.
+          editedSignature: signatureIsHtml ? (effectiveSignature ?? '') : (effectiveSignatureText ?? ''),
+          editedSignatureIsHtml: signatureIsHtml,
           inReplyTo: resolvedInReplyTo ?? undefined, references: resolvedReferences ?? undefined,
           attachments: [...(attachments ?? []), ...resolvedFwdAttachments.map(attachment => ({
             filename: attachment.filename, content: attachment.content.toString('base64'), contentType: attachment.contentType,

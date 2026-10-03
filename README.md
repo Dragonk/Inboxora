@@ -207,3 +207,7 @@ fork with distinct product goals; upstream notices remain preserved.
 
 Licensed under [AGPL-3.0](LICENSE). Operators of a modified network service must offer its
 corresponding source. Contributions use the same terms; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### External AI applications (MCP)
+
+Connect ChatGPT, Mistral Vibe and other Streamable HTTP clients to mail, calendars and contacts with separate, revocable permissions and optional per-operation approval. MCP is disabled by default. See the [MCP setup and security guide](docs/MCP.md) for OAuth, personal tokens, reverse-proxy requirements, supported tools and search limitations.

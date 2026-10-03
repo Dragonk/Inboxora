@@ -1,5 +1,7 @@
+import McpPage from './components/mcp/McpPage.tsx';
+import { pendingMcpReturn, rememberMcpReturn } from './utils/mcp.ts';
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useStore } from './store/index.ts';
 import { api } from './utils/api.ts';
 import { applyTheme, getInitialTheme } from './themes.ts';
@@ -13,8 +15,19 @@ import DesktopTitleBar from './components/desktop/DesktopTitleBar.tsx';
 import { isElectronShell } from './utils/desktopShell.ts';
 import { cleanupDesktopWebPush } from './utils/desktopWebPushCleanup.ts';
 
+function McpLogin() {
+  const location = useLocation();
+  useEffect(() => { rememberMcpReturn(location.pathname + location.search); }, [location.pathname, location.search]);
+  return <LoginPage />;
+}
+function PostLoginHome() { return <Navigate to={pendingMcpReturn() || '/'} replace />; }
+function McpLandingHome() {
+  const pending = pendingMcpReturn();
+  return pending ? <Navigate to={pending} replace/> : <MailApp/>;
+}
+
 export default function App() {
-  const { user, setUser, loadPreferences, isLocked, setLocked } = useStore();
+  const { user, setUser, loadPreferences, isLocked, setLocked, authEpoch } = useStore();
   const [checking, setChecking] = useState(true);
 
   // Register service worker on first mount — independent of auth state.
@@ -166,9 +179,11 @@ export default function App() {
           needs a draggable strip because its native title bar is hidden. */}
       {(!user || isLocked) && <DesktopTitleBar variant="drag" />}
       <Routes>
-        <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-        <Route path="/register" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-        <Route path="/*" element={user ? (isLocked ? <LockScreen /> : <MailApp />) : <Navigate to="/login" replace />} />
+        <Route path="/ai/mcp/authorize" element={user ? (isLocked ? <LockScreen/> : <McpPage key={authEpoch}/>) : <McpLogin/>}/>
+        <Route path="/ai/mcp/confirm/:id" element={user ? (isLocked ? <LockScreen/> : <McpPage key={authEpoch}/>) : <McpLogin/>}/>
+        <Route path="/login" element={user ? <PostLoginHome /> : <LoginPage />} />
+        <Route path="/register" element={user ? <PostLoginHome /> : <LoginPage />} />
+        <Route path="/*" element={user ? (isLocked ? <LockScreen /> : <McpLandingHome />) : <Navigate to="/login" replace />} />
       </Routes>
     </>
   );

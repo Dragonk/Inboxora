@@ -210,6 +210,7 @@ function getMessageBody(id: string, remoteImages = false, copyId: string | null 
 }
 
 export const api = {
+  mcp: { request: (method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown) => request(method, `/mcp${path}`, body) },
   get: (path: string, extraOptions = {}) => request('GET', path, undefined, undefined, extraOptions),
   post: (path: string, body: unknown, extraHeaders?: Record<string, string>) => request('POST', path, body, extraHeaders),
   put: (path: string, body: unknown) => request('PUT', path, body),

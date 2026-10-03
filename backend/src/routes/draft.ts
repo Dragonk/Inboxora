@@ -1,3 +1,5 @@
+import { draftAttachments } from '../services/draftAttachments.js';
+import { sessionUserId } from '../utils/query.js';
 import nodemailer from 'nodemailer';
 import type { EmailAccountRow } from '../services/imapManager.js';
 import { randomBytes } from 'crypto';
@@ -58,6 +60,8 @@ type RawDraftInput = {
   replyParentMessageId?: string | null;
   replyParentAccountId?: string | null;
   replyKind?: 'reply' | 'reply_all' | null;
+  attachments?: unknown;
+  priority?: ComposedMail['priority'];
 };
 
 type ExistingDraftIdentity = {
@@ -127,7 +131,7 @@ function textToHtml(text: string) {
     .join('');
 }
 
-async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind }: RawDraftInput) {
+async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml = true, hasEditedSignature = false, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments, priority = 'normal' }: RawDraftInput) {
   const acctResult = await query<EmailAccountRow & { email_address: string }>(
     'SELECT * FROM email_accounts WHERE id = $1',
     [accountId]
@@ -157,6 +161,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     (effectiveSignature ? `<div style="margin-top:16px;color:#555;font-size:13px">${effectiveSignature}</div>` : '') +
     (quotedBodyHtml || (quotedBody ? textToHtml(quotedBody) : ''));
   const { html: draftHtml, attachments: inlineImageAttachments } = embedInlineDataImages(rawHtml);
+  const allAttachments = [...inlineImageAttachments, ...draftAttachments(attachments)];
 
   // Stable Message-ID so the appended MIME and the local DB row reference the same
   // message (and a later sync reconciles cleanly).
@@ -165,6 +170,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
 
   const mailOptions = {
     messageId,
+    priority,
     from: `${fromName} <${fromEmail}>`,
     ...(fromReplyTo ? { replyTo: fromReplyTo } : {}),
     to: (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ') || undefined,
@@ -175,7 +181,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     ...(references ? { references: sanitizeHeaderValue(references) } : {}),
     text: textBody,
     html: draftHtml,
-    ...(inlineImageAttachments.length ? { attachments: inlineImageAttachments } : {}),
+    ...(allAttachments.length ? { attachments: allAttachments } : {}),
   };
 
   const streamTransport = nodemailer.createTransport({ streamTransport: true, newline: 'unix' });
@@ -202,6 +208,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean).map(entry => parseMailbox(String(entry)));
   const composed: ComposedMail = {
     messageId,
+    priority,
     from: { email: fromEmail, name: fromName ?? undefined },
     replyTo: fromReplyTo ? parseMailbox(fromReplyTo) : null,
     to: recipientMailboxes(to),
@@ -212,8 +219,8 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
     htmlBody: draftHtml,
     inReplyTo: inReplyTo ? sanitizeHeaderValue(inReplyTo) : null,
     references: references ? sanitizeHeaderValue(references) : null,
-    ...(inlineImageAttachments.length ? {
-      attachments: inlineImageAttachments.map(attachment => ({
+    ...(allAttachments.length ? {
+      attachments: allAttachments.map(attachment => ({
         filename: attachment.filename,
         content: attachment.content,
         contentType: attachment.contentType,
@@ -236,7 +243,7 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
       // draft projections already preserve this JSON across reopen, unlike a
       // transient ComposeModal-only field.
       draftComposition: {
-        version: 3, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature,
+        version: 3, priority, authoredBody: body || '', bodyIsHtml: Boolean(bodyIsHtml), signatureHtml: effectiveSignature,
         signatureText: sigText, quotedBody: quotedBody || null, quotedBodyHtml: quotedBodyHtml || null,
         replyToMessageId: typeof replyToMessageId === 'string' ? replyToMessageId : null,
         replyParentMessageId: typeof replyParentMessageId === 'string' ? replyParentMessageId : null,
@@ -245,6 +252,13 @@ async function buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, b
       },
     },
   };
+}
+
+async function resetDraftAttachments(accountId: string, uid: string | number, folder: string, hasAttachments: boolean) {
+  // Attachment IDs are discovered from the saved source, never guessed from indexes.
+  await query(`UPDATE messages SET has_attachments=$4,attachments='[]'::jsonb,
+    graph_attachment_metadata_complete=false,gmail_attachment_metadata_complete=false
+    WHERE account_id=$1 AND uid=$2 AND folder=$3`, [accountId, uid, folder, hasAttachments]);
 }
 
 async function resolveDraftsFolder(account: EmailAccountRow) {
@@ -301,7 +315,8 @@ async function deleteProviderDraftByIdentity(userId: string, identity: ExistingD
 }
 
 router.post('/draft', async (req, res) => {
-  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind } = req.body;
+  const { accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml = false, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments, priority } = req.body;
+  if (priority !== undefined && !['low','normal','high'].includes(priority)) return res.status(400).json({ error: 'Invalid draft priority' });
   if (editedSignatureIsHtml !== undefined && typeof editedSignatureIsHtml !== 'boolean') return res.status(400).json({ error: 'editedSignatureIsHtml must be a boolean' });
   const hasEditedSignature = Object.prototype.hasOwnProperty.call(req.body || {}, 'editedSignature');
   const existingDraft = existingDraftIdentity(req.body?.existingDraft);
@@ -309,12 +324,12 @@ router.post('/draft', async (req, res) => {
 
   const ownerCheck = await query<{ id: string }>(
     'SELECT id FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
+    [accountId, sessionUserId(req)]
   );
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
   try {
-    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind });
+    const { rawMessage, account, composed, meta } = await buildRawDraft({ accountId, aliasId, to, cc, bcc, subject, body, bodyIsHtml, quotedBody, quotedBodyHtml, editedSignature, editedSignatureIsHtml, hasEditedSignature, inReplyTo, references, replyToMessageId, replyParentMessageId, replyParentAccountId, replyKind, attachments, priority });
 
     const draftsFolder = await resolveDraftsFolder(account);
     if (!draftsFolder) return res.status(422).json({ error: 'No Drafts folder found for this account' });
@@ -324,10 +339,10 @@ router.post('/draft', async (req, res) => {
     // the layer switch, the configuration and the connection are the same three answers every
     // provider-backed mail path uses.
     if (account.mail_transport === 'microsoft_graph') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'graph') return res.status(409).json({ error: 'This account is not linked to a Microsoft connection' });
-      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+      const api = { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config };
 
       // Only a draft this account owns can be patched in place: its provider id is read from the local
       // row. A draft held on another account is a different provider object and is removed separately.
@@ -365,12 +380,13 @@ router.post('/draft', async (req, res) => {
           .catch(caught => console.error(`Draft: failed to remove superseded provider draft: ${toAppError(caught).message}`));
       }
       if (existingDraft && existingDraft.accountId !== account.id) {
-        await deleteProviderDraftByIdentity(req.session.userId!, existingDraft)
+        await deleteProviderDraftByIdentity(sessionUserId(req), existingDraft)
           .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
       }
 
       // No UIDVALIDITY: a provider draft's identity is its immutable provider id, which the local row
       // holds. `uid` is the compatibility number the rest of the application addresses rows by.
+      if (attachments !== undefined) await resetDraftAttachments(account.id, record.uid, draftsFolder, Boolean(composed.attachments?.length));
       return res.json({ uid: record.uid, folder: draftsFolder, uidValidity: null, rowId: record.rowId });
     }
 
@@ -379,10 +395,10 @@ router.post('/draft', async (req, res) => {
     // a patch or delete addresses is resolved from the provider at that moment, because the local model
     // has no column for a second identity.
     if (account.mail_transport === 'gmail_api') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'gmail') return res.status(409).json({ error: 'This account is not linked to a Google connection' });
-      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+      const api = { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config };
 
       const sameAccountDraft = existingDraft && existingDraft.accountId === account.id ? existingDraft : null;
       const existingMessageId = sameAccountDraft
@@ -455,10 +471,11 @@ router.post('/draft', async (req, res) => {
           .catch(caught => console.error(`Draft: failed to remove superseded Gmail draft: ${toAppError(caught).message}`));
       }
       if (existingDraft && existingDraft.accountId !== account.id) {
-        await deleteProviderDraftByIdentity(req.session.userId!, existingDraft)
+        await deleteProviderDraftByIdentity(sessionUserId(req), existingDraft)
           .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
       }
 
+      if (attachments !== undefined) await resetDraftAttachments(account.id, record.uid, draftsFolder, Boolean(composed.attachments?.length));
       return res.json({ uid: record.uid, folder: draftsFolder, uidValidity: null, rowId: record.rowId });
     }
 
@@ -502,7 +519,7 @@ router.post('/draft', async (req, res) => {
       try {
         const previousAccount = await query<EmailAccountRow>(
           'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-          [existingDraft.accountId, req.session.userId],
+          [existingDraft.accountId, sessionUserId(req)],
         );
         const previous = previousAccount.rows[0];
         if (!previous) {
@@ -530,6 +547,7 @@ router.post('/draft', async (req, res) => {
       }
     }
 
+    if (attachments !== undefined && uid != null) await resetDraftAttachments(account.id, uid, draftsFolder, Boolean(composed.attachments?.length));
     res.json({ uid, folder: draftsFolder, uidValidity });
   } catch (caught) {
     const err = toAppError(caught);
@@ -553,7 +571,7 @@ router.delete('/draft/:uid', async (req, res) => {
 
   const ownerCheck = await query<EmailAccountRow>(
     'SELECT * FROM email_accounts WHERE id = $1 AND user_id = $2',
-    [accountId, req.session.userId]
+    [accountId, sessionUserId(req)]
   );
   if (!ownerCheck.rows.length) return res.status(404).json({ error: 'Account not found' });
 
@@ -564,13 +582,13 @@ router.delete('/draft/:uid', async (req, res) => {
     // A native account's draft is removed at the provider, addressed by the immutable id on the local
     // row — there is no UIDVALIDITY to confirm, and the row is only dropped after the provider confirms.
     if (account.mail_transport === 'microsoft_graph') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'graph') return res.status(409).json({ error: 'This account is not linked to a Microsoft connection' });
       const providerId = await graphDraftIdForLocalRow(account.id, uid, folder);
       if (!providerId) return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
       await deleteGraphUserDraft(
-        { userId: req.session.userId!, connectionId: target.connectionId, config: target.config },
+        { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config },
         providerId,
       );
       await query(
@@ -581,10 +599,10 @@ router.delete('/draft/:uid', async (req, res) => {
     }
 
     if (account.mail_transport === 'gmail_api') {
-      const target = await resolveMailTransportForSync(req.session.userId!, account.id);
+      const target = await resolveMailTransportForSync(sessionUserId(req), account.id);
       if (target.kind === 'refused') return res.status(target.status).json({ error: target.error });
       if (target.kind !== 'gmail') return res.status(409).json({ error: 'This account is not linked to a Google connection' });
-      const api = { userId: req.session.userId!, connectionId: target.connectionId, config: target.config };
+      const api = { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config };
       const messageId = await gmailDraftMessageIdForLocalRow(account.id, uid, folder);
       if (!messageId) return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
       const draftId = await findGmailDraftIdForMessage(api, messageId);
