@@ -110,7 +110,7 @@ test("every documented runtime environment variable exists in .env.example", asy
   const prefixes = [
     "MAIL_", "MS_", "GOOGLE_", "PROVIDER_", "POSTGRES_", "DB_", "REDIS_", "APP_", "UPDATE_",
     "ENCRYPTION_", "SESSION_", "NTFY_", "VAPID_", "SMTP_", "IMAP_", "DAV_", "AI_", "OPENAI_",
-    "OLLAMA_", "ANTHROPIC_", "LOG_", "TRUST_", "TZ", "NODE_",
+    "OLLAMA_", "ANTHROPIC_", "MCP_", "LOG_", "TRUST_", "TZ", "NODE_",
   ];
 
   const missing: string[] = [];
@@ -133,7 +133,7 @@ test("every API route named in the release documentation exists in the backend",
     "docs/wiki/Configuration.md", "docs/wiki/Contacts-and-DAV.md", "docs/wiki/Calendar.md",
     "docs/wiki/Upgrading.md", "docs/wiki/Troubleshooting.md",
     "docs/IMPLEMENTATION-STATUS.md", "docs/wiki/Release-notes-4.1.0.md",
-    "docs/wiki/Release-notes-4.2.0.md",
+    "docs/wiki/Release-notes-4.2.0.md", "docs/wiki/Release-notes-4.3.0.md", "docs/wiki/MCP.md",
   ];
   const backendSource = execFileSync(
     "bash",

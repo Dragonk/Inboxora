@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.2.0](wiki/Release-notes-4.2.0.md). Older release notes are collected in
+[Release notes 4.3.0](wiki/Release-notes-4.3.0.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -19,6 +19,10 @@ The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and opera
 configuration requirements, the **known safe limitations**, and what was verified.
 
 ## [Unreleased]
+
+There are no unreleased changes after **4.3.0**.
+
+## [4.3.0] - 2026-10-03
 
 ### Added
 - **Per-alias default CC/BCC (#6).** Sender aliases can optionally override the account-level default CC and BCC lists. Aliases inherit the account settings until the override is enabled; an explicitly empty alias field disables that recipient type for the alias. Switching sender identities replaces only untouched automatic recipients and keeps manual recipient edits. Migration `0168_alias_default_recipients.sql` adds nullable, bounded alias overrides after `0167_mcp_authorization.sql`; update backend and frontend together.
@@ -34,6 +38,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - DOCX, XLSX/XLS/ODS, Markdown/Mermaid, JSON/JSONC, XML, CSV/TSV, text, ZIP, media, HTML/EML and selectable calendar/contact-card previews. Supported encrypted Office files unlock through a stateless server worker.
 
 ### Changed
+- Replace several N+1 database paths with bounded bulk operations for scheduled-mail recipients, physical message moves, conversation evidence, archive updates, rich-contact backfill, unresolved references and IMAP thread matching.
 - MCP mail approval now reuses the normal composer attachment chips/preview, rich-text toolbar, inline images and signature surface; users can add/remove/preview files before Approve or Deny, and either final action returns to the previous tab.
 - Group AI settings under a new **AI Features** tab with horizontal **AI Assistant**, **AI Actions** and **External AI integrations (MCP)** subtabs; MCP uses the same settings hierarchy and spacing as the rest of Inboxora.
 - Existing MCP connections expose their live scope/resource checkboxes for review and editing. Permission changes apply immediately and cancel pending approvals prepared under the previous permissions.
@@ -42,6 +47,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Floating previews can return to fullscreen, and PDF/images can open in a private native-browser viewer.
 
 ### Fixed
+- Restore Google AI-provider compatibility by omitting the unsupported `think` field.
 - Distinguish ordinary provider search pagination from genuine coverage failures so a normal next page does not trigger the incomplete-results banner.
 - Use the RFC dynamic-client default (`client_secret_basic`) when an MCP client omits `token_endpoint_auth_method`.
 - Skip IMAP `\Noselect` containers during server-side search and preserve quoted search tokens as literal phrases instead of parsing them as operators/exclusions.
@@ -72,7 +78,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Isolate native archive parsing with a syscall allow-list and bounded subprocesses; restrict certificate lookups to public pinned addresses without redirects, cookies or inherited application secrets.
 - Session- and queue-revision-scoped attachment caching; passive document frames, local workers, archive/image/workbook limits, bounded processing, rate-limited password attempts and unbuffered processing routes. Unsupported formats remain downloadable.
 
-See [Development release notes](wiki/Release-notes-Unreleased.md) for format limitations and proxy requirements.
+See [Release notes 4.3.0](wiki/Release-notes-4.3.0.md) for user-facing details, upgrade requirements, format limitations and proxy requirements.
 
 ## [4.2.0] - 2026-09-30
 

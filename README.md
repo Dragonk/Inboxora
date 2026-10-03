@@ -7,37 +7,35 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.2.0-informational" alt="Version 4.2.0">
+  <img src="https://img.shields.io/badge/version-4.3.0-informational" alt="Version 4.3.0">
 </p>
 
 Inboxora brings email, contacts and calendars into one self-hosted workspace. Use existing
 accounts over **IMAP/SMTP**, or connect **Gmail, Google Calendar and People APIs** and
 **Microsoft Graph**. CalDAV and CardDAV keep your other applications and devices connected.
 
-**Current release: 4.2.0.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.2.0)
+**Current release: 4.3.0.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.0)
 or deploy the versioned Docker images. Full documentation lives in the
 [Wiki](https://github.com/Dragonk/Inboxora/wiki).
 
-## What's new in 4.2.0
+## What's new in 4.3.0
 
-- **More control over sending.** Schedule mail, use a 0/15/30/60-second Undo Send window, or
-  send a private copy to each recipient with mail merge. The Scheduled view has an inbox-style
-  preview, attachments and paused editing that cannot send at the old deadline.
-- **Sender and recipient defaults.** Choose a default From address per account, match replies
-  to the configured alias actually contacted, and save removable default CC/BCC recipients
-  below the signature. Drafts and manual edits retain their identities.
-- **One place for accounts.** General → Accounts manages mail and DAV connections; calendar
-  appearance has its own page. Collection editors, diagnostics, native menus and notifications
-  work consistently across desktop and mobile.
-- **More reliable synchronization.** Durable read/star recovery, accurate folder/thread counts,
-  Gmail history and list fixes, and safe calendar/contact disappearance and rediscovery.
-- **Storage and migration fixes.** Large-mailbox header repair now finishes in bounded batches
-  with visible progress. Obsolete IMAP callbacks no longer report “Host must be a string” after
-  an account switches to Google API or Graph. Existing false errors are cleared automatically.
+- **Native MCP integration.** Connect external AI clients to scoped mail, calendar and contact
+  tools over Streamable HTTP, with OAuth/PKCE or personal tokens, resource-level permissions and
+  browser approval for writes. Mail approval reuses the normal composer and attachment preview.
+- **Attachment previews.** Open PDF, images, DOCX, spreadsheets, text/Markdown, archives,
+  HTML/EML, media, ICS and VCF inside Inboxora. PDF search, printing, passwords and signature
+  inspection are built in; optional ClamAV can gate previewing.
+- **Per-alias default CC/BCC.** Aliases can inherit account defaults or define independent,
+  explicitly empty recipient lists while preserving manual composer edits.
+- **Search and performance fixes.** Provider-backed search reports partial coverage accurately,
+  while several N+1 database paths were replaced with bulk operations for large mailboxes and
+  scheduled mail.
+- **Compatibility and UI fixes.** Google AI-provider requests no longer send the unsupported
+  `think` field, and composer/preview/mobile/context-menu behavior received smaller corrections.
 
-See the [4.2.0 release notes](docs/wiki/Release-notes-4.2.0.md) for the full changes, migration
-order and limitations. This release preserves existing administrator prefetch/retention controls;
-cache expiry is not mail deletion, and freed PostgreSQL pages need not immediately shrink files.
+See the [4.3.0 release notes](docs/wiki/Release-notes-4.3.0.md) for the full changes, MCP setup,
+preview/security limits and migration requirements.
 
 ## Highlights
 
@@ -47,24 +45,10 @@ cache expiry is not mail deletion, and freed PostgreSQL pages need not immediate
   local and provider calendars, external DAV/ICS subscriptions and contact birthdays.
 - **Rich contacts and DAV.** Multiple books, CSV/vCard import/export, provider write-back where
   enabled, and revocable application passwords for other CalDAV/CardDAV clients.
+- **External AI with user-controlled access.** Native MCP connections can be scoped to selected
+  mailboxes, folders, calendars and address books, with revocable grants and approval-bound writes.
 - **Desktop and mobile.** Resizable panes, themes, nine languages, installable PWA, Windows/Linux
   desktop apps and an Android app with UnifiedPush notifications.
-
-## Attachment previews in development
-
-The `dev` reader opens PDF at 100%, uses compact icon actions and search, and fills the mobile
-viewport. Images rotate both ways. Desktop previews can move into a floating window and back
-to fullscreen; PDF/images also have a native-browser action using private, short-lived blobs.
-
-Supported readers include images, PDF, DOCX with page/background preservation, spreadsheets,
-Markdown/Mermaid, structured text, ZIP/7z/RAR/TAR/compressed streams, media, HTML/EML and contact/calendar cards.
-The signature dialog separates integrity, certificate trust and revocation, with green/red/yellow
-results rather than treating a signature field as valid. Optional ClamAV blocks unsafe or unscannable
-previews but permits a warned download. All attachment/API access still requires the owning session.
-The composer accepts file drops, checks sender limits and offers a configurable large-attachment warning.
-
-See [development release notes](docs/wiki/Release-notes-Unreleased.md) for trust configuration,
-optional ClamAV setup, format limitations and resource budgets. Deploy both development images together.
 
 ## Screenshots
 
@@ -121,10 +105,10 @@ Use Docker Compose with the prebuilt release images:
 
 ```bash
 mkdir inboxora && cd inboxora
-curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.2.0/docker-compose.ghcr.yml
-curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.2.0/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.0/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.0/.env.example
 # Edit .env: set APP_URL, SESSION_SECRET, DB_PASSWORD and ENCRYPTION_KEY.
-# Add INBOXORA_VERSION=4.2.0 to pin both app images.
+# Add INBOXORA_VERSION=4.3.0 to pin both app images.
 docker compose up -d
 docker compose ps
 ```
@@ -135,8 +119,8 @@ Redis and the bundled ntfy service use persistent storage. Keep `.env` private a
 not expose internal service ports publicly. The Wiki covers proxy, DAV and notification setup.
 
 ```text
-ghcr.io/dragonk/inboxora-backend:4.2.0
-ghcr.io/dragonk/inboxora-frontend:4.2.0
+ghcr.io/dragonk/inboxora-backend:4.3.0
+ghcr.io/dragonk/inboxora-frontend:4.3.0
 ```
 
 Both images support AMD64 and ARM64. `latest` follows the current stable release; `dev` is a
@@ -144,7 +128,7 @@ separate, mutable test build. Native apps connect to your server rather than rep
 
 **Upgrading?** Back up PostgreSQL and the matching `.env`, retain your current database/volume
 names, and update backend and frontend together. Startup applies the migration chain through
-**0166**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-420); do not delete an
+**0168**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-430); do not delete an
 account, reset cursors or recreate volumes to clear a migration error.
 
 ## Platforms
@@ -207,7 +191,3 @@ fork with distinct product goals; upstream notices remain preserved.
 
 Licensed under [AGPL-3.0](LICENSE). Operators of a modified network service must offer its
 corresponding source. Contributions use the same terms; see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-### External AI applications (MCP)
-
-Connect ChatGPT, Mistral Vibe and other Streamable HTTP clients to mail, calendars and contacts with separate, revocable permissions and optional per-operation approval. MCP is disabled by default. See the [MCP setup and security guide](docs/MCP.md) for OAuth, personal tokens, reverse-proxy requirements, supported tools and search limitations.

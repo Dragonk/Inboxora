@@ -45,7 +45,7 @@ cp .env .env.backup
 
 A readable archive is a basic check, not a substitute for testing a restore. Keep the
 backup and matching `.env` securely outside the database volume. Then set
-`INBOXORA_VERSION=4.2.0` in the existing `.env` when using the supplied GHCR Compose file.
+`INBOXORA_VERSION=4.3.0` in the existing `.env` when using the supplied GHCR Compose file.
 A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
 Do not overwrite secrets, rename the database or recreate its volume.
 
@@ -58,6 +58,32 @@ docker compose logs --tail=100 backend
 
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
+
+## Upgrading to 4.3.0
+
+From 4.2.0, normal startup applies **0167** and **0168** in filename order.
+
+- `0167_mcp_authorization.sql` adds isolated MCP OAuth/client/grant/token and durable operation
+  state. It does not reset mail, calendar or contact data. The MCP endpoint remains disabled
+  unless `MCP_ENABLED=true`.
+- `0168_alias_default_recipients.sql` adds nullable alias-level default CC/BCC overrides.
+  `NULL` means inherit the account value; an explicit array, including an empty one, overrides it.
+
+Deploy matching backend and frontend 4.3.0 images together. Existing provider consent is not
+replaced, and no mailbox/calendar/address-book recreation is required.
+
+If enabling MCP, verify the public `APP_URL`, HTTPS termination and forwarded scheme before issuing
+tokens. The supplied proxy accepts MCP credentials on its internal HTTP hop only when the trusted
+TLS proxy sends `X-Forwarded-Proto: https`. Keep `MCP_ENABLED` false if external AI access is not
+needed. See [External AI applications (MCP)](MCP.md).
+
+The Docker backend now contains the document-preview runtime and its pinned native/Python
+dependencies. Optional ClamAV is a separate private service; enabling it is not required for
+4.3.0. Review [Release notes 4.3.0](Release-notes-4.3.0.md) for supported preview formats,
+resource limits and signature-trust behavior.
+
+Android 4.3.0 uses `versionCode 4030000`. Desktop and Android packages are attached to the GitHub
+release after their signed build workflow completes.
 
 ## Upgrading to 4.2.0
 

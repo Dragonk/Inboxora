@@ -3,14 +3,13 @@
 **Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
 IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest release: **[Inboxora 4.2.0](Release-notes-4.2.0.md)**.
-[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.2.0) ·
-[Upgrading](Upgrading.md#upgrading-to-420) · [Archive](Archive.md)
+Latest release: **[Inboxora 4.3.0](Release-notes-4.3.0.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.0) ·
+[Upgrading](Upgrading.md#upgrading-to-430) · [Archive](Archive.md)
 
-4.2.0 adds scheduled sending, Undo Send, private-copy mail merge, default sender/CC/BCC
-settings and unified mail/DAV account management. It improves read/unread consistency,
-provider collection recovery, native notifications, large-mailbox storage repair and
-Google/Graph migration status. Prefetch and retention controls introduced in 4.1.2 remain.
+4.3.0 adds native MCP connections for external AI applications, secure in-app attachment
+previews, per-alias default CC/BCC, provider-backed search improvements and several large-mailbox
+query optimizations. MCP is disabled by default and attachment preview processing remains bounded.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
@@ -23,6 +22,7 @@ Google/Graph migration status. Prefetch and retention controls introduced in 4.1
 | Read, compose, schedule and organize mail | [Email and threading](Email-and-threading.md) |
 | Manage accounts, defaults, appearance and retention | [Configuration](Configuration.md) |
 | Configure Google/Microsoft applications and consent | [Provider setup](Provider-setup.md) |
+| Connect external AI applications with MCP | [External AI applications (MCP)](MCP.md) |
 | Use events, invitations, recurrence and calendars | [Calendar](Calendar.md) |
 | Manage books or connect other DAV clients | [Contacts and DAV](Contacts-and-DAV.md) |
 | Connect CalDAV or ICS subscriptions | [External calendars](External-calendars.md) |
@@ -35,9 +35,9 @@ Google/Graph migration status. Prefetch and retention controls introduced in 4.1
 
 ## Release documentation
 
-[Release notes 4.2.0](Release-notes-4.2.0.md) contains the current feature changes,
+[Release notes 4.3.0](Release-notes-4.3.0.md) contains the current feature changes,
 limitations and migration order. **[Archive](Archive.md)** contains every older release-note
-page, including 4.1.2. The Archive sidebar group is collapsed; existing page URLs and release
+page, including 4.2.0. The Archive sidebar group is collapsed; existing page URLs and release
 bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for
 work after the latest release.
 
