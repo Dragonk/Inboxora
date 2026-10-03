@@ -367,16 +367,30 @@ export async function applyConversationAction({
       const providerResult = await movePhysicalRowsWithProvider(client, resolved.rows, destinations, imapManager);
       const movedRows: ActionRow[] = [];
       let movedRowCount = 0;
+      const deleteIds: string[] = [];
+      const updateIds: string[] = [];
+      const updateUids: (number | string)[] = [];
       for (const row of providerResult.moved) {
         if (row.newUid == null) {
-          await client.query('DELETE FROM messages WHERE id = $1', [row.id]);
-          movedRows.push({ id: row.id, folder: targetFolder, needsResync: true });
-          movedRowCount++;
+          deleteIds.push(row.id);
         } else {
-          const updated = await client.query<ActionRow>('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id, folder', [targetFolder, row.newUid, row.id]);
-          movedRows.push(...updated.rows);
-          movedRowCount += updated.rowCount || updated.rows.length;
+          updateIds.push(row.id);
+          updateUids.push(row.newUid);
         }
+      }
+
+      if (deleteIds.length > 0) {
+        await client.query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [deleteIds]);
+        for (const id of deleteIds) {
+          movedRows.push({ id, folder: targetFolder, needsResync: true });
+        }
+        movedRowCount += deleteIds.length;
+      }
+
+      if (updateIds.length > 0) {
+        const updated = await client.query<ActionRow>('UPDATE messages AS m SET folder = $1, uid = v.uid FROM unnest($2::uuid[], $3::bigint[]) AS v(id, uid) WHERE m.id = v.id RETURNING m.id, m.folder', [targetFolder, updateIds, updateUids]);
+        movedRows.push(...updated.rows);
+        movedRowCount += updated.rowCount || updated.rows.length;
       }
       result = { rows: movedRows, rowCount: movedRowCount };
       for (const item of providerResult.resync) resyncFolderOnDemand(imapManager, item.account, item.folder, 'CE move resync failed:');
@@ -509,16 +523,30 @@ export async function applyBulkConversationAction({ userId, conversationIds = nu
         const providerResult = await movePhysicalRowsWithProvider(client, resolved.rows, destinations, imapManager);
         const movedRows: ActionRow[] = [];
         let movedRowCount = 0;
+        const deleteIds: string[] = [];
+        const updateIds: string[] = [];
+        const updateUids: (number | string)[] = [];
         for (const row of providerResult.moved) {
           if (row.newUid == null) {
-            await client.query('DELETE FROM messages WHERE id = $1', [row.id]);
-            movedRows.push({ id: row.id });
-            movedRowCount++;
+            deleteIds.push(row.id);
           } else {
-            const updated = await client.query<ActionRow>('UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id', [options.targetFolder, row.newUid, row.id]);
-            movedRows.push(...updated.rows);
-            movedRowCount += updated.rowCount || updated.rows.length;
+            updateIds.push(row.id);
+            updateUids.push(row.newUid);
           }
+        }
+
+        if (deleteIds.length > 0) {
+          await client.query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [deleteIds]);
+          for (const id of deleteIds) {
+            movedRows.push({ id });
+          }
+          movedRowCount += deleteIds.length;
+        }
+
+        if (updateIds.length > 0) {
+          const updated = await client.query<ActionRow>('UPDATE messages AS m SET folder = $1, uid = v.uid FROM unnest($2::uuid[], $3::bigint[]) AS v(id, uid) WHERE m.id = v.id RETURNING m.id', [options.targetFolder, updateIds, updateUids]);
+          movedRows.push(...updated.rows);
+          movedRowCount += updated.rowCount || updated.rows.length;
         }
         result = { rows: movedRows, rowCount: movedRowCount };
         for (const item of providerResult.resync) resyncFolderOnDemand(imapManager, item.account, item.folder, 'CE bulk move resync failed:');
