@@ -3255,3 +3255,30 @@ describe('IMAP synchronization persistence outcomes', () => {
     });
   }
 });
+
+describe('IMAP server-side search folder planning', () => {
+  it('uses All Mail as the broad corpus and keeps Junk separate', () => {
+    expect(ImapManager.planSearchFolders([
+      { path: 'INBOX', special_use: '\\Inbox' },
+      { path: '[Gmail]/Sent Mail', special_use: '\\Sent' },
+      { path: '[Gmail]/All Mail', special_use: '\\All' },
+      { path: '[Gmail]/Spam', special_use: '\\Junk' },
+      { path: '[Gmail]/Trash', special_use: '\\Trash' },
+      { path: 'Project', special_use: null },
+    ])).toEqual([
+      { path: '[Gmail]/All Mail', special_use: '\\All' },
+      { path: '[Gmail]/Spam', special_use: '\\Junk' },
+    ]);
+  });
+
+  it('prioritizes useful folders when the server has no All mailbox', () => {
+    expect(ImapManager.planSearchFolders([
+      { path: 'Zeta', special_use: null },
+      { path: 'Archive', special_use: '\\Archive' },
+      { path: 'Sent', special_use: '\\Sent' },
+      { path: 'Trash', special_use: '\\Trash' },
+      { path: 'INBOX', special_use: '\\Inbox' },
+      { path: 'Alpha', special_use: null },
+    ]).map(row => row.path)).toEqual(['INBOX', 'Sent', 'Archive', 'Alpha', 'Zeta', 'Trash']);
+  });
+});

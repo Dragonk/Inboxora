@@ -455,11 +455,27 @@ export async function _upsertConversationCopyWithClient(
     if (unresolved.length) {
       const known = await client.query(`SELECT id, canonical_message_id FROM logical_messages WHERE user_id = $1 AND account_id = $3 AND canonical_message_id = ANY($2::text[])`, [hydrated.userId, unresolved, hydrated.accountId]);
       const knownIds = new Set(known.rows.map(row => row.canonical_message_id));
+      const inReplyToId = normalizeMessageIdList(hydrated.rawInReplyTo).at(-1);
+
+      const missingReferences = [];
       for (const [position, referenced] of unresolved.entries()) {
-        const relationType = referenced === normalizeMessageIdList(hydrated.rawInReplyTo).at(-1) ? 'in-reply-to' : 'references';
         if (!knownIds.has(referenced)) {
-          await client.query(`INSERT INTO unresolved_message_references (user_id, account_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [hydrated.userId, hydrated.accountId, logical.id, referenced, relationType, position]);
+          const relationType = referenced === inReplyToId ? 'in-reply-to' : 'references';
+          missingReferences.push({ referenced, relationType, position });
         }
+      }
+
+      if (missingReferences.length > 0) {
+        const values = [];
+        const queryParams: any[] = [hydrated.userId, hydrated.accountId, logical.id];
+        let offset = 4;
+
+        for (const ref of missingReferences) {
+          values.push(`($1, $2, $3, $${offset++}, $${offset++}, $${offset++})`);
+          queryParams.push(ref.referenced, ref.relationType, ref.position);
+        }
+
+        await client.query(`INSERT INTO unresolved_message_references (user_id, account_id, child_logical_message_id, referenced_message_id, relation_type, reference_position) VALUES ${values.join(', ')} ON CONFLICT DO NOTHING`, queryParams);
       }
     }
     const waiting = await client.query(`SELECT id, child_logical_message_id FROM unresolved_message_references WHERE user_id = $1 AND account_id = $3 AND referenced_message_id = $2 AND resolved_at IS NULL FOR UPDATE`, [hydrated.userId, hydrated.canonicalMessageId, hydrated.accountId]);
@@ -535,7 +551,16 @@ export async function _upsertConversationCopyWithClient(
     if (parent) evidence.push(['rfc-parent', 0.99, { parentLogicalMessageId: parent.id }]);
     if ((provider?.isStrong || provider?.source === 'outlook-conversation-index-root') && provider?.providerThreadId) evidence.push(['provider-thread-id', 1, { provider: provider.provider }]);
     if (collision) evidence.push(['message-id-collision', 0, { canonicalMessageId: hydrated.canonicalMessageId, collisionKey: hydrated.collisionKey }]);
-    for (const [type, weight, details] of evidence) await client.query(`INSERT INTO conversation_evidence (user_id, account_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) ON CONFLICT DO NOTHING`, [hydrated.userId, hydrated.accountId, conversationId, logical.id, type, createHash('sha256').update(JSON.stringify(details)).digest('hex'), weight, JSON.stringify(details)]);
+    if (evidence.length > 0) {
+      const types = evidence.map(e => e[0]);
+      const weights = evidence.map(e => e[1]);
+      const details = evidence.map(e => JSON.stringify(e[2]));
+      const hashes = details.map(d => createHash('sha256').update(d).digest('hex'));
+      await client.query(`INSERT INTO conversation_evidence (user_id, account_id, conversation_id, logical_message_id, evidence_type, evidence_value_hash, weight, details)
+        SELECT $1, $2, $3, $4, u.type, u.hash, u.weight, u.details::jsonb
+        FROM unnest($5::text[], $6::text[], $7::float8[], $8::jsonb[]) AS u(type, hash, weight, details)
+        ON CONFLICT DO NOTHING`, [hydrated.userId, hydrated.accountId, conversationId, logical.id, types, hashes, weights, details]);
+    }
     await client.query(`UPDATE conversations c SET first_message_at = (SELECT MIN(message_date) FROM logical_messages WHERE conversation_id = c.id), last_message_at = (SELECT MAX(message_date) FROM logical_messages WHERE conversation_id = c.id), subject_snapshot = COALESCE((SELECT subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.subject_snapshot), canonical_subject = COALESCE((SELECT canonical_subject FROM logical_messages WHERE conversation_id = c.id ORDER BY message_date ASC NULLS LAST, id LIMIT 1), c.canonical_subject), logical_message_count = (SELECT COUNT(*) FROM logical_messages WHERE conversation_id = c.id), copy_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_deleted = false), unread_count = (SELECT COUNT(*) FROM logical_messages lm WHERE lm.conversation_id = c.id AND EXISTS (SELECT 1 FROM messages m WHERE m.logical_message_id = lm.id AND m.conversation_id = c.id AND m.is_deleted = false AND m.is_read = false)), updated_at = NOW() WHERE c.id = $1`, [conversationId]);
     return { logicalMessageId: logical.id, conversationId, kind: decision.kind, canonicalSubject: hydrated.canonicalSubject };
 }

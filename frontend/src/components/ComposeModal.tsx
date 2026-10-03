@@ -13,6 +13,7 @@ import { useStore } from '../store/index.ts';
 import { createComposeTransactionGuard } from '../utils/composeTransactionGuard.ts';
 import { isDefiniteQueueRejection } from '../utils/queuedSubmission.ts';
 import SchedulePicker from './SchedulePicker.tsx';
+import ComposeSignatureField from './ComposeSignatureField.tsx';
 import { scheduledActionErrorKey } from '../utils/scheduledMail.ts';
 import { Button, Dialog } from './ui.tsx';
 import SendSplitButton from './SendSplitButton.tsx';
@@ -41,7 +42,7 @@ const ComposeAttachmentPreview = lazy(() => import('./attachments/ComposeAttachm
 
 // Resize an image blob/file to max maxW pixels wide, preserving aspect ratio.
 // Returns a Promise<string> of a base64 data URL.
-function resizeImageToDataUrl(file: File, maxW = 800): Promise<string> {
+export function resizeImageToDataUrl(file: File, maxW = 800): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new window.Image();
@@ -1625,23 +1626,16 @@ export default function ComposeModal() {
     else { setShowCcBccMenu(false); setCcBccMenuPos(null); }
   }, 2101);
 
-  const renderSignatureEditor = () => plaintextCompose ? (
-    <textarea
-      value={plainSig}
-      onChange={ (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setPlainSig(e.target.value)}
-      style={{
-        width: '100%', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6,
-        background: 'transparent', border: 'none', outline: 'none', resize: 'none',
-        fontFamily: 'var(--font-sans, DM Sans, sans-serif)', boxSizing: 'border-box',
+  const renderSignatureEditor = () => (
+    <ComposeSignatureField
+      html={!plaintextCompose}
+      value={plaintextCompose ? plainSig : signatureContentRef.current}
+      disabled={editorFrozen}
+      htmlRef={signatureRef}
+      onChange={value => {
+        if (plaintextCompose) setPlainSig(value);
+        else { signatureContentRef.current = value; recordDraftEdit(); }
       }}
-    />
-  ) : (
-    <div
-      ref={signatureRef}
-      contentEditable={!editorFrozen}
-      spellCheck={false}
-      onInput={() => { signatureContentRef.current = signatureRef.current?.innerHTML || ''; recordDraftEdit(); }}
-      style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, outline: 'none' }}
     />
   );
 
@@ -3028,7 +3022,7 @@ function Sep() {
   return <span style={{ width: 1, background: 'var(--border-subtle)', margin: '2px 4px', alignSelf: 'stretch' }} />;
 }
 
-function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled = false, onAiAction, aiPanelOpen }: { editor: Editor; onAttach: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled?: boolean; onAiAction: (id: AiAction) => void; aiPanelOpen: boolean }) {
+export function RichToolbar({ editor, onAttach, onInsertImage = undefined, htmlMode, onToggleHtml, isMobile = false, aiEnabled = false, onAiAction = () => {}, aiPanelOpen = false }: { editor: Editor; onAttach?: () => void; onInsertImage?: () => void; htmlMode: boolean; onToggleHtml: () => void; isMobile?: boolean; aiEnabled?: boolean; onAiAction?: (id: AiAction) => void; aiPanelOpen?: boolean }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
@@ -3630,7 +3624,7 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${(n / 1048576).toFixed(1)}MB`;
 }
 
-function AttachmentChips({ attachments, onRemove, onPreview, mobile = false }: { attachments: Array<{ filename?: string | null; name?: string | null; size?: number | null; [key: string]: unknown }>; onRemove: (index: number) => void; onPreview: (index: number) => void; mobile?: boolean }) {
+export function AttachmentChips({ attachments, onRemove, onPreview, mobile = false }: { attachments: Array<{ filename?: string | null; name?: string | null; size?: number | null; [key: string]: unknown }>; onRemove?: (index: number) => void; onPreview: (index: number) => void; mobile?: boolean }) {
   const { t } = useTranslation();
   return (
     <div style={{
@@ -3639,22 +3633,24 @@ function AttachmentChips({ attachments, onRemove, onPreview, mobile = false }: {
       borderBottom: '1px solid var(--border-subtle)',
       flexShrink: 0,
     }}>
-      {attachments.map((a, i) => (
+      {attachments.map((a, i) => {
+        const displayName = String(a.name || a.filename || t('attachment.preview.unnamed'));
+        return (
         <span key={i} style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
           borderRadius: 6, padding: '3px 6px 3px 8px', fontSize: 11,
           color: 'var(--text-secondary)', maxWidth: 240,
         }}>
-          <button type="button" className="compose-attachment-preview" aria-label={t('attachment.compose.preview', { filename: a.name })} title={t('attachment.compose.preview', { filename: a.name })} onClick={() => onPreview(i)}>
+          <button type="button" className="compose-attachment-preview" aria-label={t('attachment.compose.preview', { filename: displayName })} title={t('attachment.compose.preview', { filename: displayName })} onClick={() => onPreview(i)}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
             <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
           </svg>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{a.name}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{displayName}</span>
           <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{formatBytes(a.size)}</span>
           </button>
-          <button
-            aria-label={t('attachment.compose.remove', { filename: a.name })}
+          {onRemove && <button
+            aria-label={t('attachment.compose.remove', { filename: displayName })}
             type="button"
             onClick={() => onRemove(i)}
             style={{ background: 'none', border: 'none', padding: '0 0 0 2px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0 }}
@@ -3662,15 +3658,16 @@ function AttachmentChips({ attachments, onRemove, onPreview, mobile = false }: {
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
-          </button>
-        </span>
-      ))}
+          </button>}
+        </span>);
+      })}
+
     </div>
   );
 }
 
 /** Render editable recipient chips with suggestions and an accessible, independently testable text input. */
-function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined }: { disabled?: boolean; inputTestId?: string; chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
+export function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value, onChange, placeholder, autoFocus = false, inputStyle, getSuggestions, containerStyle = undefined, ariaLabel }: { disabled?: boolean; inputTestId?: string; ariaLabel?: string; chips: string[]; onChipsChange: (chips: string[]) => void; value: string; onChange: (value: string) => void; placeholder?: string; autoFocus?: boolean; inputStyle?: CSSProperties; getSuggestions?: (query: string) => Promise<ContactSuggestion[]> | ContactSuggestion[]; containerStyle?: CSSProperties }) {
   const { t } = useTranslation();
   const uiScale = useUiScale();
   const disabledRef = useRef(disabled);
@@ -3826,6 +3823,7 @@ function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value,
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{chip}</span>
           <button
             type="button"
+            aria-label={`${t('common.remove')} ${chip}`}
             disabled={disabled}
             onClick={() => onChipsChange(chips.filter((_, j) => j !== i))}
             style={{ background: 'none', border: 'none', padding: '1px', cursor: 'pointer', color: 'var(--text-tertiary)', display: 'flex', lineHeight: 1, flexShrink: 0, borderRadius: '50%' }}
@@ -3839,6 +3837,7 @@ function ChipInput({ disabled = false, inputTestId, chips, onChipsChange, value,
       <input
         ref={inputRef}
         data-testid={inputTestId}
+        aria-label={ariaLabel}
         disabled={disabled}
         type="text"
         value={value}

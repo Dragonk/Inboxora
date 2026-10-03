@@ -6,6 +6,9 @@ export default defineConfig(({ mode }) => {
   const apiTarget = env.VITE_E2E_API_TARGET || 'http://backend:3000';
   const proxy = env.VITE_E2E_MOCKED === 'true' ? {} : {
     '/api': { target: apiTarget, changeOrigin: true },
+    '/mcp': { target: apiTarget, changeOrigin: false },
+    '/.well-known/oauth-': { target: apiTarget, changeOrigin: false },
+    '/oauth/': { target: apiTarget, changeOrigin: false },
     '/ws': { target: apiTarget.replace(/^http/, 'ws'), ws: true },
   };
   return {

@@ -1,48 +1,35 @@
+import { searchMail } from '../services/mailSearch.js';
+export { resolveSearchFolderScope, shouldExcludeTrashFromSearch, trashFolderExclusionCondition, freeTextTermCondition, FTS_BODY_CHAR_CAP } from '../services/mailSearch.js';
+import { sessionUserId } from '../utils/query.js';
+export { parseSearchQuery } from '../services/mailSearchQuery.js';
 import { Router } from 'express';
-import type { UnifiedInboxAccount } from '../services/unifiedInbox.js';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { resolveAccountScope } from '../services/unifiedInbox.js';
-import { providerIntegrationsEnabled } from '../services/providerSwitches.js';
-import { ingestGraphMailSearch } from '../services/providers/microsoft/graphMailSearch.js';
 import { toAppError } from '../utils/errors.js';
-import { queryString, queryInt } from '../utils/query.js';
+import { queryString } from '../utils/query.js';
 import type { Request, Response, NextFunction } from 'express';
 
 const router = Router();
 router.use(requireAuth);
 
-interface SearchFilter { key: string; value: string; negate: boolean }
-interface SearchTerm { value: string; negate: boolean }
-
-/** The account columns the search scope and its provider branch read. */
-interface SearchAccount extends UnifiedInboxAccount {
-  user_id: string;
-  mail_transport?: string | null;
-  provider_connection_id?: string | null;
-}
-
-/** A provider search that failed, reported next to the local results it did not block. */
-interface ProviderSearchError { accountId: string; code?: string; error: string }
-
-// Simple in-memory rate limiter: 20 searches per minute per user.
+// Simple in-memory rate limiter: 120 searches per minute per user.
 const searchBuckets = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [k, b] of searchBuckets) {
     if (now > b.resetAt) searchBuckets.delete(k);
   }
-}, 60_000);
+}, 60_000).unref();
 
 function searchLimiter(req: Request, res: Response, next: NextFunction) {
-  const key = req.session.userId;
+  const key = sessionUserId(req);
   const now = Date.now();
   const b = searchBuckets.get(key);
   if (!b || now > b.resetAt) {
     searchBuckets.set(key, { count: 1, resetAt: now + 60_000 });
     return next();
   }
-  if (b.count >= 20) {
+  if (b.count >= 120) {
     res.setHeader('Retry-After', Math.ceil((b.resetAt - now) / 1000));
     return res.status(429).json({ error: 'Too many search requests. Try again shortly.' });
   }
@@ -50,296 +37,11 @@ function searchLimiter(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// Parses a raw search string into structured operator filters and free-text
-// terms. Supports from: to: subject: has: is: after: before: in:, quoted values
-// (from:"John Smith"), and a leading '-' that negates either an operator
-// (-from:smith) or a bare word (-invoice). Filters are a list (not a map) so
-// repeated/negated operators like `from:a -from:b` are all preserved.
-export function parseSearchQuery(raw: string) {
-  const filters: SearchFilter[] = [];
-  const terms: SearchTerm[] = [];
-
-  // The leading (-?) captures optional negation. \b sits between an optional '-'
-  // and the operator name, so both `from:` and `-from:` match.
-  const opPattern = /(-?)\b(from|to|subject|has|is|after|before|in):("([^"]*)"|([\S]+))/gi;
-  const remaining = raw.replace(opPattern, (_: string, neg: string, key: string, _v: string, quoted: string | undefined, unquoted: string | undefined) => {
-    const k = key.toLowerCase();
-    const v = (quoted !== undefined ? quoted : (unquoted || '')).toLowerCase().trim();
-    if (v) filters.push({ key: k, value: v, negate: neg === '-' });
-    return ' ';
-  }).trim();
-
-  for (const word of remaining.split(/\s+/)) {
-    let w = word.trim();
-    if (!w || w === '-') continue; // skip blanks and a lone '-' (nothing to negate)
-    let negate = false;
-    if (w[0] === '-' && w.length > 1) { negate = true; w = w.slice(1); }
-    terms.push({ value: w, negate });
-  }
-
-  return { filters, terms };
-}
-
-// Wraps a positive condition so that when negated it also matches rows where the
-// underlying columns are NULL (COALESCE(..., false) treats NULL as "not a match",
-// which NOT then flips to a match — the intuitive meaning of exclusion).
-function negateCond(sql: string) {
-  return `NOT COALESCE((${sql}), false)`;
-}
-
-export function resolveSearchFolderScope(filters: SearchFilter[], folderParam = '') {
-  let folderScope;
-  let folderFuzzy = false; // in:<name> matches loosely; the folder param is exact
-
-  for (const f of filters) {
-    if (f.key !== 'in') continue;
-    if (f.value === 'all') { folderScope = null; }
-    else { folderScope = f.value; folderFuzzy = true; }
-  }
-
-  if (folderScope === undefined) {
-    folderScope = (folderParam || '').trim() || null;
-    folderFuzzy = false;
-  }
-
-  return { folderScope, folderFuzzy };
-}
-
-export function shouldExcludeTrashFromSearch(folderScope: string | null) {
-  return folderScope === null;
-}
-
-export function trashFolderExclusionCondition() {
-  return `NOT EXISTS (
-        SELECT 1
-        FROM folders f
-        WHERE f.account_id = m.account_id
-          AND f.path = m.folder
-          AND (f.special_use = '\\Trash'
-               OR lower(f.name) LIKE '%trash%'
-               OR lower(f.name) LIKE '%deleted%')
-      )`;
-}
-
-// Postgres refuses to build a tsvector larger than ~1MB of packed lexemes
-// (SQLSTATE 54000), so an oversized body would 500 the whole search. Cap the
-// text fed to to_tsvector at 600k chars — matching msgvault's maxFTSBodyChars
-// (internal/store/dialect_pg.go) — so one huge email can't crash the query.
-// Exported because slice 02's search_fts trigger caps the same way.
-export const FTS_BODY_CHAR_CAP = 600000;
-
-// Builds the per-term free-text OR-condition: a term matches if it appears in
-// the sender, the subject, the stored search_vector, or the length-capped body.
-// Extracted so the body cap is a single, testable source of truth.
-export function freeTextTermCondition(likeIdx: number, ftsIdx: number) {
-  return `(
-        m.from_name ILIKE $${likeIdx}
-        OR m.from_email ILIKE $${likeIdx}
-        OR m.subject ILIKE $${likeIdx}
-        OR m.search_vector @@ plainto_tsquery('english', $${ftsIdx})
-        OR to_tsvector('english', LEFT(coalesce(m.body_text,''), ${FTS_BODY_CHAR_CAP})) @@ plainto_tsquery('english', $${ftsIdx})
-      )`;
-}
-
 router.get('/', searchLimiter, async (req: Request, res: Response) => {
-  const q = queryString(req.query.q) ?? '';
-  const accountId = queryString(req.query.accountId);
-  const limit = queryInt(req.query.limit, 50);
-  const offset = queryInt(req.query.offset, 0);
-  const trimmed = q.trim();
-  if (!trimmed) return res.json({ messages: [] });
-  if (trimmed.length > 500) return res.status(400).json({ error: 'Search query too long' });
-
-  const accountsResult = await query<SearchAccount>(
-    'SELECT id, user_id, include_in_unified_inbox, mail_transport, provider_connection_id FROM email_accounts WHERE user_id = $1 AND enabled = true',
-    [req.session.userId]
-  );
-  const accounts = accountsResult.rows;
-  const { accountIds: targetIds, resolvedAccountId } = resolveAccountScope(accounts, accountId);
-  if (!targetIds.length) return res.json({ messages: [] });
-
-  // Provider-side search. The local rows are only what the delta cursor has pulled, so a
-  // native Microsoft account's mailbox holds mail this search could never see. The branch
-  // is decided by the account's **transport** (`mail_transport`) and never by `source`,
-  // and an installation with the provider layer switched off makes no outbound call.
-  const nativeGraphAccounts = accounts.filter(
-    (account): account is SearchAccount & { mail_transport: 'microsoft_graph'; provider_connection_id: string } =>
-      targetIds.includes(account.id)
-      && account.mail_transport === 'microsoft_graph'
-      && typeof account.provider_connection_id === 'string'
-      && account.provider_connection_id.length > 0,
-  );
-  const providerErrors: ProviderSearchError[] = [];
-  const searchedAccounts = new Set<string>();
-
-  /**
-   * Ingest this search's provider hits for the native accounts in scope. Returns true
-   * when at least one provider search ran, so the caller knows a re-read is worthwhile.
-   * A provider failure is recorded, never thrown: it must not fail the local search.
-   */
-  const ingestProviderHits = async (): Promise<boolean> => {
-    if (!providerIntegrationsEnabled()) return false;
-    let ran = false;
-    for (const account of nativeGraphAccounts) {
-      if (searchedAccounts.has(account.id)) continue;
-      searchedAccounts.add(account.id);
-      ran = true;
-      try {
-        await ingestGraphMailSearch({
-          userId: account.user_id,
-          connectionId: account.provider_connection_id,
-          accountId: account.id,
-          query: trimmed,
-        });
-      } catch (caught) {
-        const error = toAppError(caught);
-        providerErrors.push({
-          accountId: account.id,
-          ...(error.code ? { code: error.code } : {}),
-          error: error.message,
-        });
-        console.warn(`Provider search failed for account ${account.id}: ${error.message}`);
-      }
-    }
-    return ran;
-  };
-
-  const cap = Math.max(1, Math.min(limit, 200));
-  const { filters, terms } = parseSearchQuery(trimmed);
-
-  const conditions: string[] = [];
-  const params: unknown[] = [targetIds];
-  let p = 2;
-
-  // Folder scope. `in:` in the query wins; otherwise the client-supplied `folder`
-  // param (the folder the user is currently viewing) applies. `undefined` means
-  // no in: operator was given, so we fall back to the param below.
-  //   folderScope === null   → search all folders
-  //   folderScope === string → restrict to that folder
-
-  // ── Operator filters ──────────────────────────────────────────────────────
-
-  for (const f of filters) {
-    // in: controls scope rather than adding a row condition; negation is
-    // meaningless here so it's ignored.
-    if (f.key === 'in') {
-      continue;
-    }
-
-    let cond = null;
-
-    if (f.key === 'from') {
-      params.push(`%${f.value}%`);
-      cond = `(m.from_email ILIKE $${p} OR m.from_name ILIKE $${p})`;
-      p++;
-    } else if (f.key === 'subject') {
-      params.push(`%${f.value}%`);
-      cond = `m.subject ILIKE $${p++}`;
-    } else if (f.key === 'to') {
-      // to: searches the to/cc address JSON — cast to text covers name and email
-      params.push(`%${f.value}%`);
-      cond = `(m.to_addresses::text ILIKE $${p} OR m.cc_addresses::text ILIKE $${p})`;
-      p++;
-    } else if (f.key === 'has') {
-      if (f.value === 'attachment' || f.value === 'attachments') cond = `m.has_attachments = true`;
-    } else if (f.key === 'is') {
-      if (f.value === 'unread')  cond = `m.is_read = false`;
-      else if (f.value === 'read')    cond = `m.is_read = true`;
-      else if (f.value === 'starred') cond = `m.is_starred = true`;
-    } else if (f.key === 'after') {
-      const d = new Date(f.value);
-      if (!Number.isNaN(d.getTime())) { params.push(d.toISOString()); cond = `m.date >= ${p++}`; }
-    } else if (f.key === 'before') {
-      const d = new Date(f.value);
-      if (!Number.isNaN(d.getTime())) { params.push(d.toISOString()); cond = `m.date < ${p++}`; }
-    }
-
-    if (cond) conditions.push(f.negate ? negateCond(cond) : cond);
-  }
-
-  // ── Free-text terms ───────────────────────────────────────────────────────
-  // Each term must match at least one of: from, subject (ILIKE — good for names
-  // and partial words), or body content (FTS — good for large text with stemming).
-  // AND between all terms: every word must appear somewhere in the email.
-  // A negated term (-word) must appear nowhere.
-
-  for (const term of terms.slice(0, 10)) {
-    if (term.value.length < 2) continue; // single-char terms are too broad and expensive
-    params.push(`%${term.value}%`); // ILIKE pattern
-    const likeIdx = p++;
-
-    params.push(term.value); // raw term for plainto_tsquery
-    const ftsIdx = p++;
-
-    const cond = freeTextTermCondition(likeIdx, ftsIdx);
-    conditions.push(term.negate ? negateCond(cond) : cond);
-  }
-
-  // Require at least one real search condition before applying folder scope, so a
-  // bare `in:inbox` (or a lone folder param) never dumps an entire folder.
-  if (!conditions.length) return res.json({ messages: [], query: q });
-
-  // Resolve folder scope: in: operator wins; otherwise use the param.
-  const { folderScope, folderFuzzy } = resolveSearchFolderScope(filters, queryString(req.query.folder) ?? '');
-  if (folderScope) {
-    if (folderFuzzy) {
-      // in:<name> — case-insensitive match on a folder named exactly that, or a
-      // nested folder whose path ends in it (in:sent → "Sent" or "Personal/Sent").
-      // A multi-word leaf like "[Gmail]/Sent Mail" needs the quoted form in:"sent mail".
-      params.push(folderScope);
-      params.push(`%/${folderScope}`);
-      conditions.push(`(m.folder ILIKE $${p} OR m.folder ILIKE $${p + 1})`);
-      p += 2;
-    } else {
-      params.push(folderScope);
-      conditions.push(`m.folder = $${p++}`);
-    }
-  } else if (shouldExcludeTrashFromSearch(folderScope)) {
-    // Deleting moves mail into Trash, where it remains searchable by explicit
-    // folder queries like in:trash. Keep ordinary all-folder searches from
-    // resurfacing freshly-deleted messages after the optimistic UI guard expires.
-    conditions.push(trashFolderExclusionCondition());
-  }
-
-  const off = Math.max(0, offset);
-  params.push(cap);
-  params.push(off);
-
-  const runLocalSearch = () => query(`
-      SELECT
-        m.id, m.uid, m.folder, m.subject, m.from_name, m.from_email,
-        m.date, m.snippet, m.is_read, m.is_starred, m.has_attachments, m.account_id,
-        a.name as account_name, a.email_address as account_email, a.color as account_color
-      FROM messages m
-      JOIN email_accounts a ON m.account_id = a.id
-      WHERE m.account_id = ANY($1)
-        AND m.is_deleted = false
-        AND ${conditions.join('\n        AND ')}
-      ORDER BY m.date DESC
-      LIMIT $${p} OFFSET $${p + 1}
-    `, params);
-
-  try {
-    // Scoped to one account: that mailbox is the authority, so ask the provider before
-    // answering and then answer from the local model as before. Over all accounts the
-    // provider is consulted only when the local rows run short of the requested page —
-    // a full local page needs no ingest, and a hit found now would be on a later page.
-    if (resolvedAccountId) {
-      await ingestProviderHits();
-    }
-    let result = await runLocalSearch();
-    if (!resolvedAccountId && result.rows.length < cap) {
-      if (await ingestProviderHits()) result = await runLocalSearch();
-    }
-
-    res.json({
-      messages: result.rows,
-      query: q,
-      ...(providerErrors.length ? { providerErrors } : {}),
-    });
-  } catch (err) {
-    console.error('Search error:', err);
-    res.status(500).json({ error: 'Search failed' });
+  try { res.json(await searchMail(sessionUserId(req), req.query)); }
+  catch (error) {
+    const problem = toAppError(error);
+    res.status(problem.statusCode === 400 ? 400 : 500).json({ error: problem.statusCode === 400 ? problem.message : 'Search failed' });
   }
 });
 
@@ -355,7 +57,7 @@ router.get('/contacts', searchLimiter, async (req: Request, res: Response) => {
 
   const accountsResult = await query<{ id: string }>(
     'SELECT id FROM email_accounts WHERE user_id = $1 AND enabled = true',
-    [req.session.userId]
+    [sessionUserId(req)]
   );
   const userAccountIds = accountsResult.rows.map(r => r.id);
   if (!userAccountIds.length) return res.json({ contacts: [] });
@@ -416,7 +118,7 @@ router.get('/contacts', searchLimiter, async (req: Request, res: Response) => {
       ) combined
       ORDER BY priority, send_count DESC, last_sent DESC NULLS LAST
       LIMIT 10
-    `, [req.session.userId, pattern, userAccountIds]);
+    `, [sessionUserId(req), pattern, userAccountIds]);
 
     res.json({ contacts: result.rows });
   } catch (err) {

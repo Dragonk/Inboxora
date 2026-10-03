@@ -106,7 +106,7 @@ migrations as a release, and rolling back to an older image is not supported.
 | `DB_PASSWORD` | Yes | Password for the bundled PostgreSQL. |
 | `ENCRYPTION_KEY` | Yes | Encrypts stored mail and DAV credentials at rest. |
 | `INBOXORA_VERSION` | Recommended | Pins the image tag. |
-| `APP_PORT` / `APP_HTTP_PORT` | No | Published ports for the frontend container (default 443/80). |
+| `APP_PORT` / `APP_HTTP_PORT` / `APP_HTTP_BIND` | No | HTTPS port plus the internal HTTP reverse-proxy listener. HTTP defaults to `127.0.0.1:80`; bind it only to a trusted private interface and forward `X-Forwarded-Proto: https`. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | No | Enables Web Push. Generate once with `npx web-push generate-vapid-keys`. |
 | `PUSH_BASE_URL` | No | Advanced: an external ntfy origin (path-less). Defaults to `${APP_URL}`. |
 | `PUSH_ALLOW_PRIVATE_ENDPOINTS` | No | Allow a private/LAN (http) UnifiedPush endpoint. Off by default (SSRF guard). |
@@ -140,14 +140,14 @@ It requires `DOMAIN`, `ACME_EMAIL` and `APP_URL`, and ports 80/443 open to the i
 
 ## Behind an existing reverse proxy
 
-Point the proxy at the frontend container's HTTP port and forward the original scheme:
+Point the proxy at the frontend container's internal HTTP port and forward the original scheme. The supplied Compose files bind that host port to `127.0.0.1` by default. If the TLS proxy runs on another host, set `APP_HTTP_BIND` only to the trusted private address that the proxy can reach and firewall it from clients; do not publish the HTTP listener to the internet.
 
 - `X-Forwarded-Proto: https`
 - `X-Forwarded-For` and `Host` as usual
 - WebSocket upgrade for `/ws` and the UnifiedPush paths, plus a long idle timeout so the
   UnifiedPush connection is not dropped
 
-Leave the Caddy profile off in this setup.
+MCP and its OAuth endpoints reject the internal HTTP hop unless `X-Forwarded-Proto` is exactly `https`, so bearer tokens and OAuth client secrets are never intentionally accepted over direct cleartext HTTP. Leave the Caddy profile off in this setup.
 
 ## Mail, DAV and push setup
 

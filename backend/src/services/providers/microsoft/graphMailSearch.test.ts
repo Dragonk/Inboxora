@@ -61,7 +61,7 @@ describe('escaping a query for the Graph $search KQL literal', () => {
 
   it('bounds the query so a huge search cannot become a huge request', () => {
     const long = 'x'.repeat(GRAPH_SEARCH_MAX_QUERY_LENGTH + 250);
-    expect(boundGraphSearchQuery(long)).toHaveLength(GRAPH_SEARCH_MAX_QUERY_LENGTH);
+    expect(() => boundGraphSearchQuery(long)).toThrow('too long');
     expect(boundGraphSearchQuery('  spaced  ')).toBe('spaced');
     expect(boundGraphSearchQuery('   ')).toBe('');
   });
@@ -83,8 +83,8 @@ describe('building the provider search URL', () => {
     expect(url.searchParams.get('$search')).toBe('"subject:\\"quarterly plan\\""');
   });
 
-  it('bounds the query before it is escaped', () => {
-    const url = new URL(graphMailSearchUrl('y'.repeat(GRAPH_SEARCH_MAX_QUERY_LENGTH + 50)));
+  it('accepts a compiled query at the size limit', () => {
+    const url = new URL(graphMailSearchUrl('y'.repeat(GRAPH_SEARCH_MAX_QUERY_LENGTH)));
     const literal = url.searchParams.get('$search') ?? '';
     expect(literal).toHaveLength(GRAPH_SEARCH_MAX_QUERY_LENGTH + 2);
   });

@@ -67,6 +67,8 @@ import { isElectronShell } from '../utils/desktopShell.ts';
 // in-list field would be a duplicate. Fixed for the page load (the preload runs
 // before the bundle), which keeps the render condition stable.
 const DESKTOP_TITLEBAR_SEARCH = isElectronShell();
+const SEARCH_MAX_ATTEMPTS = 4;
+const SEARCH_RETRY_DELAY_MS = 750;
 
 // Folder icon for move picker
 interface FolderIconProps { specialUse?: string | null; size?: number }
@@ -277,6 +279,7 @@ export default function MessageList() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; message: StoreMessageRow; defaultMoveView?: boolean } | null>(null); // { x, y, message, defaultMoveView? }
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchStatus, setSearchStatus] = useState<'retrying' | 'partial' | 'failed' | null>(null);
   const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const searchFetchedOffsetRef = useRef(0);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -679,10 +682,14 @@ export default function MessageList() {
     };
   }, [selectedAccountId, selectedFolder, unreadOnly, activeCategory, searchQuery, categorizationEnabled, selectedAccount?.categorization_enabled, applyReadGuard, setHasMoreMessages, setMessages, setMessagesOffset, setMessagesTotal, refreshRequest, isCurrentListScope]);
 
-  // Search
+  // Search. A provider search is allowed to outlive the first eight-second HTTP
+  // response. When that happens the backend coalesces retries onto the same bounded
+  // provider operation, so keep retrying automatically instead of presenting a
+  // temporary timeout as "no results".
   useEffect(() => {
     clearTimeout(searchTimer.current);
     setSearchLoadingMore(false);
+    setSearchStatus(null);
     if (!searchQuery.trim()) {
       setIsSearching(false);
       setSearchResults([]);
@@ -691,22 +698,36 @@ export default function MessageList() {
       return;
     }
     setIsSearching(true);
+    setSearchResults([]);
     setSearchHasMore(false);
     const seq = ++searchSeq.current;
-    searchTimer.current = setTimeout(async () => {
+    const attemptSearch = async (attempt: number) => {
+      let retryScheduled = false;
       try {
         const data = await api.search(searchQuery, selectedAccountId || undefined, { offset: 0, limit: searchPageSize, folder: searchFolder });
         if (searchSeq.current !== seq || !isCurrentListScope()) return;
         noteMailListLoaded();
         searchFetchedOffsetRef.current = data.messages.length;
         setSearchResults(applyReadGuard(data.messages));
-        setSearchHasMore(data.messages.length === searchPageSize);
+        setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
+        const partial = data.partial || data.providerErrors?.length;
+        if (partial && data.retryablePartial === true && attempt < SEARCH_MAX_ATTEMPTS) {
+          retryScheduled = true;
+          setSearchStatus('retrying');
+          searchTimer.current = setTimeout(() => { void attemptSearch(attempt + 1); }, SEARCH_RETRY_DELAY_MS);
+          return;
+        }
+        setSearchStatus(partial ? 'partial' : null);
       } catch (err) {
-        if (searchSeq.current === seq && isCurrentListScope()) console.error('Search failed:', err);
+        if (searchSeq.current === seq && isCurrentListScope()) {
+          setSearchStatus('failed');
+          console.error('Search failed:', err);
+        }
       } finally {
-        if (searchSeq.current === seq && isCurrentListScope()) setIsSearching(false);
+        if (!retryScheduled && searchSeq.current === seq && isCurrentListScope()) setIsSearching(false);
       }
-    }, 300);
+    };
+    searchTimer.current = setTimeout(() => { void attemptSearch(1); }, 300);
     return () => { clearTimeout(searchTimer.current); searchSeq.current += 1; };
   }, [searchQuery, selectedAccountId, searchFolder, searchPageSize, searchReloadToken, unifiedInboxAccountKey, applyReadGuard, setIsSearching, setSearchResults, isCurrentListScope]);
 
@@ -736,9 +757,12 @@ export default function MessageList() {
       if (useStore.getState().searchQuery !== qSnapshot || !isCurrentListScope()) return;
       searchFetchedOffsetRef.current = offset + data.messages.length;
       const current = useStore.getState().searchResults;
-      useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages)] });
-      setSearchHasMore(data.messages.length === searchPageSize);
+      const known = new Set(current.map(message => message.id));
+      useStore.setState({ searchResults: [...current, ...applyReadGuard(data.messages).filter(message => !known.has(message.id))] });
+      if (data.partial || data.providerErrors?.length) setSearchStatus('partial');
+      setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
     } catch (err) {
+      if (useStore.getState().searchQuery === qSnapshot && isCurrentListScope()) setSearchStatus('failed');
       console.error('Search load more failed:', err);
     } finally {
       if (isCurrentListScope()) setSearchLoadingMore(false);
@@ -754,7 +778,7 @@ export default function MessageList() {
       searchFetchedOffsetRef.current = Math.max(searchFetchedOffsetRef.current, offset + data.messages.length);
       const additions = applyReadGuard(data.messages);
       if (!additions.length) {
-        setSearchHasMore(data.messages.length === searchPageSize);
+        setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
         return;
       }
       useStore.setState(state => {
@@ -762,7 +786,7 @@ export default function MessageList() {
         const missing = additions.filter(m => m && !existing.has(m.id));
         return missing.length ? { searchResults: [...state.searchResults, ...missing] } : {};
       });
-      setSearchHasMore(data.messages.length === searchPageSize);
+      setSearchHasMore('nextOffset' in data ? data.nextOffset !== null : data.messages.length === searchPageSize);
     } catch (err) {
       console.error('Search prefetch after delete failed:', err);
     }
@@ -3244,6 +3268,11 @@ export default function MessageList() {
         </div>
       )}
 
+      {searchQuery.trim() && searchStatus && <div role="status" style={{ padding: '10px 12px', background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border)', fontSize: 12, lineHeight: 1.5 }}>
+        {t(searchStatus === 'failed' ? 'mcp.searchFailed' : searchStatus === 'retrying' ? 'mcp.searchRetrying' : 'mcp.searchPartial')}
+        {searchStatus !== 'retrying' && <button type="button" className="ui-button" style={{ marginLeft: 8 }} onClick={() => setSearchReloadToken(value => value + 1)}>{t('mcp.refresh')}</button>}
+      </div>}
+
       {/* Category + GTD tabs — shown in INBOX when categorization and/or GTD is active */}
       {(categorizationActive || gtdActive) && selectedFolder === 'INBOX' && !searchQuery.trim() && (
         <div style={{ position: 'relative', flexShrink: 0, borderBottom: '1px solid var(--border-subtle)' }}>
@@ -3512,7 +3541,7 @@ export default function MessageList() {
           </div>
         )}
 
-        {loadingMessages && displayMessages.length === 0 && (
+        {(loadingMessages || (searchInProgress && !!searchQuery.trim())) && displayMessages.length === 0 && (
           <div>
             {Array.from({ length: 7 }).map((_, i) => (
               <div key={i} style={{
@@ -3531,7 +3560,7 @@ export default function MessageList() {
           </div>
         )}
 
-        {!loadingMessages && displayMessages.length === 0 && (
+        {!loadingMessages && !(searchInProgress && !!searchQuery.trim()) && displayMessages.length === 0 && (
           <EmptyState
             folderSyncing={folderSyncing}
             searchQuery={searchQuery}
