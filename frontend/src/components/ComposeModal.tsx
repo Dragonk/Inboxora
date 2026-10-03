@@ -35,7 +35,7 @@ import { toAppError } from '../utils/errors.ts';
 import { resolveComposeBodyIsHtml, shouldIncludeSignatureOverride, shouldShowSignatureEditor } from '../utils/composeFormat.ts';
 import { normalizeMailbox, partitionRejectedRecipients } from '../utils/retryRecipients.ts';
 import { postSendRefreshManager } from '../utils/postSendRefresh.ts';
-import { DefaultRecipients, type RecipientField } from '../utils/defaultRecipients.ts';
+import { DefaultRecipients, defaultRecipientsForSender, type RecipientField } from '../utils/defaultRecipients.ts';
 import { initialComposeSender } from '../utils/composeSender.ts';
 
 const ComposeAttachmentPreview = lazy(() => import('./attachments/ComposeAttachmentPreview.tsx'));
@@ -241,9 +241,12 @@ export default function ComposeModal() {
     const sender = initialComposeSender({ accounts, draft: composeData,
       selectedAccountId: useStore.getState().selectedAccountId,
       lastUsedAccountId: localStorage.getItem('mailflow_last_from_account') });
-    const accountId = sender.startsWith('alias:') ? sender.split(':')[2] : sender.replace('account:', '');
+    const senderParts = sender.startsWith('alias:') ? sender.split(':') : null;
+    const accountId = senderParts ? senderParts[2] : sender.replace('account:', '');
+    const aliasId = senderParts?.[1] ?? null;
     const recipients = { to: parseChips(composeData?.to), cc: parseChips(composeData?.cc), bcc: parseChips(composeData?.bcc) };
-    const owner = new DefaultRecipients(accounts.find(account => account.id === accountId), recipients,
+    const account = accounts.find(candidate => candidate.id === accountId);
+    const owner = new DefaultRecipients(defaultRecipientsForSender(account, aliasId), recipients,
       composeData?.draftUid != null || !!composeData?.draftRowId || !!composeData?.queuedMail, !!composeData?.isReplyAll);
     if (composeData?.queuedMail || composeData?.queuedRetryRecipients) owner.enterRetryMode();
     return { recipients, owner };
@@ -389,8 +392,9 @@ export default function ComposeModal() {
   /** Change the sender while retaining explicit recipients and the partial-delivery retry destination set. */
   const setFromValue = (value: string) => {
     if (sendingRef.current || frozenQueueRef.current || !currentCompose()) return;
-    const accountId = resolveFrom(value).accountId;
-    const next = recipientSeed.owner.switchAccount(accounts.find(account => account.id === accountId),
+    const resolved = resolveFrom(value);
+    const account = accounts.find(candidate => candidate.id === resolved.accountId);
+    const next = recipientSeed.owner.switchAccount(defaultRecipientsForSender(account, resolved.aliasId),
       { to: toChips, cc: ccChips, bcc: bccChips }, { to: toInput, cc: ccInput, bcc: bccInput });
     setToChipsState(next.to); setCcChipsState(next.cc); setBccChipsState(next.bcc);
     for (const field of ['to', 'cc', 'bcc'] as const) recipientRevisionRef.current[field] += 1;

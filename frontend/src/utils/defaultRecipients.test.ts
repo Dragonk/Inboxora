@@ -1,10 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DefaultRecipients, splitDefaultRecipients, type Recipients } from './defaultRecipients.ts';
+import { DefaultRecipients, defaultRecipientsForSender, splitDefaultRecipients, type Recipients } from './defaultRecipients.ts';
 const empty = (): Recipients => ({ to: [], cc: [], bcc: [] });
 const pending = { to: '', cc: '', bcc: '' };
 const a = { id: 'a', default_cc: ['cc@example.test', 'private@example.test'], default_bcc: ['private@example.test'] };
 const b = { id: 'b', default_cc: ['next@example.test'], default_bcc: ['hidden@example.test'] };
+
+test('sender defaults inherit per field and explicit empty alias arrays override the account', () => {
+  const account = { ...a, aliases: [
+    { id: 'inherit', default_cc: null, default_bcc: null },
+    { id: 'custom', default_cc: ['alias@example.test'], default_bcc: [] },
+    { id: 'cc-only', default_cc: ['only@example.test'], default_bcc: null },
+  ] };
+  assert.deepEqual(defaultRecipientsForSender(account, null), { id: 'account:a', default_cc: a.default_cc, default_bcc: a.default_bcc });
+  assert.deepEqual(defaultRecipientsForSender(account, 'inherit'), { id: 'account:a', default_cc: a.default_cc, default_bcc: a.default_bcc });
+  assert.deepEqual(defaultRecipientsForSender(account, 'custom'), { id: 'alias:custom:a', default_cc: ['alias@example.test'], default_bcc: [] });
+  assert.deepEqual(defaultRecipientsForSender(account, 'cc-only'), { id: 'alias:cc-only:a', default_cc: ['only@example.test'], default_bcc: a.default_bcc });
+});
+test('same-account alias switches replace only automatic identity defaults and preserve manual recipients', () => {
+  const account = { ...a, aliases: [{ id: 'custom', default_cc: ['alias@example.test'], default_bcc: [] }] };
+  const recipients = empty();
+  const owner = new DefaultRecipients(defaultRecipientsForSender(account, 'custom'), recipients);
+  assert.deepEqual(recipients.cc, ['alias@example.test']);
+  assert.deepEqual(recipients.bcc, []);
+  recipients.to = ['manual@example.test']; owner.edit('to', recipients.to);
+  const primary = owner.switchAccount(defaultRecipientsForSender(account, null), recipients, pending);
+  assert.deepEqual(primary, { to: ['manual@example.test'], cc: ['cc@example.test'], bcc: ['private@example.test'] });
+  const alias = owner.switchAccount(defaultRecipientsForSender(account, 'custom'), primary, pending);
+  assert.deepEqual(alias, { to: ['manual@example.test'], cc: ['alias@example.test'], bcc: [] });
+});
 
 test('settings split comma/semicolon, preserve malformed values for authoritative server validation, and clear', () => {
   assert.deepEqual(splitDefaultRecipients(' A@example.test ; b@example.test, '), ['A@example.test', 'b@example.test']);

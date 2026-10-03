@@ -126,6 +126,28 @@ test('visible defaults follow the account, retain manual recipients and do not r
   await page.screenshot({ path: `artifacts/default-recipients-${page.viewportSize()?.width}.png` });
 });
 
+test('alias overrides replace account defaults and switching back restores account defaults', async ({ page, fixtureApi }) => {
+  await fixtureApi;
+  const account = accountA();
+  account.aliases = account.aliases.map(alias => ({ ...alias, default_cc: ['alias-cc@example.test'], default_bcc: [] }));
+  await boot(page, [account]); await compose(page);
+  const from = page.getByTestId('compose-from');
+  await expect(from).toHaveValue('alias:work:account-gmail');
+  await expect(field(page, 'cc')).toContainText('alias-cc@example.test');
+  await expect(field(page, 'cc').getByText('cc@example.test', { exact: true })).toHaveCount(0);
+  await expect(field(page, 'bcc').getByText('private@example.test', { exact: true })).toHaveCount(0);
+  await page.getByTestId('compose-to').fill('manual@example.test');
+  await page.getByTestId('compose-to').press('Enter');
+  await from.selectOption('account:account-gmail');
+  await expect(field(page, 'to')).toContainText('manual@example.test');
+  await expect(field(page, 'cc')).toContainText('cc@example.test');
+  await expect(field(page, 'bcc')).toContainText('private@example.test');
+  await from.selectOption('alias:work:account-gmail');
+  await expect(field(page, 'to')).toContainText('manual@example.test');
+  await expect(field(page, 'cc')).toContainText('alias-cc@example.test');
+  await expect(field(page, 'bcc')).not.toContainText('private@example.test');
+});
+
 test('the send payload contains exactly the visible manual and default recipients', async ({ page, fixtureApi }) => {
   await fixtureApi; await boot(page, [accountA()]); await compose(page);
   let payload: Record<string, unknown> | undefined;

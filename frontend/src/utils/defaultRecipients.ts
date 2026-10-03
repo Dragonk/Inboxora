@@ -1,7 +1,22 @@
 export type RecipientField = 'to' | 'cc' | 'bcc';
 export type Recipients = Record<RecipientField, string[]>;
 export type PendingRecipients = Record<RecipientField, string>;
-export interface AccountDefaults { id: string; default_cc?: string[]; default_bcc?: string[] }
+export interface AliasDefaults { id: string; default_cc?: string[] | null; default_bcc?: string[] | null }
+export interface AccountDefaults { id: string; default_cc?: string[]; default_bcc?: string[]; aliases?: AliasDefaults[] | null }
+
+/** Resolve account inheritance into a concrete sender identity so alias changes can replace only owned defaults. */
+export function defaultRecipientsForSender(account: AccountDefaults | undefined, aliasId?: string | null): AccountDefaults | undefined {
+  if (!account) return undefined;
+  const alias = aliasId ? account.aliases?.find(candidate => candidate.id === aliasId) : undefined;
+  // Fully inherited aliases keep the account ownership key so switching between the
+  // primary identity and an uncustomized alias cannot re-add a recipient the user removed.
+  const overridesAccount = Boolean(alias && (alias.default_cc != null || alias.default_bcc != null));
+  return {
+    id: overridesAccount && alias ? `alias:${alias.id}:${account.id}` : `account:${account.id}`,
+    default_cc: alias?.default_cc ?? account.default_cc,
+    default_bcc: alias?.default_bcc ?? account.default_bcc,
+  };
+}
 const fields: RecipientField[] = ['to', 'cc', 'bcc'];
 
 /** Match display-name chips without rewriting the user's authored representation. */
