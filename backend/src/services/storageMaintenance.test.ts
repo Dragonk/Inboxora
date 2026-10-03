@@ -49,7 +49,7 @@ it('the scheduled paused-worker tick executes bounded auth retention without hea
     await vi.advanceTimersByTimeAsync(10_000);
     expect(mocks.connect).toHaveBeenCalledTimes(1);
     const calls = mocks.query.mock.calls.map(([sql]) => String(sql));
-    expect(calls.some(sql => sql.startsWith('DELETE FROM auth_events') && sql.includes('LIMIT $1'))).toBe(true);
+    expect(calls.some(sql => sql.includes('DELETE FROM auth_events') && sql.includes('LIMIT $5'))).toBe(true);
     expect(calls.some(sql => sql.includes('TRUNCATE TABLE'))).toBe(false);
     expect(mocks.repair).not.toHaveBeenCalled();
     expect(mocks.release).toHaveBeenCalledWith(true);
