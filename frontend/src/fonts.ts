@@ -465,7 +465,7 @@ export function isRetroFont(key: string) { return RETRO_FONTS.has(key); }
 // theme has one, otherwise the user's saved choice — but never a retro font under a normal
 // theme (that's the "font won't change back" bug), so fall back to the default in that case.
 export function effectiveFontSet(theme: string, savedFont: string) {
-  if (Object.hasOwn(THEME_FONT, theme)) return THEME_FONT_BY_THEME[theme];
+  if (Object.hasOwn(THEME_FONT, theme)) return THEME_FONT[theme as keyof typeof THEME_FONT];
   return isRetroFont(savedFont) ? 'default' : (savedFont || 'default');
 }
 
