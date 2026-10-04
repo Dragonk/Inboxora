@@ -1,6 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as http from 'http';
-import * as https from 'https';
+
+const httpsRequestMock = vi.hoisted(() => vi.fn());
+vi.mock('https', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('https')>();
+  return { ...actual, request: httpsRequestMock };
+});
+
+// oidc.ts imports the application entry point for imapManager. Mock it before
+// loading the route so this unit test never boots Redis or other app services.
+vi.mock('../index.js', () => ({ imapManager: {} }));
+
 import { makeInsecureFetch } from './oidc.js';
 
 describe('makeInsecureFetch', () => {
@@ -98,39 +108,26 @@ describe('makeInsecureFetch', () => {
   });
 
   it('uses https.request with rejectUnauthorized: false for HTTPS URLs', async () => {
-    // Spy on https.request
-    const requestSpy = vi.spyOn(https, 'request');
-
-    // Mock the implementation to prevent actual network request and just return an EventEmtiter-like object that resolves immediately.
-    // However, the test only checks the options passed, so mocking reject is sufficient to stop it fast.
-    requestSpy.mockImplementationOnce((_options, _callback) => {
+    httpsRequestMock.mockImplementationOnce((_options: unknown, _callback: unknown) => {
       const mockReq = {
-        on: (event: string, cb: any) => {
-          if (event === 'error') {
-            // We simulate an error just so the promise rejects and finishes the test quickly
-            setTimeout(() => cb(new Error('mock error')), 0);
-          }
+        on: (event: string, cb: (error: Error) => void) => {
+          if (event === 'error') setTimeout(() => cb(new Error('mock error')), 0);
           return mockReq;
         },
         end: () => {},
         write: () => {},
-        destroy: () => {}
-      } as any;
+        destroy: () => {},
+      };
       return mockReq;
     });
 
     const fetchFn = makeInsecureFetch();
-
-    // Attempt an HTTPS request
     await expect(fetchFn('https://example.com/test')).rejects.toThrow('mock error');
 
-    // Verify spy
-    expect(requestSpy).toHaveBeenCalledTimes(1);
-    const optionsArg = requestSpy.mock.calls[0][0] as https.RequestOptions;
-
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+    const optionsArg = httpsRequestMock.mock.calls[0][0] as import('https').RequestOptions;
     expect(optionsArg.hostname).toBe('example.com');
     expect(optionsArg.rejectUnauthorized).toBe(false);
-
-    requestSpy.mockRestore();
   });
+
 });
