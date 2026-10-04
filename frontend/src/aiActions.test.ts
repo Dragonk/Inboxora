@@ -14,5 +14,9 @@ describe('summarizePromptForLocale (#255)', () => {
     assert.equal(summarizePromptForLocale('de'), `${SUMMARIZE_PROMPT} Respond in German.`);
     assert.equal(summarizePromptForLocale('cs'), `${SUMMARIZE_PROMPT} Respond in Czech.`);
     assert.equal(summarizePromptForLocale('ru'), `${SUMMARIZE_PROMPT} Respond in Russian.`);
+    assert.equal(summarizePromptForLocale('es'), `${SUMMARIZE_PROMPT} Respond in Spanish.`);
+    assert.equal(summarizePromptForLocale('fr'), `${SUMMARIZE_PROMPT} Respond in French.`);
+    assert.equal(summarizePromptForLocale('it'), `${SUMMARIZE_PROMPT} Respond in Italian.`);
+    assert.equal(summarizePromptForLocale('pl'), `${SUMMARIZE_PROMPT} Respond in Polish.`);
   });
 });
