@@ -43,7 +43,7 @@ export async function listThreadMessages({ userId, threadId, accountId, unified 
     SELECT m.id, m.uid, m.folder, m.is_archived,
            ARRAY(SELECT ml.folder_path FROM message_labels ml
                  WHERE ml.message_id = m.id AND ml.account_id = m.account_id) AS folder_paths,
-           m.message_id, m.thread_id, m.thread_key, m.subject,
+           m.message_id, m.logical_message_id, m.thread_id, m.thread_key, m.subject,
            m.from_name, m.from_email, m.to_addresses, m.cc_addresses,
            m.reply_to, m.in_reply_to, m.thread_references,
            m.date, m.snippet, m.is_read, m.is_starred,

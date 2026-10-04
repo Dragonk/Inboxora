@@ -140,7 +140,12 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       ),
       thread_totals AS (
         SELECT ${threadIdentityExpr} AS thread_id,
-               COUNT(*)::int AS message_count
+               COUNT(*)::int AS message_count,
+               COUNT(DISTINCT COALESCE(
+                 m.logical_message_id::text,
+                 NULLIF(lower(btrim(m.message_id)), ''),
+                 'physical:' || m.id::text
+               ))::int AS display_message_count
         FROM messages m
         JOIN paged_threads pt ON pt.account_id = m.account_id AND pt.thread_bucket = ${effectiveThreadExpr}
         WHERE m.account_id = ANY($${p})
@@ -152,6 +157,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
       ranked AS (
         SELECT d.*,
                COALESCE(tt.message_count, 1) AS message_count,
+               COALESCE(tt.display_message_count, 1) AS display_message_count,
                COUNT(*) FILTER (WHERE NOT d.is_read) OVER (PARTITION BY d.thread_id)::int AS unread_count,
                FIRST_VALUE(d.subject)           OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_subject,
                FIRST_VALUE(d.from_name)          OVER (PARTITION BY d.thread_id ORDER BY d.date ASC, d.id ASC) AS thread_from_name,
@@ -173,7 +179,7 @@ export async function listMessages({ userId, accountId, folder = 'INBOX', limit 
              date, snippet, is_starred, is_read AS physical_is_read, (unread_count = 0) AS is_read, has_attachments, account_id,
              account_name, account_email, account_color,
              category, spam_verdict, spam_score_ml, spam_score_blended, list_unsubscribe, list_unsubscribe_post, delivery_addresses,
-             message_count, unread_count,
+             message_count, display_message_count, unread_count,
              thread_has_contact_photo AS has_contact_photo,
              latest_from_email, latest_from_name
       FROM ranked
