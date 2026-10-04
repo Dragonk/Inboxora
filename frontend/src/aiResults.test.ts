@@ -70,4 +70,17 @@ describe('aiResults', () => {
     for (let i = 0; i < 50; i++) saveResult('more-' + i, 'summarize', 'z');
     assert.equal(getResults('keep').summarize.text, 'refreshed', 'refreshed message should survive');
   });
+
+  it('fails gracefully when localStorage throws an error on write', () => {
+    const originalSetItem = localStorage.setItem;
+    localStorage.setItem = () => { throw new Error('Quota exceeded'); };
+    try {
+      assert.doesNotThrow(() => {
+        saveResult('fail_msg', 'summarize', 'will fail to save');
+      });
+
+    } finally {
+      localStorage.setItem = originalSetItem;
+    }
+  });
 });
