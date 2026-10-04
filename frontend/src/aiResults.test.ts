@@ -90,4 +90,17 @@ describe('aiResults', () => {
     localStorage.setItem('mailflow_ai_results', '["m1"]');
     assert.deepEqual(getResults('m1'), {});
   });
+
+  it('fails gracefully when localStorage throws an error on write', () => {
+    const originalSetItem = localStorage.setItem;
+    localStorage.setItem = () => { throw new Error('Quota exceeded'); };
+    try {
+      assert.doesNotThrow(() => {
+        saveResult('fail_msg', 'summarize', 'will fail to save');
+      });
+    } finally {
+      localStorage.setItem = originalSetItem;
+    }
+  });
+
 });
