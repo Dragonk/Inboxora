@@ -1,5 +1,0 @@
-🧪 [tests] Add comprehensive unit tests for resolveSearchFolderScope
-
-🎯 What: The resolveSearchFolderScope function was lacking sufficient tests to guarantee coverage over its various edge cases.
-📊 Coverage: Added tests validating fallback parameters, trimming whitespace, processing of multiple `in:` tags, and correct assignment of `folderFuzzy`.
-✨ Result: The test suite now fully describes and verifies the resolving of folder scopes during email search.

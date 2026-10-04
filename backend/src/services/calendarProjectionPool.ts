@@ -157,7 +157,7 @@ function workerExecArgv() {
   // A TypeScript source worker needs the tsx loader to resolve its .js import
   // specifiers; the compiled .js worker must not depend on dev-only tooling.
   const hasTsx = filtered.some((flag, index) => flag === '--import' && filtered[index + 1] === 'tsx')
-    || filtered.includes('--import=tsx');
+    || filtered.includes('--import=tsx');\n  if (SOURCE_WORKER && !hasTsx) filtered.push('--import', 'tsx');
   if (SOURCE_WORKER && !hasTsx) filtered.push('--import', 'tsx');
   return filtered;
 }
