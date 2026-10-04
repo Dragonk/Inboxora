@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { SUMMARIZE_PROMPT, summarizePromptForLocale } from './aiActions.ts';
+import { SUMMARIZE_PROMPT, summarizePromptForLocale, newAiAction } from './aiActions.ts';
 
 describe('summarizePromptForLocale (#255)', () => {
   it('keeps the base English prompt for English and unknown/empty locales', () => {
@@ -18,5 +18,30 @@ describe('summarizePromptForLocale (#255)', () => {
     assert.equal(summarizePromptForLocale('fr'), `${SUMMARIZE_PROMPT} Respond in French.`);
     assert.equal(summarizePromptForLocale('it'), `${SUMMARIZE_PROMPT} Respond in Italian.`);
     assert.equal(summarizePromptForLocale('pl'), `${SUMMARIZE_PROMPT} Respond in Polish.`);
+  });
+});
+
+
+describe('newAiAction', () => {
+  it('creates an action with default empty values and an id', () => {
+    const action = newAiAction();
+    assert.equal(typeof action.id, 'string');
+    assert.ok(action.id.length > 0);
+    assert.equal(action.label, '');
+    assert.equal(action.prompt, '');
+  });
+
+  it('creates an action with provided label and prompt', () => {
+    const action = newAiAction('Custom Label', 'Custom Prompt');
+    assert.equal(typeof action.id, 'string');
+    assert.ok(action.id.length > 0);
+    assert.equal(action.label, 'Custom Label');
+    assert.equal(action.prompt, 'Custom Prompt');
+  });
+
+  it('generates unique ids for each action', () => {
+    const action1 = newAiAction();
+    const action2 = newAiAction();
+    assert.notEqual(action1.id, action2.id);
   });
 });
