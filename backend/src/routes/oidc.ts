@@ -130,7 +130,7 @@ export function makeInsecureFetch(signal?: AbortSignal): typeof fetch {
   };
 }
 
-async function getDiscovery(issuerUrl: string, allowInsecure: boolean | null | undefined = false) {
+export async function getDiscovery(issuerUrl: string, allowInsecure: boolean | null | undefined = false) {
   const parsed = new URL(issuerUrl);
   if (!allowInsecure && parsed.protocol !== 'https:') throw new Error('OIDC issuer URL must use HTTPS');
 
