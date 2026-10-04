@@ -18,7 +18,7 @@ import { LAYOUTS, localizedLayout, normalizeLayout } from '../layouts.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { isAccountInUnifiedInbox } from '../utils/unifiedInbox.ts';
 import { useSwipeRow } from '../hooks/useSwipeRow.ts';
-import { isExpandableNativeThread, nativeThreadCacheMatchesRow, normalizedNativeThreadMembers, singletonNativeThreadTarget } from '../utils/nativeThreadMembership.ts';
+import { isExpandableNativeThread, nativeThreadCacheMatchesRow, normalizedNativeThreadDisplayMembers, normalizedNativeThreadMembers, singletonNativeThreadTarget } from '../utils/nativeThreadMembership.ts';
 import ContextMenu from './ContextMenu.tsx';
 import RowHoverActions from './RowHoverActions.tsx';
 import GtdTabList from './GtdTabList.tsx';
@@ -2719,7 +2719,11 @@ export default function MessageList() {
       const members = normalizedNativeThreadMembers(data.messages);
       if (!isCurrentScope() || !isCurrentThreadLoad(threadLoadVersionsRef.current, tid, loadVersion)) return [];
       setThreadMessages(tid, applyReadGuard(members));
-      if (Number(message.message_count) !== members.length) updateMessage(message.id, { message_count: members.length });
+      const displayCount = normalizedNativeThreadDisplayMembers(members).length;
+      const countUpdates: Partial<StoreMessageRow> = {};
+      if (Number(message.message_count) !== members.length) countUpdates.message_count = members.length;
+      if (Number(message.display_message_count) !== displayCount) countUpdates.display_message_count = displayCount;
+      if (Object.keys(countUpdates).length) updateMessage(message.id, countUpdates);
       return members;
     } catch (err) {
       console.error('Failed to load thread:', err);
@@ -2773,7 +2777,8 @@ export default function MessageList() {
     const isCurrentScope = captureThreadScope();
     const members = message.thread_id ? await loadThreadChildren(message) : [message];
     if (!isCurrentScope() || members.length === 0) return;
-    if (!isExpandableNativeThread(members)) {
+    const displayMembers = normalizedNativeThreadDisplayMembers(members);
+    if (displayMembers.length <= 1) {
       const target = singletonNativeThreadTarget(message, members);
       if (target) handleSelect(target);
       return;
@@ -2784,7 +2789,7 @@ export default function MessageList() {
     }
     setExpandedThreadId(tid);
     if (!isMobile) {
-      const newest = newestThreadChild(members);
+      const newest = newestThreadChild(displayMembers);
       if (newest) handleSelect(newest);
     }
   };
@@ -4408,10 +4413,12 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
   // metadata only as a visual hint; never fetch or normalize from row render.
   const hasResolvedMembership = Array.isArray(threadMsgs);
   const normalizedChildren = hasResolvedMembership ? normalizedNativeThreadMembers(threadMsgs) : [];
+  const displayChildren = hasResolvedMembership ? normalizedNativeThreadDisplayMembers(normalizedChildren) : [];
+  const initialDisplayCount = Number(message.display_message_count ?? message.message_count ?? 1);
   const isExpandableThread = hasResolvedMembership
-    ? normalizedChildren.length > 1
-    : Number(message.message_count || 1) > 1;
-  const messageCount = hasResolvedMembership ? normalizedChildren.length : (message.message_count || 1);
+    ? displayChildren.length > 1
+    : initialDisplayCount > 1;
+  const messageCount = hasResolvedMembership ? displayChildren.length : initialDisplayCount;
   const unreadCount  = Number(message.unread_count) || 0;
   // The parent row shows the direction of the MOST RECENT unique child in the
   // account-local thread (not the first message, and not a thread-wide label).
@@ -4643,7 +4650,7 @@ function ThreadRow({ message, isExpanded, threadMsgs, isLoadingThread, selectedM
                 borderRadius: '50%', animation: 'spin 0.8s linear infinite',
               }} />
             </div>
-          ) : (threadMsgs || []).map((msg, idx) => (
+          ) : displayChildren.map((msg, idx) => (
             <ThreadChildRow
               key={msg.id}
               msg={msg}

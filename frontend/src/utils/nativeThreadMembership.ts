@@ -3,11 +3,22 @@ type NativeThreadMember = {
   id?: unknown;
   message_id?: unknown;
   messageId?: unknown;
+  logical_message_id?: unknown;
+  logicalMessageId?: unknown;
   account_id?: unknown;
 };
 
 function membershipKey(message: NativeThreadMember): string {
   return `physical:${String(message.account_id || '')}:${String(message.id || '')}`;
+}
+
+function displayMembershipKey(message: NativeThreadMember): string {
+  const account = String(message.account_id || '');
+  const logicalMessageId = String(message.logical_message_id || message.logicalMessageId || '').trim();
+  if (logicalMessageId) return `logical:${account}:${logicalMessageId}`;
+  const messageId = String(message.message_id || message.messageId || '').trim().toLowerCase();
+  if (messageId) return `message-id:${account}:${messageId}`;
+  return membershipKey(message);
 }
 
 function isNativeThreadMember(value: unknown): value is NativeThreadMember {
@@ -20,6 +31,21 @@ export function normalizedNativeThreadMembers<T>(messages: readonly T[] | null |
   for (const message of messages) {
     if (!isNativeThreadMember(message) || !message.id) continue;
     const key = membershipKey(message);
+    if (!members.has(key)) members.set(key, message);
+  }
+  return Array.from(members.values());
+}
+
+/**
+ * Collapse physical folder/provider copies into one row for thread presentation.
+ * Action membership deliberately remains physical via normalizedNativeThreadMembers().
+ */
+export function normalizedNativeThreadDisplayMembers<T>(messages: readonly T[] | null | undefined | false | 0 | ''): T[] {
+  const members = new Map<string, T>();
+  if (messages === null || messages === undefined || messages === false || messages === 0 || messages === '') return [];
+  for (const message of messages) {
+    if (!isNativeThreadMember(message) || !message.id) continue;
+    const key = displayMembershipKey(message);
     if (!members.has(key)) members.set(key, message);
   }
   return Array.from(members.values());

@@ -49,9 +49,10 @@ jobs:
     uses: ./.github/workflows/ci-plan.yml
   screenshots:
     needs: changes
-    if: needs.changes.outputs.run_tests == 'true'
+    if: needs.changes.outputs.run_docs_screenshots == 'true'
     name: Regenerate and verify
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -175,11 +176,9 @@ jobs:
           import json, os
           needs = json.loads(os.environ['RESULTS'])
           assert needs['changes']['result'] == 'success', needs
-          full = needs['changes']['outputs']['run_tests'] == 'true'
-          for name, job in needs.items():
-              if name == 'changes': continue
-              expected = 'success' if (needs['changes']['outputs'].get('docs_only') == 'true' if name == 'documentation' else full) else 'skipped'
-              assert job['result'] == expected, (name, job['result'], expected)
+          selected = needs['changes']['outputs'].get('run_docs_screenshots') == 'true'
+          expected = 'success' if selected else 'skipped'
+          assert needs['screenshots']['result'] == expected, (needs['screenshots']['result'], expected)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
               output.write(needs['changes']['outputs']['reason'] + '\n')
           PYGATE

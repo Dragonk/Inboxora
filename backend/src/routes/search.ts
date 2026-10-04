@@ -1,25 +1,7 @@
 import { searchMail } from '../services/mailSearch.js';
 export { resolveSearchFolderScope, shouldExcludeTrashFromSearch, trashFolderExclusionCondition, freeTextTermCondition, FTS_BODY_CHAR_CAP } from '../services/mailSearch.js';
 import { sessionUserId } from '../utils/query.js';
-export { parseSearchQuery } from "../services/mailSearchQuery.js";
-export interface SearchQuery {
-  type: string;
-  clauses: { type: string; term: string }[];
-}
-
-export function parseSearchQueryLocal(raw: string) {
-  const query: SearchQuery = { type: 'all', clauses: [] };
-  const tokens = raw.match(/([^\s"]+)|"([^"]*)"/g) || [];
-  for (const token of tokens) {
-    if (token.startsWith('"') && token.endsWith('"')) {
-      query.clauses.push({ type: 'freetext', term: token.slice(1, -1) });
-    } else {
-      query.clauses.push({ type: 'freetext', term: token });
-    }
-  }
-  return query;
-}
-
+export { parseSearchQuery } from '../services/mailSearchQuery.js';
 import { Router } from 'express';
 import { query } from '../services/db.js';
 import { requireAuth } from '../middleware/auth.js';

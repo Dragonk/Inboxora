@@ -26,4 +26,28 @@ describe('mail search tokenization', () => {
   it('escapes wildcard characters instead of widening the search', () => {
     expect(escapeSearchLike('100%_C:\\mail')).toBe('100\\%\\_C:\\\\mail');
   });
+  it('splits unquoted free text into independent terms', () => {
+    expect(parseSearchQuery('hello world')).toEqual({ filters: [], terms: [
+      { value: 'hello', negate: false },
+      { value: 'world', negate: false },
+    ] });
+  });
+  it('keeps mixed quoted phrases and unquoted tokens in order', () => {
+    expect(parseSearchQuery('foo "bar baz" qux')).toEqual({ filters: [], terms: [
+      { value: 'foo', negate: false },
+      { value: 'bar baz', negate: false },
+      { value: 'qux', negate: false },
+    ] });
+  });
+  it('ignores whitespace and empty quoted phrases instead of creating empty search terms', () => {
+    expect(parseSearchQuery('')).toEqual({ filters: [], terms: [] });
+    expect(parseSearchQuery('   ')).toEqual({ filters: [], terms: [] });
+    expect(parseSearchQuery('""   ""')).toEqual({ filters: [], terms: [] });
+  });
+  it('parses consecutive quoted phrases independently', () => {
+    expect(parseSearchQuery('"foo" "bar"')).toEqual({ filters: [], terms: [
+      { value: 'foo', negate: false },
+      { value: 'bar', negate: false },
+    ] });
+  });
 });

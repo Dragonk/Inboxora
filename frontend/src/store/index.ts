@@ -399,6 +399,7 @@ export interface StoreMessageRow {
   thread_key?: string;
   uid?: number;
   message_count?: number | string | null;
+  display_message_count?: number | string | null;
   unread_count?: number | string | null;
   date?: string | number | Date | null;
   subject?: string | null;

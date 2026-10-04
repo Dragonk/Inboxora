@@ -1,16 +1,27 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isExpandableNativeThread, nativeThreadCacheMatchesRow, normalizedNativeThreadMembers, singletonNativeThreadTarget } from './nativeThreadMembership.ts';
+import { isExpandableNativeThread, nativeThreadCacheMatchesRow, normalizedNativeThreadDisplayMembers, normalizedNativeThreadMembers, singletonNativeThreadTarget } from './nativeThreadMembership.ts';
 
 describe('normalized native thread membership', () => {
-  it('preserves distinct physical copies sharing an RFC header', () => {
-    const row = { id: 'copy-inbox', message_id: '<same@example.test>' };
-    const members = normalizedNativeThreadMembers([row, { id: 'copy-all-mail', message_id: '<same@example.test>' }]);
+  it('keeps physical action copies but renders one row for one logical message', () => {
+    const row = { id: 'copy-inbox', account_id: 'account', logical_message_id: 'logical-1', message_id: '<same@example.test>' };
+    const duplicate = { id: 'copy-all-mail', account_id: 'account', logical_message_id: 'logical-1', message_id: '<same@example.test>' };
+    const members = normalizedNativeThreadMembers([row, duplicate]);
     assert.deepEqual(members.map(member => member.id), ['copy-inbox', 'copy-all-mail']);
+    assert.deepEqual(normalizedNativeThreadDisplayMembers(members).map(member => member.id), ['copy-inbox']);
     assert.equal(isExpandableNativeThread(members), true);
     const target = singletonNativeThreadTarget(row, members);
     assert.ok(target);
     assert.equal(target.id, 'copy-inbox');
+  });
+
+  it('falls back to RFC Message-ID for legacy duplicate display copies', () => {
+    const members = [
+      { id: 'copy-inbox', account_id: 'account', message_id: ' <SAME@example.test> ' },
+      { id: 'copy-all-mail', account_id: 'account', message_id: '<same@example.test>' },
+      { id: 'other-account', account_id: 'other', message_id: '<same@example.test>' },
+    ];
+    assert.deepEqual(normalizedNativeThreadDisplayMembers(members).map(member => member.id), ['copy-inbox', 'other-account']);
   });
 
   it('keeps distinct normalized messages expandable', () => {

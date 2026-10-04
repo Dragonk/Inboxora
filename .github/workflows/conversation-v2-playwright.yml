@@ -28,9 +28,9 @@ jobs:
   shards:
     name: Browser shard ${{ matrix.shard }}/4
     needs: changes
-    if: needs.changes.outputs.run_tests == 'true'
+    if: needs.changes.outputs.run_browser_e2e == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -93,7 +93,7 @@ jobs:
       - name: Require the planner and all applicable shards
         env:
           PLAN_RESULT: ${{ needs.changes.result }}
-          RUN_TESTS: ${{ needs.changes.outputs.run_tests }}
+          RUN_TESTS: ${{ needs.changes.outputs.run_browser_e2e }}
           SHARDS_RESULT: ${{ needs.shards.result }}
           REASON: ${{ needs.changes.outputs.reason }}
         run: |
@@ -106,26 +106,26 @@ jobs:
           fi
           printf '%s\n' "$REASON" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@v6
-        if: needs.changes.outputs.run_tests == 'true'
+        if: needs.changes.outputs.run_browser_e2e == 'true'
         with:
           ref: ${{ needs.changes.outputs.source_sha }}
       - uses: actions/setup-node@v6
-        if: needs.changes.outputs.run_tests == 'true'
+        if: needs.changes.outputs.run_browser_e2e == 'true'
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Merge all shard reports
-        if: needs.changes.outputs.run_tests == 'true'
+        if: needs.changes.outputs.run_browser_e2e == 'true'
         working-directory: frontend
         run: npm ci --ignore-scripts
       - uses: actions/download-artifact@v4
-        if: needs.changes.outputs.run_tests == 'true'
+        if: needs.changes.outputs.run_browser_e2e == 'true'
         with:
           pattern: playwright-shard-*-${{ github.run_id }}
           path: shards
       - name: Assemble one report without changing test results
-        if: needs.changes.outputs.run_tests == 'true'
+        if: needs.changes.outputs.run_browser_e2e == 'true'
         run: |
           mkdir all-blob-reports
           find shards -name 'report-*.zip' -exec cp '{}' all-blob-reports/ \;
@@ -133,7 +133,7 @@ jobs:
           cd frontend
           npx playwright merge-reports --reporter=html ../all-blob-reports
       - uses: actions/upload-artifact@v4
-        if: needs.changes.outputs.run_tests == 'true'
+        if: needs.changes.outputs.run_browser_e2e == 'true'
         with:
           name: conversation-v2-playwright-${{ github.run_id }}
           path: frontend/playwright-report/

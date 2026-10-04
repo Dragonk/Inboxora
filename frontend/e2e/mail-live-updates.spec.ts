@@ -8,11 +8,15 @@ async function liveMailbox(page, fixtureApi, reader = false, initialSize = 5, op
   page.__conversationMatrix = reader ? '11' : '10';
   page.__preferencesOverride = { markReadBehavior: options.markReadBehavior || 'manual', notificationSound: 'none' };
   const state = { unread: new Set(options.unread || [1, initialSize]), size: initialSize, listRequests: 0 };
-  const copy = n => ({ id: `conversation-gmail-copy-${n}`, account_id: 'account-gmail', folder: 'INBOX', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail', message_id: `<fixture-${n}>`, subject: 'Live conversation', from_email: 'sender@example.test', date: new Date(2026, 8, n).toISOString(), is_read: !state.unread.has(n), body_text: `Live message ${n}` });
+  const copy = n => {
+    const logicalIndex = options.duplicateLastPhysical && n === initialSize ? n - 1 : n;
+    return { id: `conversation-gmail-copy-${n}`, account_id: 'account-gmail', folder: n === initialSize && options.duplicateLastPhysical ? 'All-Mail' : 'INBOX', thread_id: 'conversation-gmail', thread_key: 'conversation-gmail', logical_message_id: `logical-${logicalIndex}`, message_id: `<fixture-${logicalIndex}>`, subject: 'Live conversation', from_email: 'sender@example.test', date: new Date(2026, 8, logicalIndex).toISOString(), is_read: !state.unread.has(n), body_text: `Live message ${logicalIndex}` };
+  };
+  const initialDisplaySize = options.duplicateLastPhysical ? Math.max(1, initialSize - 1) : initialSize;
   await page.route('**/api/accounts', route => route.fulfill({ json: fixtureApi.accounts.map(account => ({ ...account, enabled: true })) }));
   await page.route(url => url.pathname === '/api/mail/messages', route => {
     state.listRequests++;
-    return route.fulfill({ json: { messages: [{ ...copy(state.size), message_count: state.size, unread_count: state.unread.size, is_read: state.unread.size === 0 }], total: 1 } });
+    return route.fulfill({ json: { messages: [{ ...copy(state.size), message_count: state.size, display_message_count: options.duplicateLastPhysical ? Math.max(1, state.size - 1) : state.size, unread_count: state.unread.size, is_read: state.unread.size === 0 }], total: 1 } });
   });
   await page.route('**/api/mail/thread/*', route => route.fulfill({ json: { messages: Array.from({ length: state.size }, (_, index) => copy(index + 1)) } }));
   await page.route('**/api/mail/unread-counts', route => route.fulfill({ json: { total: state.unread.size, byAccount: { 'account-gmail': state.unread.size } } }));
@@ -35,10 +39,20 @@ async function liveMailbox(page, fixtureApi, reader = false, initialSize = 5, op
   }
   const parent = () => page.locator('[data-thread-row-parent="true"]');
   await expect(parent()).toBeVisible();
-  await parent().locator(`button[aria-label*='(${initialSize})']`).click();
-  await expect(page.locator('[data-thread-row-child]')).toHaveCount(initialSize);
+  await parent().locator(`button[aria-label*='(${initialDisplaySize})']`).click();
+  await expect(page.locator('[data-thread-row-child]')).toHaveCount(initialDisplaySize);
   return { state, parent, copy, send: data => socket.send(JSON.stringify(data)) };
 }
+
+test('expanded thread list renders one row per logical message when providers expose duplicate physical copies', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(!['chromium-desktop', 'chromium-mobile-390'].includes(testInfo.project.name), 'desktop and mobile thread presentation');
+  const { parent } = await liveMailbox(page, fixtureApi, false, 3, { duplicateLastPhysical: true });
+  await expect(page.locator('[data-thread-row-child]')).toHaveCount(2);
+  await expect(page.locator('[data-thread-row-child="conversation-gmail-copy-1"]')).toHaveCount(1);
+  await expect(page.locator('[data-thread-row-child="conversation-gmail-copy-2"]')).toHaveCount(1);
+  await expect(page.locator('[data-thread-row-child="conversation-gmail-copy-3"]')).toHaveCount(0);
+  await expect(parent().locator("button[aria-label*='(2)']")).toBeVisible();
+});
 
 test('live flags update individual copies and the thread only becomes read after its last unread copy', async ({ page, fixtureApi }, testInfo) => {
   test.skip(!['chromium-desktop', 'chromium-mobile-390'].includes(testInfo.project.name), 'desktop and mobile live state');
