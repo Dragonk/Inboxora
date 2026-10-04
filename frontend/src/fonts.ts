@@ -452,9 +452,6 @@ export function applyFontSize(_pct?: number): void {
 // matching font set. Any theme not listed here uses the user's chosen font.
 export const THEME_FONT = { winxp: 'winxp', win9x: 'win9x' };
 
-// Untyped lookup view, mirroring the dynamic (possibly unknown) theme lookup below.
-const THEME_FONT_BY_THEME: Record<string, string> = THEME_FONT;
-
 // Retro fonts are theme-bound — they're applied automatically by their theme and must NOT
 // be selectable as standalone choices in the font picker, or they'd become the user's saved
 // font and "stick" after switching back to a normal theme.
