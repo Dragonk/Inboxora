@@ -45,7 +45,7 @@ cp .env .env.backup
 
 A readable archive is a basic check, not a substitute for testing a restore. Keep the
 backup and matching `.env` securely outside the database volume. Then set
-`INBOXORA_VERSION=4.3.0` in the existing `.env` when using the supplied GHCR Compose file.
+`INBOXORA_VERSION=4.3.1` in the existing `.env` when using the supplied GHCR Compose file.
 A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
 Do not overwrite secrets, rename the database or recreate its volume.
 
@@ -58,6 +58,19 @@ docker compose logs --tail=100 backend
 
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
+
+## Upgrading to 4.3.1
+
+From 4.3.0, use the standard upgrade steps and deploy matching backend and frontend **4.3.1**
+images. There is **no new database migration, environment variable or provider permission** in
+this patch; the schema remains at migration `0168_alias_default_recipients.sql`.
+
+The main user-visible correction is thread-list presentation: when a provider exposes the same
+logical mail through multiple physical folders, the expanded list shows it once. Inboxora still
+keeps each physical copy for provider synchronization and read/star/move/archive actions.
+
+Android 4.3.1 uses `versionCode 4030100`. Desktop and Android packages are attached to the GitHub
+release after their signed build workflow completes. See [Release notes 4.3.1](Release-notes-4.3.1.md).
 
 ## Upgrading to 4.3.0
 

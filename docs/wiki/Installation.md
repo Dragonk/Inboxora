@@ -25,13 +25,13 @@ candidates for testing only and must not be used for a server people depend on.
 
    ```bash
    mkdir inboxora && cd inboxora
-   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.0/docker-compose.ghcr.yml
+   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.1/docker-compose.ghcr.yml
    mv docker-compose.ghcr.yml docker-compose.yml
-   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.0/.env.example
+   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.1/.env.example
    cp .env.example .env
    ```
 
-2. Set a pinned `INBOXORA_VERSION` in `.env` (`4.3.0`) instead of relying on a
+2. Set a pinned `INBOXORA_VERSION` in `.env` (`4.3.1`) instead of relying on a
    mutable tag.
 
 3. Generate unique secrets and write them into `.env`:
@@ -198,14 +198,14 @@ procedure with its own traps around database and volume names: see
 [Migrating from MailFlow](Migrating-from-MailFlow.md). Only MailFlow 3.3.0 is supported as a
 migration source.
 
-## Application downloads for 4.3.0
+## Application downloads for 4.3.1
 
-The [4.3.0 release](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.0) provides a Windows
+The [4.3.1 release](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.1) provides a Windows
 installer, Linux DEB/RPM packages for x64 and ARM64, and Android APK/AAB files. These clients
 connect to your server. Install the APK directly on Android; the AAB is for distribution tooling.
-The Android versionCode is **4030000**, above 4.1.2, and uses the existing release identity.
+The Android versionCode is **4030100**, above 4.3.0, and uses the existing release identity.
 Checksums and their detached GPG signature accompany the downloads. No macOS package is published.
 
-Stable backend/frontend tags are `4.3.0`, `v4.3.0` and `latest`, with both AMD64 and ARM64 in
+Stable backend/frontend tags are `4.3.1`, `v4.3.1` and `latest`, with both AMD64 and ARM64 in
 each manifest. The versioned tag is preferable for a controlled rollout. See
-[Upgrading](Upgrading.md#upgrading-to-430) before replacing an existing deployment.
+[Upgrading](Upgrading.md#upgrading-to-431) before replacing an existing deployment.
