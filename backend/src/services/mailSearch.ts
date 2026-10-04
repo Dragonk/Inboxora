@@ -44,7 +44,8 @@ export function resolveSearchFolderScope(filters: SearchFilter[], folderParam = 
 }
 
 export function shouldExcludeTrashFromSearch(folderScope: string | null) {
-  return folderScope === null;
+  if (folderScope === 'trash' || folderScope === 'all') return false;
+  return true;
 }
 
 export function trashFolderExclusionCondition() {

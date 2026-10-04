@@ -109,26 +109,30 @@ async function dispatchNative(userId: string, event: MailNotificationEvent, summ
   }
 
   await Promise.allSettled(devices.map(async (device: ActivePushDevice) => {
-    let verdict;
     try {
-      verdict = await sendNativePush(device, native);
-    } catch (caught) {
-      const err = toAppError(caught);
-      // A transport must not throw, but a bug must not take the whole fan-out down.
-      verdict = TRANSPORT_RETRY;
-      console.warn(`Native push transport ${device.transport} threw:`, err.message);
-    }
+      let verdict;
+      try {
+        verdict = await sendNativePush(device, native);
+      } catch (caught) {
+        const err = toAppError(caught);
+        // A transport must not throw, but a bug must not take the whole fan-out down.
+        verdict = TRANSPORT_RETRY;
+        console.warn(`Native push transport ${device.transport} threw:`, err.message);
+      }
 
-    if (verdict === TRANSPORT_INVALID) {
-      summary.native.invalid += 1;
-      await disablePushDevice(device.id).catch(() => {});
-    } else if (verdict === TRANSPORT_RETRY) {
-      summary.native.retry += 1;
-      await markPushDeviceFailure(device.id).catch(() => {});
-    } else if (verdict === 'delivered') {
-      summary.native.delivered += 1;
-    } else {
-      summary.native.disabled += 1;
+      if (verdict === TRANSPORT_INVALID) {
+        summary.native.invalid += 1;
+        await disablePushDevice(device.id).catch(() => {});
+      } else if (verdict === TRANSPORT_RETRY) {
+        summary.native.retry += 1;
+        await markPushDeviceFailure(device.id).catch(() => {});
+      } else if (verdict === 'delivered') {
+        summary.native.delivered += 1;
+      } else {
+        summary.native.disabled += 1;
+      }
+    } catch (caught) {
+      console.warn(`Unhandled error in native push dispatcher for device ${device.id}:`, toAppError(caught).message);
     }
   }));
 }

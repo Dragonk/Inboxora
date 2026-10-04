@@ -500,6 +500,9 @@ describe('mail is polled for both native providers', () => {
     mocks.syncGmailMailMessagesForAccount.mockResolvedValueOnce({ threads: 1 });
 
     await expect(runProviderSyncs()).resolves.toEqual({ connections: 1, ran: 1, failed: 0 });
+    expect(mocks.syncGmailMailLabelsForAccount).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', connectionId: 'connection-1', accountId: 'account-1',
+    }));
     expect(mocks.syncGmailMailMessagesForAccount).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user-1', connectionId: 'connection-1', accountId: 'account-1',
     }));
