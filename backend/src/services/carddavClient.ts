@@ -239,7 +239,7 @@ export function davWriteAccessFromPrivilegeSet(xmlText: unknown): 'read_write' |
     .map(entry => {
       if (typeof entry === 'string') return entry.trim();
       if (entry && typeof entry === 'object') {
-        const names = Object.keys(entry as Record<string, unknown>);
+        const names = Object.keys(entry as Record<string, unknown>).filter(k => !k.startsWith('@_'));
         return names.length > 0 ? names[0] : '';
       }
       return '';
