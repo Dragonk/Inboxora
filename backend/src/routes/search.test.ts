@@ -98,6 +98,56 @@ describe('parseSearchQuery', () => {
     expect(keys).toEqual(['from', 'to', 'subject', 'has', 'is', 'after', 'before', 'in']);
   });
 
+});
+
+describe('resolveSearchFolderScope', () => {
+
+  it('falls back to default values when no filters and no param are provided', () => {
+    expect(resolveSearchFolderScope([])).toEqual({
+      folderScope: null,
+      folderFuzzy: false,
+    });
+  });
+
+  it('trims the folderParam correctly', () => {
+    expect(resolveSearchFolderScope([], '  Drafts  ')).toEqual({
+      folderScope: 'Drafts',
+      folderFuzzy: false,
+    });
+  });
+
+  it('ignores negated in: filters and falls back to folderParam', () => {
+    const { filters } = parseSearchQuery('-in:trash subject:newsletter');
+    expect(resolveSearchFolderScope(filters, 'INBOX')).toEqual({
+      folderScope: 'INBOX',
+      folderFuzzy: false,
+    });
+  });
+
+  it('sets folderScope to null and ignores folderParam when in:all is provided', () => {
+    const { filters } = parseSearchQuery('in:all subject:newsletter');
+    expect(resolveSearchFolderScope(filters, 'INBOX')).toEqual({
+      folderScope: null,
+      folderFuzzy: false,
+    });
+  });
+
+  it('uses the last positive in: filter when multiple are provided', () => {
+    const { filters } = parseSearchQuery('in:drafts in:sent');
+    expect(resolveSearchFolderScope(filters, 'INBOX')).toEqual({
+      folderScope: 'sent',
+      folderFuzzy: true,
+    });
+  });
+
+  it('ignores irrelevant filters like from: and subject:', () => {
+    const { filters } = parseSearchQuery('from:alice subject:hello');
+    expect(resolveSearchFolderScope(filters, 'Archive')).toEqual({
+      folderScope: 'Archive',
+      folderFuzzy: false,
+    });
+  });
+
   it('scopes search to the client folder param when no in: operator is present', () => {
     const { filters } = parseSearchQuery('subject:newsletter');
     expect(resolveSearchFolderScope(filters, 'INBOX')).toEqual({
