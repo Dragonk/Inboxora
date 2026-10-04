@@ -1,5 +1,5 @@
 // Run with: node --test src/aiResults.test.ts
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Minimal localStorage stub (aiResults only touches it inside its functions).
@@ -17,6 +17,7 @@ const { getResults, saveResult, removeResult } = await import('./aiResults.ts');
 
 describe('aiResults', () => {
   beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
 
   it('saves and reads back a result with text and label', () => {
     saveResult('m1', 'summarize', 'the summary', 'Summary');
@@ -55,6 +56,10 @@ describe('aiResults', () => {
     assert.deepEqual(getResults(undefined), {});
   });
 
+  it('returns empty object when messageId is omitted', () => {
+    assert.deepEqual(getResults(), {});
+  });
+
   it('evicts the oldest messages beyond the LRU cap', () => {
     // Cap is 200 messages; write 205 and confirm the earliest are gone.
     for (let i = 0; i < 205; i++) saveResult('msg-' + i, 'summarize', 'x' + i);
@@ -69,5 +74,20 @@ describe('aiResults', () => {
     saveResult('keep', 'summarize', 'refreshed'); // bump recency to newest
     for (let i = 0; i < 50; i++) saveResult('more-' + i, 'summarize', 'z');
     assert.equal(getResults('keep').summarize.text, 'refreshed', 'refreshed message should survive');
+  });
+
+  it('returns empty object when localStorage has invalid JSON', () => {
+    localStorage.setItem('mailflow_ai_results', '{ bad json');
+    assert.deepEqual(getResults('m1'), {});
+  });
+
+  it('returns empty object when localStorage has valid JSON but missing data field', () => {
+    localStorage.setItem('mailflow_ai_results', '{"order": ["m1"]}');
+    assert.deepEqual(getResults('m1'), {});
+  });
+
+  it('returns empty object when localStorage has valid JSON that is not an object', () => {
+    localStorage.setItem('mailflow_ai_results', '["m1"]');
+    assert.deepEqual(getResults('m1'), {});
   });
 });
