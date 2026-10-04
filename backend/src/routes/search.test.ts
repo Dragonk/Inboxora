@@ -155,3 +155,21 @@ describe('freeTextTermCondition (oversized-body crash hotfix)', () => {
     expect(cond).toContain("m.search_vector @@ plainto_tsquery('english', $4)");
   });
 });
+
+describe('shouldExcludeTrashFromSearch', () => {
+  it('returns false when folderScope is "trash"', () => {
+    expect(shouldExcludeTrashFromSearch('trash')).toBe(false);
+  });
+
+  it('returns false when folderScope is "all"', () => {
+    expect(shouldExcludeTrashFromSearch('all')).toBe(false);
+  });
+
+  it('returns true when folderScope is null', () => {
+    expect(shouldExcludeTrashFromSearch(null)).toBe(true);
+  });
+
+  it('returns true when folderScope is any other string path (e.g. "inbox")', () => {
+    expect(shouldExcludeTrashFromSearch('inbox')).toBe(true);
+  });
+});
