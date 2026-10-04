@@ -24,6 +24,23 @@ Thanks for helping improve Inboxora. Contributions are licensed under the projec
 4. Open a pull request against `dev` and describe the user-visible impact, validation, and any
    migration notes. Release and hotfix pull requests target `main`.
 
+## CI scope
+
+Pull-request CI is change-aware. Keep changes focused so the planner can run only the checks that
+cover the modified area:
+
+- backend unit-test-only changes run the backend checks, without browser/UI suites;
+- frontend unit-test-only changes run the frontend checks, without full Playwright;
+- production UI changes add browser, real-app and screenshot validation;
+- database/conversation changes add PostgreSQL validation;
+- push/ntfy/nginx/compose changes add the push-stack validation;
+- CI/build inputs that cannot be classified safely fall back to full validation.
+
+Heavy PR jobs are capped at 15 minutes. A hanging test must fail within that bound rather than
+occupying a runner indefinitely. Required workflow result checks are still emitted when a suite is
+not applicable; the heavy job is reported as skipped rather than silently omitted. Manual workflow
+dispatch remains the way to force full validation.
+
 ## Documentation
 
 User-visible behaviour, configuration and troubleshooting live in the Wiki, whose reviewed

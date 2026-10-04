@@ -34,9 +34,10 @@ jobs:
     uses: ./.github/workflows/ci-plan.yml
   push-stack:
     needs: changes
-    if: needs.changes.outputs.run_tests == 'true'
+    if: needs.changes.outputs.run_push_stack == 'true'
     name: Built-in ntfy behind /push
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       COMPOSE_PROJECT_NAME: inboxora
       SESSION_SECRET: ci-session-secret-ci-session-secret-1234567890
@@ -124,11 +125,9 @@ jobs:
           import json, os
           needs = json.loads(os.environ['RESULTS'])
           assert needs['changes']['result'] == 'success', needs
-          full = needs['changes']['outputs']['run_tests'] == 'true'
-          for name, job in needs.items():
-              if name == 'changes': continue
-              expected = 'success' if (needs['changes']['outputs'].get('docs_only') == 'true' if name == 'documentation' else full) else 'skipped'
-              assert job['result'] == expected, (name, job['result'], expected)
+          selected = needs['changes']['outputs'].get('run_push_stack') == 'true'
+          expected = 'success' if selected else 'skipped'
+          assert needs['push-stack']['result'] == expected, (needs['push-stack']['result'], expected)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
               output.write(needs['changes']['outputs']['reason'] + '\n')
           PYGATE
