@@ -866,7 +866,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       Array.from(root.querySelectorAll<HTMLElement>('*')).reverse().forEach(el => {
         const oy = window.getComputedStyle(el).overflowY;
         const isScroll = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
-        if (isScroll || expandedEls.has(el)) {
+        if (isScroll) {
           if (!expandedEls.has(el)) {
             expandedEls.set(el, {
               overflowY: el.style.getPropertyValue('overflow-y'),
