@@ -1027,7 +1027,10 @@ async function computeThreadId(accountId: string, messageId: string, inReplyTo: 
   for (const row of rows.rows) {
     found.set(row.message_id, row.thread_id);
   }
-  for (const candidate of candidates) if (found.has(candidate)) return found.get(candidate);
+  for (const candidate of candidates) {
+    const threadId = found.get(candidate);
+    if (threadId !== undefined) return threadId;
+  }
   return candidates[0];
 }
 

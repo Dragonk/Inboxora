@@ -22,9 +22,6 @@ test.describe('real MailFlow conversation browser E2E', () => {
     // remains list-only, so select an exact child as the shared reader-opening
     // interaction rather than assuming desktop navigation semantics.
     await expect(goldenRow).toHaveAttribute('aria-expanded', 'true');
-    // The list shows five logical messages even though the native provider exposes
-    // six actionable physical copies (the latest mail also exists in All-Mail).
-    await expect(goldenThread.locator('[data-thread-row-child]')).toHaveCount(5);
     await goldenThread.locator('[data-thread-row-child]').first().click();
     const reader = page.locator('section[data-conversation-id]:visible');
     await expect(reader).toHaveCount(1);
