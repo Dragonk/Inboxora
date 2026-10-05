@@ -32,8 +32,8 @@ jobs:
   validation:
     name: PostgreSQL ${{ matrix.stage }}
     needs: changes
-    if: needs.changes.outputs.run_postgres_e2e == 'true'
-    timeout-minutes: 15
+    if: needs.changes.outputs.run_tests == 'true'
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -161,7 +161,7 @@ jobs:
       - name: Require every applicable validation stage
         env:
           PLAN_RESULT: ${{ needs.changes.result }}
-          RUN_TESTS: ${{ needs.changes.outputs.run_postgres_e2e }}
+          RUN_TESTS: ${{ needs.changes.outputs.run_tests }}
           TEST_RESULT: ${{ needs.validation.result }}
           REASON: ${{ needs.changes.outputs.reason }}
         run: |

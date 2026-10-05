@@ -45,7 +45,17 @@ function resolvedRowFor(rows: ConversationRow[], id: string): ConversationRow {
   return rows[rows.findIndex(row => row.id === id)];
 }
 
-
+async function resolveArchiveDestination(client: DbClient, accountId: string, folderMappings: { archive?: string | null } | null | undefined) {
+  const mapped = folderMappings?.archive;
+  if (mapped) {
+    const row = await client.query('SELECT path, special_use FROM folders WHERE account_id = $1 AND path = $2 AND no_select = false LIMIT 1', [accountId, mapped]);
+    if (row.rows[0]) return row.rows[0];
+  }
+  const row = await client.query(`SELECT path, special_use FROM folders WHERE account_id = $1 AND no_select = false
+    AND (special_use IN ('\\Archive','\\All') OR lower(name) LIKE '%archive%')
+    ORDER BY CASE WHEN special_use = '\\Archive' THEN 0 WHEN lower(name) LIKE '%archive%' THEN 1 ELSE 2 END LIMIT 1`, [accountId]);
+  return row.rows[0] || null;
+}
 
 async function resolveMoveDestination(client: DbClient, accountId: string, targetFolder: string) {
   const result = await client.query(
@@ -121,62 +131,10 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
     }
   }
 
-  if (accountIds.length > 0) {
-    const ids = [];
-    const mappedPaths = [];
-    for (const accountId of accountIds) {
-      ids.push(accountId);
-      mappedPaths.push(accountMappings.get(accountId)?.archive || null);
-    }
-
-    const query = `
-      WITH account_mappings AS (
-        SELECT * FROM unnest($1::uuid[], $2::text[]) AS t(account_id, mapped_path)
-      ),
-      mapped_destinations AS (
-        SELECT am.account_id, f.path, f.special_use, 1 AS priority
-        FROM account_mappings am
-        JOIN folders f ON f.account_id = am.account_id AND f.path = am.mapped_path
-        WHERE f.no_select = false AND am.mapped_path IS NOT NULL
-      ),
-      fallback_destinations AS (
-        SELECT am.account_id, f.path, f.special_use,
-          CASE
-            WHEN f.special_use = '\\Archive' THEN 2
-            WHEN f.special_use = '\\All' THEN 3
-            WHEN lower(f.name) LIKE '%archive%' THEN 4
-            ELSE 5
-          END AS priority
-        FROM account_mappings am
-        JOIN folders f ON f.account_id = am.account_id
-        WHERE f.no_select = false
-          AND (f.special_use IN ('\\Archive','\\All') OR lower(f.name) LIKE '%archive%')
-          AND am.account_id NOT IN (SELECT account_id FROM mapped_destinations)
-      ),
-      all_destinations AS (
-        SELECT * FROM mapped_destinations
-        UNION ALL
-        SELECT * FROM fallback_destinations
-      ),
-      ranked_destinations AS (
-        SELECT account_id, path, special_use,
-               ROW_NUMBER() OVER(PARTITION BY account_id ORDER BY priority) as rn
-        FROM all_destinations
-      )
-      SELECT account_id, path, special_use FROM ranked_destinations WHERE rn = 1
-    `;
-
-    const destinationsResult = await client.query(query, [ids, mappedPaths]);
-
-    for (const row of destinationsResult.rows) {
-      accountDestinations.set(row.account_id, { path: row.path, special_use: row.special_use });
-    }
-
-    for (const accountId of accountIds) {
-      if (!accountDestinations.has(accountId)) {
-        throw Object.assign(new Error('No archive folder configured for account'), { statusCode: 409 });
-      }
-    }
+  for (const accountId of accountIds) {
+    const destination = await resolveArchiveDestination(client, accountId, accountMappings.get(accountId));
+    if (!destination) throw Object.assign(new Error('No archive folder configured for account'), { statusCode: 409 });
+    accountDestinations.set(accountId, destination);
   }
 
   const destinations = new Map();
@@ -185,60 +143,20 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
   }
   const providerResult = await movePhysicalRowsWithProvider(client, rows, destinations, imapManager);
   const changed: ActionRow[] = [];
-
-  const unmappedDeletes: { row: any, destination: any }[] = [];
-  const deleteIds: string[] = [];
-
-  const updateIds: string[] = [];
-  const updateUids: (number | string)[] = [];
-  const updateFolders: string[] = [];
-  const movedMap = new Map(providerResult.moved.map(r => [r.id, r]));
-
   for (const row of providerResult.moved) {
     const destination = destinations.get(row.id);
     if (destination.special_use === '\\All') {
-      unmappedDeletes.push({ row, destination });
+      const deleted = await client.query<ActionRow>('DELETE FROM messages WHERE id = $1 RETURNING id, folder', [row.id]);
+      changed.push(...deleted.rows.map(deletedRow => ({ ...row, ...deletedRow, destinationFolder: destination.path, special_use: destination.special_use })));
     } else if (row.newUid == null) {
-      deleteIds.push(row.id);
+      await client.query('DELETE FROM messages WHERE id = $1 RETURNING id, folder', [row.id]);
       changed.push({ ...row, id: row.id, folder: row.folder, destinationFolder: destination.path, special_use: destination.special_use, needsResync: true });
     } else {
-      updateIds.push(row.id);
-      updateUids.push(row.newUid);
-      updateFolders.push(destination.path);
-    }
-  }
-
-  if (unmappedDeletes.length > 0) {
-    const ids = unmappedDeletes.map(x => x.row.id);
-    const deleted = await client.query<ActionRow>('DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING id, folder', [ids]);
-
-    const deletedMap = new Map(deleted.rows.map(r => [r.id, r]));
-    for (const { row, destination } of unmappedDeletes) {
-      const deletedRow = deletedMap.get(row.id);
-      if (deletedRow) {
-        changed.push({ ...row, ...deletedRow, destinationFolder: destination.path, special_use: destination.special_use });
-      }
-    }
-  }
-
-  if (deleteIds.length > 0) {
-    await client.query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [deleteIds]);
-  }
-
-  if (updateIds.length > 0) {
-    const updated = await client.query<ActionRow>(
-      'UPDATE messages AS m SET folder = v.folder, uid = v.uid FROM unnest($1::uuid[], $2::bigint[], $3::text[]) AS v(id, uid, folder) WHERE m.id = v.id RETURNING m.id, m.folder',
-      [updateIds, updateUids, updateFolders],
-    );
-
-    const updatedMap = new Map(updated.rows.map(r => [r.id, r]));
-    for (const id of updateIds) {
-      const row = movedMap.get(id);
-      const destination = destinations.get(id);
-      const updatedRow = updatedMap.get(id);
-      if (row && destination && updatedRow) {
-        changed.push({ ...row, ...updatedRow, destinationFolder: destination.path, special_use: destination.special_use });
-      }
+      const updated = await client.query<ActionRow>(
+        'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id, folder',
+        [destination.path, row.newUid, row.id],
+      );
+      changed.push(...updated.rows.map(updatedRow => ({ ...updatedRow, destinationFolder: destination.path, special_use: destination.special_use })));
     }
   }
   for (const item of providerResult.resync) {

@@ -49,5 +49,7 @@ export const DEFAULT_AI_ACTIONS = [
 export const AI_ACTION_LIMITS = { max: 30, label: 60, prompt: 2000 };
 
 export function newAiAction(label = '', prompt = '') {
-  return { id: crypto.randomUUID(), label, prompt, builtin: false };
+  const id = globalThis.crypto?.randomUUID?.()
+    || `a-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  return { id, label, prompt };
 }
