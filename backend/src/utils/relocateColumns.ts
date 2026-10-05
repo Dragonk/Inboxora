@@ -26,6 +26,10 @@ export const RELOCATE_COPY_COLS = [
   'spam_analyzed_at', 'spam_details', 'spam_user_override', 'category', 'list_unsubscribe',
   'list_unsubscribe_post', 'unsubscribed_at', 'delivery_addresses', 'plugin_annotations',
   'sender_name', 'sender_email',
+  'snippet_attempted_at', 'provider_labels', 'is_archived', 'parsed_headers',
+  'graph_reader_body_complete', 'body_cache_refreshed_at',
+  'body_last_opened_at', 'body_cache_evicted_at', 'provider_visibility_checked_at',
+  'body_prefetch_after',
   // Conversation Engine v2 columns — preserved on relocate so identity (LogicalMessage,
   // conversation, canonical Message-ID, provider IDs, threading evidence) survives
   // archive/move/trash/folder rename/resync. Without these, a relocate silently severs
