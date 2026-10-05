@@ -117,7 +117,7 @@ async function dispatchNative(userId: string, event: MailNotificationEvent, summ
         const err = toAppError(caught);
         // A transport must not throw, but a bug must not take the whole fan-out down.
         verdict = TRANSPORT_RETRY;
-        console.error(`Native push transport ${device.transport} threw:`, err.stack || err.message);
+        console.warn(`Native push transport ${device.transport} threw:`, err.message);
       }
 
       if (verdict === TRANSPORT_INVALID) {

@@ -1,3 +1,0 @@
-🎯 **What:** The testing gap addressed: Missing tests for the `newAiAction` builder, ensuring the built objects have the correct shape and include `builtin: false`.
-📊 **Coverage:** The happy paths (default values and custom inputs) are now explicitly tested for `id`, `label`, `prompt`, and `builtin` properties.
-✨ **Result:** Test coverage for `newAiAction` is now at 100%, catching any potential regressions in its shape.

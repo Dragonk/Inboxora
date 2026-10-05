@@ -9,22 +9,6 @@ on:
     outputs:
       run_tests:
         value: ${{ jobs.plan.outputs.run_tests }}
-      run_backend:
-        value: ${{ jobs.plan.outputs.run_backend }}
-      run_backend_database:
-        value: ${{ jobs.plan.outputs.run_backend_database }}
-      run_frontend:
-        value: ${{ jobs.plan.outputs.run_frontend }}
-      run_browser_e2e:
-        value: ${{ jobs.plan.outputs.run_browser_e2e }}
-      run_postgres_e2e:
-        value: ${{ jobs.plan.outputs.run_postgres_e2e }}
-      run_real_app_e2e:
-        value: ${{ jobs.plan.outputs.run_real_app_e2e }}
-      run_docs_screenshots:
-        value: ${{ jobs.plan.outputs.run_docs_screenshots }}
-      run_push_stack:
-        value: ${{ jobs.plan.outputs.run_push_stack }}
       docs_only:
         value: ${{ jobs.plan.outputs.docs_only }}
       duplicate_push:
@@ -42,14 +26,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       run_tests: ${{ steps.plan.outputs.run_tests }}
-      run_backend: ${{ steps.plan.outputs.run_backend }}
-      run_backend_database: ${{ steps.plan.outputs.run_backend_database }}
-      run_frontend: ${{ steps.plan.outputs.run_frontend }}
-      run_browser_e2e: ${{ steps.plan.outputs.run_browser_e2e }}
-      run_postgres_e2e: ${{ steps.plan.outputs.run_postgres_e2e }}
-      run_real_app_e2e: ${{ steps.plan.outputs.run_real_app_e2e }}
-      run_docs_screenshots: ${{ steps.plan.outputs.run_docs_screenshots }}
-      run_push_stack: ${{ steps.plan.outputs.run_push_stack }}
       docs_only: ${{ steps.plan.outputs.docs_only }}
       duplicate_push: ${{ steps.plan.outputs.duplicate_push }}
       reason: ${{ steps.plan.outputs.reason }}

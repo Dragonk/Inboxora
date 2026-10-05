@@ -128,7 +128,6 @@ describe('dispatchMailNotification', () => {
     expect(summary.dispatched).toBe(false);
     expect(sendPushToUser).not.toHaveBeenCalled();
   });
-
   it('delivers native push to other devices even when one leg throws a bug', async () => {
     listActivePushDevices.mockResolvedValue([
       { id: 'row-1', transport: 'fcm', endpoint: 'token-1' },
@@ -137,11 +136,11 @@ describe('dispatchMailNotification', () => {
     ]);
 
     // sendNativePush will throw synchronously for row-2, simulating a bug
-    sendNativePush.mockImplementation((device) => {
+    sendNativePush.mockImplementation(async (device) => {
       if (device.id === 'row-2') {
         throw new Error('bug in transport');
       }
-      return Promise.resolve('delivered');
+      return 'delivered';
     });
 
     const summary = await dispatchMailNotification(event());
@@ -150,6 +149,7 @@ describe('dispatchMailNotification', () => {
     expect(summary.native.retry).toBe(1); // the bug is converted to a retry
     expect(sendNativePush).toHaveBeenCalledTimes(3);
   });
+
   it('survives unexpected throws from native push side-effects without dropping other devices', async () => {
     listActivePushDevices.mockResolvedValue([
       { id: 'row-1', transport: 'fcm', endpoint: 'token-1' },
