@@ -192,6 +192,7 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
   const updateIds: string[] = [];
   const updateUids: (number | string)[] = [];
   const updateFolders: string[] = [];
+  const movedMap = new Map(providerResult.moved.map(r => [r.id, r]));
 
   for (const row of providerResult.moved) {
     const destination = destinations.get(row.id);
@@ -232,7 +233,7 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
 
     const updatedMap = new Map(updated.rows.map(r => [r.id, r]));
     for (const id of updateIds) {
-      const row = providerResult.moved.find(r => r.id === id);
+      const row = movedMap.get(id);
       const destination = destinations.get(id);
       const updatedRow = updatedMap.get(id);
       if (row && destination && updatedRow) {
