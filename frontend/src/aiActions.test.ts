@@ -7,6 +7,7 @@ describe('summarizePromptForLocale (#255)', () => {
     assert.equal(summarizePromptForLocale('en'), SUMMARIZE_PROMPT);
     assert.equal(summarizePromptForLocale('xx'), SUMMARIZE_PROMPT);
     assert.equal(summarizePromptForLocale(undefined), SUMMARIZE_PROMPT);
+    assert.equal(summarizePromptForLocale(''), SUMMARIZE_PROMPT);
   });
 
   it('appends a language directive for supported non-English locales', () => {
