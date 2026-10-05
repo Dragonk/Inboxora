@@ -151,7 +151,7 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
       }
 
       const result = await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
-      expect(result.updated).toBeGreaterThan(0);
+      expect(result.updated).toBe(3);
 
       const lmCount = await query<CountRow>('SELECT COUNT(*)::int AS c FROM logical_messages WHERE user_id = $1', [TEST_USER_ID]);
       expect(firstRow(lmCount.rows, 'logical message count').c).toBe(5);
@@ -411,11 +411,11 @@ describeOrSkip('CE v2 PostgreSQL regression tests', () => {
         expect(checkpoint.status).not.toBe('complete');
       }
 
-      // Now fix the broken message and retry — should succeed
+      // Now remove the trigger simulating the broken message and retry — should succeed
       await query('DROP TRIGGER IF EXISTS _ce_atomicity_trigger ON messages');
       await query('DROP FUNCTION IF EXISTS _ce_atomicity_fail()');
       const result = await rebuildConversationCopies({ userId: TEST_USER_ID, accountId: TEST_ACCOUNT_ID, limit: 500, dryRun: false, force: true });
-      expect(result.updated).toBeGreaterThan(0);
+      expect(result.updated).toBe(3);
 
       // Verify that the batch was successfully applied
       const finalCeRows = await query('SELECT conversation_id, logical_message_id FROM messages WHERE account_id = $1 AND conversation_id IS NOT NULL', [TEST_ACCOUNT_ID]);
