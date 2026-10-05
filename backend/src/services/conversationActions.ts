@@ -46,7 +46,6 @@ function resolvedRowFor(rows: ConversationRow[], id: string): ConversationRow {
 }
 
 
-
 async function resolveMoveDestination(client: DbClient, accountId: string, targetFolder: string) {
   const result = await client.query(
     'SELECT path, special_use FROM folders WHERE account_id = $1 AND path = $2 AND no_select = false LIMIT 1',
@@ -142,15 +141,15 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
       fallback_destinations AS (
         SELECT am.account_id, f.path, f.special_use,
           CASE
-            WHEN f.special_use = '\\Archive' THEN 2
-            WHEN f.special_use = '\\All' THEN 3
+            WHEN f.special_use = '\\\\Archive' THEN 2
+            WHEN f.special_use = '\\\\All' THEN 3
             WHEN lower(f.name) LIKE '%archive%' THEN 4
             ELSE 5
           END AS priority
         FROM account_mappings am
         JOIN folders f ON f.account_id = am.account_id
         WHERE f.no_select = false
-          AND (f.special_use IN ('\\Archive','\\All') OR lower(f.name) LIKE '%archive%')
+          AND (f.special_use IN ('\\\\Archive','\\\\All') OR lower(f.name) LIKE '%archive%')
           AND am.account_id NOT IN (SELECT account_id FROM mapped_destinations)
       ),
       all_destinations AS (

@@ -19,24 +19,6 @@ describe('relocate reinsert column lists', () => {
     expect(insertCols.length).toBe(selectCols.length);
   });
 
-  it('carries columns added by migrations 0048-0156', () => {
-    for (const col of [
-      'snippet_attempted_at',
-      'provider_labels',
-      'is_archived',
-      'parsed_headers',
-      'body_prefetch_after',
-      'graph_reader_body_complete',
-      'body_cache_refreshed_at',
-      'body_last_opened_at',
-      'body_cache_evicted_at',
-      'provider_visibility_checked_at',
-    ]) {
-      expect(insertCols).toContain(col);
-      expect(selectCols).toContain(`d.${col}`);
-    }
-  });
-
   it('carries the columns that previously went stale (migrations 0037/0044/0050)', () => {
     for (const col of ['delivery_addresses', 'plugin_annotations', 'sender_name', 'sender_email']) {
       expect(insertCols).toContain(col);

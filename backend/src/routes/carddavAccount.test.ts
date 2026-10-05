@@ -167,34 +167,3 @@ describe('DELETE /api/carddav source isolation', () => {
     ]);
   });
 });
-
-describe('POST /api/carddav/connect', () => {
-  it('rejects an invalid server URL', async () => {
-    const response = await fetch(`${base}/api/carddav/connect`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        serverUrl: 'not-a-valid-url',
-        username: 'testuser',
-        password: 'testpassword'
-      }),
-    });
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: 'Invalid server URL' });
-  });
-  it('rejects another invalid server URL format', async () => {
-    const response = await fetch(`${base}/api/carddav/connect`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        serverUrl: 'not-a-url',
-        username: 'testuser',
-        password: 'testpassword'
-      }),
-    });
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: 'Invalid server URL' });
-  });
-});

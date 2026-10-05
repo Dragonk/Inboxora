@@ -452,6 +452,9 @@ export function applyFontSize(_pct?: number): void {
 // matching font set. Any theme not listed here uses the user's chosen font.
 export const THEME_FONT = { winxp: 'winxp', win9x: 'win9x' };
 
+// Untyped lookup view, mirroring the dynamic (possibly unknown) theme lookup below.
+const THEME_FONT_BY_THEME: Record<string, string> = THEME_FONT;
+
 // Retro fonts are theme-bound — they're applied automatically by their theme and must NOT
 // be selectable as standalone choices in the font picker, or they'd become the user's saved
 // font and "stick" after switching back to a normal theme.
@@ -462,7 +465,7 @@ export function isRetroFont(key: string) { return RETRO_FONTS.has(key); }
 // theme has one, otherwise the user's saved choice — but never a retro font under a normal
 // theme (that's the "font won't change back" bug), so fall back to the default in that case.
 export function effectiveFontSet(theme: string, savedFont: string) {
-  if (Object.hasOwn(THEME_FONT, theme)) return THEME_FONT[theme as keyof typeof THEME_FONT];
+  if (THEME_FONT_BY_THEME[theme]) return THEME_FONT_BY_THEME[theme];
   return isRetroFont(savedFont) ? 'default' : (savedFont || 'default');
 }
 

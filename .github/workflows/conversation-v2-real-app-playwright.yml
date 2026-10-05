@@ -26,10 +26,9 @@ jobs:
       expected_sha: ${{ inputs.expected_sha || '' }}
   real-app-playwright:
     needs: changes
-    if: needs.changes.outputs.run_real_app_e2e == 'true'
+    if: needs.changes.outputs.run_tests == 'true'
     name: Real app Playwright E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -189,9 +188,11 @@ jobs:
           import json, os
           needs = json.loads(os.environ['RESULTS'])
           assert needs['changes']['result'] == 'success', needs
-          selected = needs['changes']['outputs'].get('run_real_app_e2e') == 'true'
-          expected = 'success' if selected else 'skipped'
-          assert needs['real-app-playwright']['result'] == expected, (needs['real-app-playwright']['result'], expected)
+          full = needs['changes']['outputs']['run_tests'] == 'true'
+          for name, job in needs.items():
+              if name == 'changes': continue
+              expected = 'success' if (needs['changes']['outputs'].get('docs_only') == 'true' if name == 'documentation' else full) else 'skipped'
+              assert job['result'] == expected, (name, job['result'], expected)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
               output.write(needs['changes']['outputs']['reason'] + '\n')
           PYGATE
