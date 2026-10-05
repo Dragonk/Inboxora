@@ -854,7 +854,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           else el.style.removeProperty(name);
         }
       }
-      expandedEls.clear();
     };
 
     // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
