@@ -577,7 +577,7 @@ router.post('/push/connections/:id/enable', requireAdmin, async (req: Request, r
         userId: target.user_id,
         connectionId,
         calendars,
-        includeMail: kinds.has('mail_folder') || kinds.has('mail_label'),
+        includeMail: kinds.has('mail_folder'),
       });
       return res.json({ ok: true, provider: 'google', created: outcome.created, failed: outcome.failed });
     }

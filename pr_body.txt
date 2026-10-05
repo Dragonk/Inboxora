@@ -1,3 +1,0 @@
-🎯 **What:** Adding missing tests for `isThemeFont` type guard in `frontend/src/fonts.ts`.
-📊 **Coverage:** Covered scenarios include valid keys from `THEME_FONT`, invalid keys, and non-string inputs.
-✨ **Result:** Increased test coverage by ensuring the type guard effectively handles happy paths, edge cases, and error conditions.
