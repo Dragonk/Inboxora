@@ -247,7 +247,7 @@ describe('listMessages — threaded mode', () => {
     expect(cteSql).not.toContain("AND folder = 'INBOX'");
   });
 
-  it('keeps physical action counts while exposing a deduplicated display count', async () => {
+  it('counts every physical copy, including equal and NULL/empty Message-IDs', async () => {
     query
       .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -257,11 +257,8 @@ describe('listMessages — threaded mode', () => {
 
     const cteSql = query.mock.calls[1][0];
     expect(cteSql).toContain('COUNT(*)::int AS message_count');
-    expect(cteSql).toContain('COUNT(DISTINCT COALESCE(');
-    expect(cteSql).toContain('m.logical_message_id::text');
-    expect(cteSql).toContain("NULLIF(lower(btrim(m.message_id)), '')");
-    expect(cteSql).toContain('AS display_message_count');
     expect(cteSql).not.toContain('DISTINCT ON');
+    expect(cteSql).not.toContain('COUNT(DISTINCT');
     expect(cteSql).not.toContain('m.message_id IS NOT NULL');
   });
 

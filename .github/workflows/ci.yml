@@ -28,10 +28,9 @@ jobs:
     uses: ./.github/workflows/ci-plan.yml
   backend:
     needs: changes
-    if: needs.changes.outputs.run_backend == 'true'
+    if: needs.changes.outputs.run_tests == 'true'
     name: Backend
     runs-on: ubuntu-latest
-    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v6
@@ -87,10 +86,9 @@ jobs:
   # database, which no other job does.
   backend-database:
     needs: changes
-    if: needs.changes.outputs.run_backend_database == 'true'
+    if: needs.changes.outputs.run_tests == 'true'
     name: Backend (PostgreSQL integration)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16-alpine
@@ -275,10 +273,9 @@ jobs:
 
   frontend:
     needs: changes
-    if: needs.changes.outputs.run_frontend == 'true'
+    if: needs.changes.outputs.run_tests == 'true'
     name: Frontend
     runs-on: ubuntu-latest
-    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v6
@@ -353,16 +350,11 @@ jobs:
           import json, os
           needs = json.loads(os.environ['RESULTS'])
           assert needs['changes']['result'] == 'success', needs
-          outputs = needs['changes']['outputs']
-          selectors = {
-              'backend': 'run_backend',
-              'backend-database': 'run_backend_database',
-              'frontend': 'run_frontend',
-              'documentation': 'docs_only',
-          }
-          for name, selector in selectors.items():
-              expected = 'success' if outputs.get(selector) == 'true' else 'skipped'
-              assert needs[name]['result'] == expected, (name, needs[name]['result'], expected, selector)
+          full = needs['changes']['outputs']['run_tests'] == 'true'
+          for name, job in needs.items():
+              if name == 'changes': continue
+              expected = 'success' if (needs['changes']['outputs'].get('docs_only') == 'true' if name == 'documentation' else full) else 'skipped'
+              assert job['result'] == expected, (name, job['result'], expected)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
               output.write(needs['changes']['outputs']['reason'] + '\n')
           PYGATE
