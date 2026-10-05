@@ -1,5 +1,3 @@
-🧪 [tests] Add comprehensive unit tests for resolveSearchFolderScope
+fix: iframe renderer parity for MessagePane
 
-🎯 What: The resolveSearchFolderScope function was lacking sufficient tests to guarantee coverage over its various edge cases.
-📊 Coverage: Added tests validating fallback parameters, trimming whitespace, processing of multiple `in:` tags, and correct assignment of `folderFuzzy`.
-✨ Result: The test suite now fully describes and verifies the resolving of folder scopes during email search.
+Applies the same fix used by the iframe renderer (`grewAfterExpansion`) to the div renderer (`USE_DIV_RENDER`) in `MessagePane.tsx`. This avoids repeatedly applying max-height overrides unless the element actually grew, ensuring consistency between renderer implementations.
