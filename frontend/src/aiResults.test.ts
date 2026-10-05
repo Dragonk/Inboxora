@@ -51,6 +51,42 @@ describe('aiResults', () => {
   });
 
   describe('getResults', () => {
+    it('returns the correct results when the store is populated via localStorage mock', () => {
+      const mockState = {
+        order: ['m1', 'm2'],
+        data: {
+          m1: {
+            summarize: { text: 'summary 1', at: 1000, label: 'Summary' }
+          },
+          m2: {
+            translate: { text: 'translation 2', at: 2000, label: 'Translate' }
+          }
+        }
+      };
+      localStorage.setItem('mailflow_ai_results', JSON.stringify(mockState));
+
+      const r1 = getResults('m1');
+      assert.deepEqual(r1, mockState.data.m1);
+
+      const r2 = getResults('m2');
+      assert.deepEqual(r2, mockState.data.m2);
+    });
+
+    it('returns an empty object when the requested messageId is not in the mocked store data', () => {
+      const mockState = {
+        order: ['m1'],
+        data: {
+          m1: {
+            summarize: { text: 'summary 1', at: 1000 }
+          }
+        }
+      };
+      localStorage.setItem('mailflow_ai_results', JSON.stringify(mockState));
+
+      const r = getResults('missing');
+      assert.deepEqual(r, {});
+    });
+
     it('returns an empty object for unknown or missing message ids', () => {
       assert.deepEqual(getResults('nope'), {});
       assert.deepEqual(getResults(null), {});
