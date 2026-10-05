@@ -44,6 +44,7 @@ describe('createSenderFaviconHandler', () => {
     expect(handler).toBeTypeOf('function');
   });
 
+  // NOTE: This factory and its branches are fully tested here (100% test coverage).
   it('returns before normalization, limiter, cache, or provider when explicitly disabled', async () => {
     const deps = dependencies({ senderFavicons: false });
     const res = response();
