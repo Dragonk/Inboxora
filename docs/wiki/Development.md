@@ -186,35 +186,21 @@ separate root-level audit reports.
 ## CI selection and parallel validation
 
 The shared `ci-plan.yml` workflow validates the checkout and classifies changed paths using a
-real Git diff (including both sides of renames, with no API file-list truncation). Pull-request
-validation is selected by subsystem instead of treating every non-documentation change as a full
-application change:
+real Git diff (including both sides of renames, with no API file-list truncation). Markdown
+documentation changes are checked by the lightweight documentation job. Every unknown file,
+configuration, dependency, fixture and source change requires full validation. Manual dispatch
+is the way to force a complete workflow regardless of changed paths.
 
-- backend unit tests select backend typecheck/build/lint/unit validation only;
-- frontend unit tests select the frontend validation only;
-- production frontend/UI and Playwright changes select browser E2E, with documentation screenshot
-  validation for UI-facing paths;
-- production backend changes select backend validation and the PostgreSQL integration layer;
-- conversation/migration paths additionally select the dedicated PostgreSQL upgrade/regression/
-  scale workflow;
-- full-stack production changes select real-app Playwright;
-- ntfy, UnifiedPush, nginx and compose paths select the push-stack workflow;
-- unknown/shared build or CI inputs deliberately fall back to the full validation set.
+A dev push with an open matching PR is covered by that PR's merge-revision tests; the push
+reports why its duplicate jobs were omitted. If the PR query or planner fails, the final gate
+fails. The branches remain protected by the process of review and successful applicable checks;
+no status check is disabled to make a failing build mergeable.
 
-This routing is a safety optimisation, not a relaxation of required checks. Each workflow keeps a
-stable final result check for branch protection. When its heavy suite is not applicable, the job is
-reported as skipped and the final check succeeds only after the planner confirms that decision.
-Manual dispatch forces all checks.
-
-Every heavy PR job has a 15-minute timeout. This is a hard guard against leaked handles, retry
-loops or tests waiting forever on an unavailable service. The browser suite remains split into four
-parallel shards; PostgreSQL upgrade, regression and scale use separate parallel service instances.
-The expected PR critical path is therefore bounded by the slowest applicable group rather than by
-the sum of all project suites.
-
-A dev push with an open matching PR is covered by that PR's merge-revision tests; the push reports
-why its duplicate jobs were omitted. If the PR query or planner fails, the final gate fails. A
-skipped/not-applicable result is never presented as executed test coverage.
+Browser tests run as four shards with the same five projects, one worker per shard and
+unchanged retries/visual thresholds. PostgreSQL upgrade, regression and scale stages each get
+a fresh service instance. Their final named gates require every applicable stage to succeed.
+Documentation-only runs still emit a final result rather than leaving path-filtered required
+checks pending. A skipped/not-applicable result is not reported as executed test coverage.
 
 Create version changes in dev and merge the release PR before using `scripts/release.sh`.
 The helper only tags an already-merged, version-matched main commit and never pushes main.

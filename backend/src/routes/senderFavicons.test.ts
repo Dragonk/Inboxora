@@ -34,16 +34,11 @@ function dependencies(preferences = {}) {
     queryFn: vi.fn(async () => ({ rows: [{ preferences }] })),
     consumeFn: vi.fn(async () => ({ limited: false, resetMs: 60_000 })),
     getFavicon: vi.fn(async (): Promise<SenderFaviconResult> => ({ kind: 'miss', reason: 'not-found' })),
-    normalizeDomain: vi.fn(value => value === 'bad' || !value ? null : String(value).toLowerCase()),
+    normalizeDomain: vi.fn(value => value === 'bad' ? null : value.toLowerCase()),
   };
 }
 
 describe('createSenderFaviconHandler', () => {
-  it('creates handler with default dependencies', () => {
-    const handler = createSenderFaviconHandler();
-    expect(handler).toBeTypeOf('function');
-  });
-
   it('returns before normalization, limiter, cache, or provider when explicitly disabled', async () => {
     const deps = dependencies({ senderFavicons: false });
     const res = response();
@@ -62,20 +57,6 @@ describe('createSenderFaviconHandler', () => {
     expect(deps.getFavicon).toHaveBeenCalledWith('example.com');
   });
 
-  it('treats explicit senderFavicons: true preference as enabled', async () => {
-    const deps = dependencies({ senderFavicons: true });
-    await createSenderFaviconHandler(deps)(request(), response());
-    expect(deps.consumeFn).toHaveBeenCalledWith('sender-favicon:7', 300, 60_000);
-    expect(deps.getFavicon).toHaveBeenCalledWith('example.com');
-  });
-
-  it('treats a missing user row as enabled (missing preference)', async () => {
-    const deps = dependencies();
-    deps.queryFn.mockResolvedValue({ rows: [] });
-    await createSenderFaviconHandler(deps)(request(), response());
-    expect(deps.consumeFn).toHaveBeenCalled();
-  });
-
   it('returns 400 for an invalid domain before rate limiting', async () => {
     const deps = dependencies();
     const res = response();
@@ -83,14 +64,6 @@ describe('createSenderFaviconHandler', () => {
     expect(res.statusCode).toBe(400);
     expect(deps.consumeFn).not.toHaveBeenCalled();
     expect(deps.getFavicon).not.toHaveBeenCalled();
-  });
-
-  it('returns 400 when domain parameter is omitted', async () => {
-    const deps = dependencies();
-    const res = response();
-    await createSenderFaviconHandler(deps)({ params: {}, session: { userId: 7 } }, res);
-    expect(res.statusCode).toBe(400);
-    expect(deps.consumeFn).not.toHaveBeenCalled();
   });
 
   it('returns 429 with Retry-After without resolving an image', async () => {

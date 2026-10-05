@@ -45,7 +45,17 @@ function resolvedRowFor(rows: ConversationRow[], id: string): ConversationRow {
   return rows[rows.findIndex(row => row.id === id)];
 }
 
-
+async function resolveArchiveDestination(client: DbClient, accountId: string, folderMappings: { archive?: string | null } | null | undefined) {
+  const mapped = folderMappings?.archive;
+  if (mapped) {
+    const row = await client.query('SELECT path, special_use FROM folders WHERE account_id = $1 AND path = $2 AND no_select = false LIMIT 1', [accountId, mapped]);
+    if (row.rows[0]) return row.rows[0];
+  }
+  const row = await client.query(`SELECT path, special_use FROM folders WHERE account_id = $1 AND no_select = false
+    AND (special_use IN ('\\Archive','\\All') OR lower(name) LIKE '%archive%')
+    ORDER BY CASE WHEN special_use = '\\Archive' THEN 0 WHEN lower(name) LIKE '%archive%' THEN 1 ELSE 2 END LIMIT 1`, [accountId]);
+  return row.rows[0] || null;
+}
 
 async function resolveMoveDestination(client: DbClient, accountId: string, targetFolder: string) {
   const result = await client.query(
@@ -121,62 +131,10 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
     }
   }
 
-  if (accountIds.length > 0) {
-    const ids = [];
-    const mappedPaths = [];
-    for (const accountId of accountIds) {
-      ids.push(accountId);
-      mappedPaths.push(accountMappings.get(accountId)?.archive || null);
-    }
-
-    const query = `
-      WITH account_mappings AS (
-        SELECT * FROM unnest($1::uuid[], $2::text[]) AS t(account_id, mapped_path)
-      ),
-      mapped_destinations AS (
-        SELECT am.account_id, f.path, f.special_use, 1 AS priority
-        FROM account_mappings am
-        JOIN folders f ON f.account_id = am.account_id AND f.path = am.mapped_path
-        WHERE f.no_select = false AND am.mapped_path IS NOT NULL
-      ),
-      fallback_destinations AS (
-        SELECT am.account_id, f.path, f.special_use,
-          CASE
-            WHEN f.special_use = '\\Archive' THEN 2
-            WHEN f.special_use = '\\All' THEN 3
-            WHEN lower(f.name) LIKE '%archive%' THEN 4
-            ELSE 5
-          END AS priority
-        FROM account_mappings am
-        JOIN folders f ON f.account_id = am.account_id
-        WHERE f.no_select = false
-          AND (f.special_use IN ('\\Archive','\\All') OR lower(f.name) LIKE '%archive%')
-          AND am.account_id NOT IN (SELECT account_id FROM mapped_destinations)
-      ),
-      all_destinations AS (
-        SELECT * FROM mapped_destinations
-        UNION ALL
-        SELECT * FROM fallback_destinations
-      ),
-      ranked_destinations AS (
-        SELECT account_id, path, special_use,
-               ROW_NUMBER() OVER(PARTITION BY account_id ORDER BY priority) as rn
-        FROM all_destinations
-      )
-      SELECT account_id, path, special_use FROM ranked_destinations WHERE rn = 1
-    `;
-
-    const destinationsResult = await client.query(query, [ids, mappedPaths]);
-
-    for (const row of destinationsResult.rows) {
-      accountDestinations.set(row.account_id, { path: row.path, special_use: row.special_use });
-    }
-
-    for (const accountId of accountIds) {
-      if (!accountDestinations.has(accountId)) {
-        throw Object.assign(new Error('No archive folder configured for account'), { statusCode: 409 });
-      }
-    }
+  for (const accountId of accountIds) {
+    const destination = await resolveArchiveDestination(client, accountId, accountMappings.get(accountId));
+    if (!destination) throw Object.assign(new Error('No archive folder configured for account'), { statusCode: 409 });
+    accountDestinations.set(accountId, destination);
   }
 
   const destinations = new Map();
