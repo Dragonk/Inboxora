@@ -31,7 +31,9 @@ function read(): AiResultsStore {
 
 function write(store: AiResultsStore) {
   try { localStorage.setItem(KEY, JSON.stringify(store)); }
-  catch { /* quota exceeded or storage disabled — cache is best-effort */ }
+  catch (e) {
+    console.warn('Failed to save AI results to localStorage', e);
+  }
 }
 
 // Returns { [actionKey]: { text, at, label } } for a message (empty if none).
