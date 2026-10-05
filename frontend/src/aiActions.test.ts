@@ -45,4 +45,18 @@ describe('newAiAction', () => {
     const action2 = newAiAction();
     assert.notEqual(action1.id, action2.id);
   });
+
+  it('generates fallback ids when crypto.randomUUID is unavailable', () => {
+    const originalCrypto = globalThis.crypto;
+    try {
+      Reflect.deleteProperty(globalThis, 'crypto');
+      const action = newAiAction();
+      assert.ok(action.id.startsWith('a-'));
+      assert.match(action.id, /^a-\d+-\d+$/);
+    } finally {
+      if (originalCrypto) {
+        Reflect.set(globalThis, 'crypto', originalCrypto);
+      }
+    }
+  });
 });
