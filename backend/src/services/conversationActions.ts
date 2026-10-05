@@ -185,20 +185,54 @@ async function archiveRows(client: DbClient, rows: ConversationRow[], userId: st
   }
   const providerResult = await movePhysicalRowsWithProvider(client, rows, destinations, imapManager);
   const changed: ActionRow[] = [];
+  const deleteIdsAll: string[] = [];
+  const deleteIdsNull: string[] = [];
+  const updateIds: string[] = [];
+  const updateFolders: string[] = [];
+  const updateUids: (number | string)[] = [];
+
   for (const row of providerResult.moved) {
     const destination = destinations.get(row.id);
     if (destination.special_use === '\\All') {
-      const deleted = await client.query<ActionRow>('DELETE FROM messages WHERE id = $1 RETURNING id, folder', [row.id]);
-      changed.push(...deleted.rows.map(deletedRow => ({ ...row, ...deletedRow, destinationFolder: destination.path, special_use: destination.special_use })));
+      deleteIdsAll.push(row.id);
     } else if (row.newUid == null) {
-      await client.query('DELETE FROM messages WHERE id = $1 RETURNING id, folder', [row.id]);
-      changed.push({ ...row, id: row.id, folder: row.folder, destinationFolder: destination.path, special_use: destination.special_use, needsResync: true });
+      deleteIdsNull.push(row.id);
     } else {
-      const updated = await client.query<ActionRow>(
-        'UPDATE messages SET folder = $1, uid = $2 WHERE id = $3 RETURNING id, folder',
-        [destination.path, row.newUid, row.id],
-      );
-      changed.push(...updated.rows.map(updatedRow => ({ ...updatedRow, destinationFolder: destination.path, special_use: destination.special_use })));
+      updateIds.push(row.id);
+      updateFolders.push(destination.path);
+      updateUids.push(row.newUid);
+    }
+  }
+
+  const movedMap = new Map(providerResult.moved.map(r => [r.id, r]));
+
+  if (deleteIdsAll.length > 0) {
+    const deleted = await client.query<ActionRow>('DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING id, folder', [deleteIdsAll]);
+    for (const deletedRow of deleted.rows) {
+      const row = movedMap.get(deletedRow.id);
+      const destination = destinations.get(deletedRow.id);
+      changed.push({ ...row, ...deletedRow, destinationFolder: destination.path, special_use: destination.special_use });
+    }
+  }
+
+  if (deleteIdsNull.length > 0) {
+    const deleted = await client.query<ActionRow>('DELETE FROM messages WHERE id = ANY($1::uuid[]) RETURNING id, folder', [deleteIdsNull]);
+    for (const deletedRow of deleted.rows) {
+      const row = movedMap.get(deletedRow.id);
+      const destination = destinations.get(deletedRow.id);
+      changed.push({ ...row, ...deletedRow, destinationFolder: destination.path, special_use: destination.special_use, needsResync: true });
+    }
+  }
+
+  if (updateIds.length > 0) {
+    const updated = await client.query<ActionRow>(
+      'UPDATE messages AS m SET folder = v.folder, uid = v.uid FROM unnest($1::uuid[], $2::text[], $3::bigint[]) AS v(id, folder, uid) WHERE m.id = v.id RETURNING m.id, m.folder',
+      [updateIds, updateFolders, updateUids],
+    );
+    for (const updatedRow of updated.rows) {
+      const row = movedMap.get(updatedRow.id);
+      const destination = destinations.get(updatedRow.id);
+      changed.push({ ...row, ...updatedRow, destinationFolder: destination.path, special_use: destination.special_use });
     }
   }
   for (const item of providerResult.resync) {
