@@ -21,22 +21,23 @@ describe('summarizePromptForLocale (#255)', () => {
   });
 });
 
-
 describe('newAiAction', () => {
-  it('creates an action with default empty values and an id', () => {
+  it('creates an action with default empty values, builtin false, and an id', () => {
     const action = newAiAction();
     assert.equal(typeof action.id, 'string');
     assert.ok(action.id.length > 0);
     assert.equal(action.label, '');
     assert.equal(action.prompt, '');
+    assert.equal(action.builtin, false);
   });
 
-  it('creates an action with provided label and prompt', () => {
+  it('creates an action with provided label and prompt, and builtin false', () => {
     const action = newAiAction('Custom Label', 'Custom Prompt');
     assert.equal(typeof action.id, 'string');
     assert.ok(action.id.length > 0);
     assert.equal(action.label, 'Custom Label');
     assert.equal(action.prompt, 'Custom Prompt');
+    assert.equal(action.builtin, false);
   });
 
   it('generates unique ids for each action', () => {
