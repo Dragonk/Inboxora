@@ -50,14 +50,38 @@ describe('aiResults', () => {
     assert.deepEqual(getResults('m1'), {});
   });
 
-  it('returns an empty object for unknown or missing message ids', () => {
-    assert.deepEqual(getResults('nope'), {});
-    assert.deepEqual(getResults(null), {});
-    assert.deepEqual(getResults(undefined), {});
-  });
+  describe('getResults', () => {
+    it('returns an empty object for unknown or missing message ids', () => {
+      assert.deepEqual(getResults('nope'), {});
+      assert.deepEqual(getResults(null), {});
+      assert.deepEqual(getResults(undefined), {});
+    });
 
-  it('returns empty object when messageId is omitted', () => {
-    assert.deepEqual(getResults(), {});
+    it('returns empty object when messageId is omitted', () => {
+      assert.deepEqual(getResults(), {});
+    });
+
+    it('returns empty object when localStorage has invalid JSON', () => {
+      localStorage.setItem('mailflow_ai_results', '{ bad json');
+      assert.deepEqual(getResults('m1'), {});
+    });
+
+    it('returns empty object when localStorage has valid JSON but missing data field', () => {
+      localStorage.setItem('mailflow_ai_results', '{"order": ["m1"]}');
+      assert.deepEqual(getResults('m1'), {});
+    });
+
+    it('returns empty object when localStorage has valid JSON that is not an object', () => {
+      localStorage.setItem('mailflow_ai_results', '["m1"]');
+      assert.deepEqual(getResults('m1'), {});
+    });
+
+    it('returns object from data field when order is not an array', () => {
+      localStorage.setItem('mailflow_ai_results', '{"order": "invalid", "data": {"m1": {"summarize": {"text": "A", "at": 123}}}}');
+      const r = getResults('m1');
+      assert.equal(r.summarize.text, 'A');
+      assert.equal(r.summarize.at, 123);
+    });
   });
 
   it('evicts the oldest messages beyond the LRU cap', () => {
@@ -76,19 +100,26 @@ describe('aiResults', () => {
     assert.equal(getResults('keep').summarize.text, 'refreshed', 'refreshed message should survive');
   });
 
-  it('returns empty object when localStorage has invalid JSON', () => {
-    localStorage.setItem('mailflow_ai_results', '{ bad json');
-    assert.deepEqual(getResults('m1'), {});
+  it('does nothing when saveResult is called with null or undefined messageId or actionKey', () => {
+    saveResult(null, 'summarize', 'A');
+    assert.equal(localStorage.getItem('mailflow_ai_results'), null);
+    saveResult('m1', null, 'A');
+    assert.equal(localStorage.getItem('mailflow_ai_results'), null);
+    saveResult(undefined, undefined, 'A');
+    assert.equal(localStorage.getItem('mailflow_ai_results'), null);
   });
 
-  it('returns empty object when localStorage has valid JSON but missing data field', () => {
-    localStorage.setItem('mailflow_ai_results', '{"order": ["m1"]}');
-    assert.deepEqual(getResults('m1'), {});
-  });
-
-  it('returns empty object when localStorage has valid JSON that is not an object', () => {
-    localStorage.setItem('mailflow_ai_results', '["m1"]');
-    assert.deepEqual(getResults('m1'), {});
+  it('does nothing when removeResult is called with invalid or non-existent arguments', () => {
+    removeResult(null, 'summarize');
+    assert.equal(localStorage.getItem('mailflow_ai_results'), null);
+    removeResult('m1', null);
+    assert.equal(localStorage.getItem('mailflow_ai_results'), null);
+    removeResult('nope', 'summarize');
+    assert.equal(localStorage.getItem('mailflow_ai_results'), null);
+    saveResult('m1', 'summarize', 'A');
+    const storeAfterSave = localStorage.getItem('mailflow_ai_results');
+    removeResult('m1', 'non_existent');
+    assert.equal(localStorage.getItem('mailflow_ai_results'), storeAfterSave);
   });
 
   it('fails gracefully when localStorage throws an error on write', () => {
