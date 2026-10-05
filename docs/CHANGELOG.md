@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.1](wiki/Release-notes-4.3.1.md). Older release notes are collected in
+[Release notes 4.3.0](wiki/Release-notes-4.3.0.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -20,22 +20,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-There are no unreleased changes after **4.3.1**.
-
-## [4.3.1] - 2026-10-04
-
-### Changed
-- Pull-request CI now plans validation by changed area, so documentation-only and narrowly scoped changes skip unrelated browser, PostgreSQL and runtime suites while required final gates remain explicit.
-
-### Fixed
-- Expanded thread lists render one row per logical message instead of showing the same mail twice when a provider exposes multiple physical folder copies. Physical copies remain distinct for synchronization and mail actions.
-- Treat Gmail `mail_label` discovery as mail capability when enabling native push connections, matching Graph `mail_folder` handling.
-- Isolate native push fan-out per device so an unexpected dispatcher failure cannot stop delivery attempts for the remaining registered devices.
-- Ignore XML attributes while deriving CardDAV privilege names, preserving correct read/write capability detection for servers that annotate privilege elements.
-- Restore sender-created scroll-container styles when the div message renderer resizes content, avoiding sticky quote/layout state in the reading pane.
-- Stop retro theme fonts from leaking into normal themes when the theme name collides with inherited object properties.
-
-See [Release notes 4.3.1](wiki/Release-notes-4.3.1.md) for user-facing details and upgrade guidance.
+There are no unreleased changes after **4.3.0**.
 
 ## [4.3.0] - 2026-10-03
 

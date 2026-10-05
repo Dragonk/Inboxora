@@ -842,20 +842,7 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!USE_DIV_RENDER || !prepared) return;
 
     let rafId: number | undefined = undefined;
-    const expandedEls = new Map<HTMLElement, { overflowY: string; overflowYPriority: string; height: string; heightPriority: string; maxHeight: string; maxHeightPriority: string }>();
-    const restoreScrollContainers = () => {
-      for (const [el, previous] of expandedEls) {
-        for (const [name, value, priority] of [
-          ['overflow-y', previous.overflowY, previous.overflowYPriority],
-          ['height', previous.height, previous.heightPriority],
-          ['max-height', previous.maxHeight, previous.maxHeightPriority],
-        ]) {
-          if (value) el.style.setProperty(name, value, priority);
-          else el.style.removeProperty(name);
-        }
-      }
-      expandedEls.clear();
-    };
+    const expandedEls = new Set<HTMLElement>();
 
     // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
     // fixed height) so iOS scrolls the message pane instead of an inner block —
@@ -866,18 +853,9 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       Array.from(root.querySelectorAll<HTMLElement>('*')).reverse().forEach(el => {
         const oy = window.getComputedStyle(el).overflowY;
         const isScroll = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
-        const grewAfterExpansion = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
-        if (isScroll || grewAfterExpansion) {
-          if (!expandedEls.has(el)) {
-            expandedEls.set(el, {
-              overflowY: el.style.getPropertyValue('overflow-y'),
-              overflowYPriority: el.style.getPropertyPriority('overflow-y'),
-              height: el.style.getPropertyValue('height'),
-              heightPriority: el.style.getPropertyPriority('height'),
-              maxHeight: el.style.getPropertyValue('max-height'),
-              maxHeightPriority: el.style.getPropertyPriority('max-height'),
-            });
-          }
+        const grew = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
+        if (isScroll || grew) {
+          expandedEls.add(el);
           el.style.setProperty('overflow-y', 'hidden', 'important');
           el.style.setProperty('max-height', 'none', 'important');
           el.style.setProperty('height', el.scrollHeight + 'px', 'important');
@@ -903,7 +881,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
 
       // Expand nested scroll containers before measuring so the outer height and
       // scale account for their full (un-scrolled) content.
-      restoreScrollContainers();
       expandScrollContainers(inner);
 
       const containerW = outer.clientWidth;
@@ -959,7 +936,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       if (rafId) cancelAnimationFrame(rafId);
       if (ro) ro.disconnect();
       imageListeners.forEach(({ img, handler }) => img.removeEventListener('load', handler));
-      restoreScrollContainers();
     };
   }, [prepared]);
 
