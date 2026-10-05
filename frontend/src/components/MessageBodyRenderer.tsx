@@ -112,7 +112,8 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
           if (!style) continue;
           const isScroll = (style.overflowY === 'auto' || style.overflowY === 'scroll')
             && el.scrollHeight > el.clientHeight + 2;
-          if (!isScroll) continue;
+          const grewAfterExpansion = expanded.has(el) && el.scrollHeight > el.clientHeight + 2;
+          if (!isScroll && !grewAfterExpansion) continue;
           if (!expanded.has(el)) {
             expanded.set(el, {
               overflowY: el.style.getPropertyValue('overflow-y'),
