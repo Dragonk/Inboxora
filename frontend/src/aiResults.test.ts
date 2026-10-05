@@ -134,4 +134,29 @@ describe('aiResults', () => {
     }
   });
 
+  it('logs a warning when localStorage throws an error on write', () => {
+    const originalSetItem = localStorage.setItem;
+    const originalWarn = console.warn;
+    let warnCalledWith: any[] | null = null;
+    let warnCount = 0;
+
+    console.warn = (...args) => {
+      warnCount++;
+      warnCalledWith = args;
+    };
+
+    const fakeError = new Error('Quota exceeded');
+    localStorage.setItem = () => { throw fakeError; };
+
+    try {
+      saveResult('fail_msg', 'summarize', 'will fail to save');
+      assert.equal(warnCount, 1);
+      assert.equal(warnCalledWith![0], 'Failed to save AI results to localStorage');
+      assert.equal(warnCalledWith![1], fakeError);
+    } finally {
+      localStorage.setItem = originalSetItem;
+      console.warn = originalWarn;
+    }
+  });
+
 });
