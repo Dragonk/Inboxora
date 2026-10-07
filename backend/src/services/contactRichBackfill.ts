@@ -61,10 +61,10 @@ export async function backfillRichContactFields(client: DbClient) {
         UNNEST($2::text[]) AS title,
         UNNEST($3::text[]) AS role,
         UNNEST($4::text[]) AS nickname,
-        UNNEST($5::text[]) AS urls,
-        UNNEST($6::text[]) AS instant_messages,
-        UNNEST($7::text[]) AS categories,
-        UNNEST($8::text[]) AS addresses
+        UNNEST($5::jsonb[]) AS urls,
+        UNNEST($6::jsonb[]) AS instant_messages,
+        UNNEST($7::jsonb[]) AS categories,
+        UNNEST($8::jsonb[]) AS addresses
     ) AS u
     WHERE contacts.id = u.id
   `, [
