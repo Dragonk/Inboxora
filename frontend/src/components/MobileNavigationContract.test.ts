@@ -38,3 +38,46 @@ test('mobile contact navigation invalidates stale detail requests', async () => 
   assert.match(contacts, /contactSelectionRequestRef\.current \+= 1/);
   assert.match(contacts, /requestId !== contactSelectionRequestRef\.current/);
 });
+
+test('mobile top bar and content containers respect status bar and safe-area insets', async () => {
+  const [mailApp, indexCss, capConfig, mainActivity, stylesXml] = await Promise.all([
+    readFile(mailAppPath, 'utf8'),
+    readFile(new URL('../index.css', import.meta.url), 'utf8'),
+    readFile(new URL('../../packages/capacitor.config.json', import.meta.url), 'utf8'),
+    readFile(new URL('../../packages/android/app/src/main/java/io/github/dragonk/inboxora/MainActivity.java', import.meta.url), 'utf8'),
+    readFile(new URL('../../packages/android/app/src/main/res/values/styles.xml', import.meta.url), 'utf8'),
+  ]);
+
+  // MobileTopBar handles both top and bottom safe-area insets
+  assert.match(
+    mailApp,
+    /padding:\s*position === 'bottom'\s*\?\s*'4px 8px calc\(4px \+ var\(--sab\)\)'\s*:\s*'calc\(4px \+ var\(--sat\)\) 8px 4px'/
+  );
+  // Bottom navigation offsets top content container below status bar
+  assert.match(
+    mailApp,
+    /mobileNavigationPosition === 'bottom' && \{\s*paddingTop:\s*'var\(--sat\)'\s*\}/
+  );
+
+  // CSS variables support Capacitor injected custom property with env fallback
+  assert.match(indexCss, /--sat:\s*var\(--safe-area-inset-top,\s*env\(safe-area-inset-top,\s*0px\)\);/);
+  assert.match(indexCss, /--sab:\s*var\(--safe-area-inset-bottom,\s*env\(safe-area-inset-bottom,\s*0px\)\);/);
+  assert.match(indexCss, /--sal:\s*var\(--safe-area-inset-left,\s*env\(safe-area-inset-left,\s*0px\)\);/);
+  assert.match(indexCss, /--sar:\s*var\(--safe-area-inset-right,\s*env\(safe-area-inset-right,\s*0px\)\);/);
+
+  // Android Capacitor config configures native handling of system bars
+  const config = JSON.parse(capConfig);
+  assert.equal(config.plugins?.SystemBars?.insetsHandling, 'native');
+
+  // Native MainActivity installs window insets listener in onCreate and consumes handled top insets
+  assert.match(
+    mainActivity,
+    /onCreate\([\s\S]*?\)\s*\{[\s\S]*?applyWindowInsetsPadding\(\)/
+  );
+  assert.match(mainActivity, /Type\.statusBars\(\) \| WindowInsetsCompat\.Type\.displayCutout\(\)/);
+  assert.match(mainActivity, /v\.setPadding\(bars\.left, bars\.top, bars\.right, 0\)/);
+  assert.match(mainActivity, /setInsets\(handledTypes,\s*Insets\.NONE\)/);
+
+  // Android theme enables fitsSystemWindows
+  assert.match(stylesXml, /<item name="android:fitsSystemWindows">true<\/item>/);
+});
