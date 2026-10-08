@@ -32,6 +32,6 @@ describe('conversation storage/concurrency regression', () => {
 
     expect(rowIngest).toMatch(/UPDATE conversation_ingest_failures SET resolved_at = NOW\(\)/);
     expect(retry).toMatch(/UPDATE conversation_ingest_failures SET resolved_at = NOW\(\)/);
-    expect(failures).toMatch(/SELECT id, attempts FROM conversation_ingest_failures.*resolved_at IS NULL/s);
+    expect(failures).toMatch(/ON CONFLICT \(user_id, account_id, message_row_id, operation\) WHERE resolved_at IS NULL AND message_row_id IS NOT NULL/);
   });
 });

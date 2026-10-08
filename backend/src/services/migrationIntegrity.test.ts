@@ -460,13 +460,15 @@ describe('migration integrity', () => {
     expect(sql).not.toMatch(/UPDATE\s+oauth_authorization_flows/i);
   });
 
-  it('deduplicates unresolved ingest failures and adds partial index in 0169 after 0168', () => {
+  it('deduplicates unresolved ingest failures and adds partial unique index in 0169 after 0168', () => {
     const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
     expect(files[files.indexOf('0168_alias_default_recipients.sql') + 1]).toBe('0169_deduplicate_conversation_ingest_failures.sql');
     const sql = readFileSync(join(process.cwd(), 'migrations/0169_deduplicate_conversation_ingest_failures.sql'), 'utf8');
-    expect(sql).toContain('UPDATE conversation_ingest_failures');
+    expect(sql).toMatch(/^--\s*no-transaction/m);
     expect(sql).toContain('m.logical_message_id IS NOT NULL');
-    expect(sql).toContain('CREATE INDEX IF NOT EXISTS idx_conversation_ingest_failures_unresolved_lookup');
-    expect(sql).toContain('WHERE resolved_at IS NULL');
+    expect(sql).toContain('ROW_NUMBER() OVER');
+    expect(sql).toContain('ranked.rank > 1');
+    expect(sql).toContain('CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_conversation_ingest_failures_unresolved_lookup');
+    expect(sql).toContain('WHERE resolved_at IS NULL AND message_row_id IS NOT NULL');
   });
 });

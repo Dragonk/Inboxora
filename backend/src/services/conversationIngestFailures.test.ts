@@ -11,32 +11,52 @@ import {
 } from './conversationIngestFailures.js';
 
 describe('conversation ingest failures', () => {
-  it('records new failures with bounded diagnostic data when no active failure exists', async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [] });
+  it('records message failures atomically with ON CONFLICT and exponential backoff', async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     withTransaction.mockImplementationOnce(async (fn: (client: { query: typeof query }) => Promise<unknown>) => fn({ query }));
     await recordConversationIngestFailure({
       userId: 'u1', accountId: 'a1', messageRowId: 'm1', operation: 'imap-ingest',
       error: Object.assign(new Error('failed'), { code: 'E_TEST' }), diagnostics: { rawMessageId: '<m@x>' },
     });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining('SELECT id, attempts FROM conversation_ingest_failures'), ['u1', 'a1', 'm1', 'imap-ingest']);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO conversation_ingest_failures'), expect.arrayContaining(['u1', 'a1', 'm1', 'imap-ingest', 'E_TEST', 'failed']));
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('ON CONFLICT (user_id, account_id, message_row_id, operation) WHERE resolved_at IS NULL AND message_row_id IS NOT NULL'),
+      ['u1', 'a1', 'm1', 'imap-ingest', 'E_TEST', 'failed', JSON.stringify({ rawMessageId: '<m@x>' })],
+    );
+    expect(query.mock.calls[0][0]).toContain('attempts = conversation_ingest_failures.attempts + 1');
+    expect(query.mock.calls[0][0]).toContain('next_attempt_at = NOW() +');
   });
 
-  it('deduplicates active failures and applies exponential backoff instead of inserting duplicates', async () => {
+  it('looks up account_id from messages when omitted before recording message failure', async () => {
     const query = vi.fn()
-      .mockResolvedValueOnce({ rows: [{ id: 'existing-f1', attempts: 3 }] })
+      .mockResolvedValueOnce({ rows: [{ account_id: 'a-looked-up' }] })
       .mockResolvedValueOnce({ rowCount: 1 });
     withTransaction.mockImplementationOnce(async (fn: (client: { query: typeof query }) => Promise<unknown>) => fn({ query }));
     await recordConversationIngestFailure({
-      userId: 'u1', accountId: 'a1', messageRowId: 'm1', operation: 'imap-ingest',
+      userId: 'u1', messageRowId: 'm1', operation: 'imap-ingest',
       error: Object.assign(new Error('network error'), { code: 'E_NET' }), diagnostics: { retry: true },
     });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining('SELECT id, attempts FROM conversation_ingest_failures'), ['u1', 'a1', 'm1', 'imap-ingest']);
-    expect(query).not.toHaveBeenCalledWith(expect.stringContaining('INSERT INTO conversation_ingest_failures'), expect.anything());
     expect(query).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE conversation_ingest_failures'),
-      ['E_NET', 'network error', JSON.stringify({ retry: true }), 40, 'existing-f1'],
+      expect.stringContaining('SELECT account_id FROM messages WHERE id = $1'),
+      ['m1'],
     );
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('ON CONFLICT (user_id, account_id, message_row_id, operation)'),
+      ['u1', 'a-looked-up', 'm1', 'imap-ingest', 'E_NET', 'network error', JSON.stringify({ retry: true })],
+    );
+  });
+
+  it('inserts non-message failure without conflict target', async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    withTransaction.mockImplementationOnce(async (fn: (client: { query: typeof query }) => Promise<unknown>) => fn({ query }));
+    await recordConversationIngestFailure({
+      userId: 'u1', accountId: 'a1', operation: 'sync',
+      error: new Error('general error'),
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO conversation_ingest_failures (user_id, account_id, message_row_id, operation, error_code, error_message, diagnostics)'),
+      ['u1', 'a1', null, 'sync', null, 'general error', '{}'],
+    );
+    expect(query.mock.calls[0][0]).not.toContain('ON CONFLICT');
   });
 
   it('claims due failures and advances their retry time with exponential backoff while locked', async () => {

@@ -1,5 +1,5 @@
 import { query, withTransaction } from './db.js';
-import { claimConversationIngestFailures, resolveConversationIngestFailure } from './conversationIngestFailures.js';
+import { claimConversationIngestFailures } from './conversationIngestFailures.js';
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { _upsertConversationCopyWithClient, conversationSerializeKey } from './conversationPersistence.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
@@ -51,7 +51,6 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
         );
         return persistResult;
       }, { serializable: true, serializeKey });
-      await resolveConversationIngestFailure(failure.id);
       results.push({ id: failure.id, resolved: true, ...result });
     } catch (caught) {
       const error = toAppError(caught);

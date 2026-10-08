@@ -40,8 +40,9 @@ clarifying storage maintenance reporting metrics (#16).
     `conversations`.
   - Resolves duplicate open failure entries for the same message and operation, keeping the latest
     attempt.
-  - Adds a partial index `idx_conversation_ingest_failures_unresolved_lookup` on `(user_id, message_row_id, operation)`
-    where `resolved_at IS NULL` for fast deduplication lookups.
+  - Adds a non-blocking partial unique index `idx_conversation_ingest_failures_unresolved_lookup`
+    on `(user_id, account_id, message_row_id, operation)` where `resolved_at IS NULL AND message_row_id IS NOT NULL`
+    for atomic deduplication and concurrency safety.
 
 ## Upgrade requirements
 
