@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.2](wiki/Release-notes-4.3.2.md). Older release notes are collected in
+[Release notes 4.3.3](wiki/Release-notes-4.3.3.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -20,7 +20,19 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-There are no unreleased changes after **4.3.2**.
+There are no unreleased changes after **4.3.3**.
+
+## [4.3.3] - 2026-10-08
+
+### Changed
+- Fall back CSS safe-area variables `--sat`, `--sab`, `--sal`, and `--sar` to Capacitor-injected custom properties (`--safe-area-inset-*`) with native `env()` fallback for consistent safe-area handling across native and mobile web environments.
+- Configure Capacitor `SystemBars.insetsHandling` to `disable` to prevent default zeroing of view padding on Android 15+ edge-to-edge screens.
+
+### Fixed
+- Restore status bar and display cutout spacing on Android 15+ by applying window insets padding to the application content view in `MainActivity`, preventing top bar controls from being obscured behind system clock and battery icons.
+- Ensure `MobileTopBar` top padding and mobile content container respect safe-area top inset when navigation is at the top or bottom of the screen.
+
+See [Release notes 4.3.3](wiki/Release-notes-4.3.3.md) for user-facing details and upgrade guidance.
 
 ## [4.3.2] - 2026-10-08
 

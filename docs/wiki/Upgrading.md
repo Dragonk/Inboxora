@@ -45,7 +45,7 @@ cp .env .env.backup
 
 A readable archive is a basic check, not a substitute for testing a restore. Keep the
 backup and matching `.env` securely outside the database volume. Then set
-`INBOXORA_VERSION=4.3.2` in the existing `.env` when using the supplied GHCR Compose file.
+`INBOXORA_VERSION=4.3.3` in the existing `.env` when using the supplied GHCR Compose file.
 A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
 Do not overwrite secrets, rename the database or recreate its volume.
 
@@ -58,6 +58,17 @@ docker compose logs --tail=100 backend
 
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
+
+## Upgrading to 4.3.3
+
+From 4.3.2, use the standard upgrade steps and deploy matching backend and frontend **4.3.3**
+images or install the updated Android app. There is **no new database migration, environment variable or provider permission** in
+this release.
+
+This hotfix restores system status bar and display cutout spacing on Android 15+ edge-to-edge screens and mobile WebViews, and falls back CSS safe-area variables to Capacitor-injected custom properties.
+
+Android 4.3.3 uses `versionCode 4030300`. Desktop and Android packages are attached to the GitHub
+release after their signed build workflow completes. See [Release notes 4.3.3](Release-notes-4.3.3.md).
 
 ## Upgrading to 4.3.2
 

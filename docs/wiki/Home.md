@@ -3,13 +3,12 @@
 **Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
 IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest release: **[Inboxora 4.3.2](Release-notes-4.3.2.md)**.
-[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.2) ·
-[Upgrading](Upgrading.md#upgrading-to-432) · [Archive](Archive.md)
+Latest release: **[Inboxora 4.3.3](Release-notes-4.3.3.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.3) ·
+[Upgrading](Upgrading.md#upgrading-to-433) · [Archive](Archive.md)
 
-4.3.2 is a maintenance release addressing conversation ingest retry queue bloat and
-clarifying storage maintenance reporting metrics (#16). Normal startup applies additive
-migration 0169.
+4.3.3 is a hotfix release restoring system status bar and display cutout spacing on Android 15+
+edge-to-edge screens and mobile WebViews, and falling back CSS safe-area variables to Capacitor-injected custom properties.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
@@ -35,9 +34,9 @@ migration 0169.
 
 ## Release documentation
 
-[Release notes 4.3.2](Release-notes-4.3.2.md) contains the current maintenance changes,
-limitations and migration order. **[Archive](Archive.md)** contains every older release-note
-page, including 4.3.1, 4.3.0 and 4.2.0. The Archive sidebar group is collapsed; existing page URLs and release
+[Release notes 4.3.3](Release-notes-4.3.3.md) contains the current maintenance changes,
+limitations and upgrade instructions. **[Archive](Archive.md)** contains every older release-note
+page, including 4.3.2, 4.3.1 and 4.3.0. The Archive sidebar group is collapsed; existing page URLs and release
 bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for
 work after the latest release.
 

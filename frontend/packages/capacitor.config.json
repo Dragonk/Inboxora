@@ -4,5 +4,10 @@
   "webDir": "../dist",
   "android": {
     "path": "android"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "disable"
+    }
   }
 }

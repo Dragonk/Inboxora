@@ -7,29 +7,28 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.3.2-informational" alt="Version 4.3.2">
+  <img src="https://img.shields.io/badge/version-4.3.3-informational" alt="Version 4.3.3">
 </p>
 
 Inboxora brings email, contacts and calendars into one self-hosted workspace. Use existing
 accounts over **IMAP/SMTP**, or connect **Gmail, Google Calendar and People APIs** and
 **Microsoft Graph**. CalDAV and CardDAV keep your other applications and devices connected.
 
-**Current release: 4.3.2.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.2)
+**Current release: 4.3.3.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.3)
 or deploy the versioned Docker images. Full documentation lives in the
 [Wiki](https://github.com/Dragonk/Inboxora/wiki).
 
-## What's new in 4.3.2
+## What's new in 4.3.3
 
-- **Conversation ingest failure deduplication and retry backoff (#16).** Active ingest failure records
-  are now deduplicated per message and operation with exponential backoff rather than inserting
-  repeated rows. Successful ingest and retry automatically resolve prior failures for the affected
-  message.
-- **Migration 0169.** Resolves historical active failures for already ingested messages, deduplicates
-  open failure entries, and adds a partial index for fast active failure lookups.
-- **Improved storage maintenance reporting.** Database size changes now report explicit deltas from baseline
-  and post-sweep milestones, alongside relation size breakdowns for heap, indexes, TOAST and retry queue.
+- **Android status bar and display cutout insets.** Restores system status bar and display cutout
+  spacing on Android 15+ edge-to-edge devices, ensuring navigation controls, menu buttons, and top
+  content containers do not render behind the system status bar.
+- **Safe-area custom properties fallback.** CSS safe area variables now fall back to Capacitor-injected
+  custom properties and native viewport insets across Android and mobile web environments.
+- **Capacitor SystemBars insets handling.** Configures native window insets padding on the content view
+  while preventing Capacitor from zeroing view padding.
 
-See the [4.3.2 release notes](docs/wiki/Release-notes-4.3.2.md) for the full maintenance changes
+See the [4.3.3 release notes](docs/wiki/Release-notes-4.3.3.md) for the full maintenance changes
 and upgrade notes.
 
 ## Highlights
@@ -100,10 +99,10 @@ Use Docker Compose with the prebuilt release images:
 
 ```bash
 mkdir inboxora && cd inboxora
-curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.2/docker-compose.ghcr.yml
-curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.2/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.3/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.3/.env.example
 # Edit .env: set APP_URL, SESSION_SECRET, DB_PASSWORD and ENCRYPTION_KEY.
-# Add INBOXORA_VERSION=4.3.2 to pin both app images.
+# Add INBOXORA_VERSION=4.3.3 to pin both app images.
 docker compose up -d
 docker compose ps
 ```
@@ -114,8 +113,8 @@ Redis and the bundled ntfy service use persistent storage. Keep `.env` private a
 not expose internal service ports publicly. The Wiki covers proxy, DAV and notification setup.
 
 ```text
-ghcr.io/dragonk/inboxora-backend:4.3.2
-ghcr.io/dragonk/inboxora-frontend:4.3.2
+ghcr.io/dragonk/inboxora-backend:4.3.3
+ghcr.io/dragonk/inboxora-frontend:4.3.3
 ```
 
 Both images support AMD64 and ARM64. `latest` follows the current stable release; `dev` is a
