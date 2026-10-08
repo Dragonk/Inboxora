@@ -7,32 +7,29 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.3.1-informational" alt="Version 4.3.1">
+  <img src="https://img.shields.io/badge/version-4.3.2-informational" alt="Version 4.3.2">
 </p>
 
 Inboxora brings email, contacts and calendars into one self-hosted workspace. Use existing
 accounts over **IMAP/SMTP**, or connect **Gmail, Google Calendar and People APIs** and
 **Microsoft Graph**. CalDAV and CardDAV keep your other applications and devices connected.
 
-**Current release: 4.3.1.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.1)
+**Current release: 4.3.2.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.2)
 or deploy the versioned Docker images. Full documentation lives in the
 [Wiki](https://github.com/Dragonk/Inboxora/wiki).
 
-## What's new in 4.3.1
+## What's new in 4.3.2
 
-- **No duplicate rows inside expanded mail threads.** Inboxora now collapses provider/folder copies
-  of the same logical message for presentation while keeping every physical copy available for
-  read, star, move, archive and synchronization operations.
-- **More reliable native-provider background work.** Gmail label-backed mail is recognized when
-  enabling push connections, and one broken native push target can no longer interrupt delivery
-  to the rest of a user's devices.
-- **DAV and reader fixes.** CardDAV privilege parsing ignores XML attributes, message rendering
-  restores nested scroll-container styles correctly, and theme-bound retro fonts no longer stick
-  after switching back to a normal theme.
-- **Faster pull-request validation.** CI now selects browser, database and runtime checks from the
-  files changed by a PR instead of starting every expensive suite for every small change.
+- **Conversation ingest failure deduplication and retry backoff (#16).** Active ingest failure records
+  are now deduplicated per message and operation with exponential backoff rather than inserting
+  repeated rows. Successful ingest and retry automatically resolve prior failures for the affected
+  message.
+- **Migration 0169.** Resolves historical active failures for already ingested messages, deduplicates
+  open failure entries, and adds a partial index for fast active failure lookups.
+- **Improved storage maintenance reporting.** Database size changes now report explicit deltas from baseline
+  and post-sweep milestones, alongside relation size breakdowns for heap, indexes, TOAST and retry queue.
 
-See the [4.3.1 release notes](docs/wiki/Release-notes-4.3.1.md) for the full maintenance changes
+See the [4.3.2 release notes](docs/wiki/Release-notes-4.3.2.md) for the full maintenance changes
 and upgrade notes.
 
 ## Highlights
@@ -103,10 +100,10 @@ Use Docker Compose with the prebuilt release images:
 
 ```bash
 mkdir inboxora && cd inboxora
-curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.1/docker-compose.ghcr.yml
-curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.1/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.2/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.2/.env.example
 # Edit .env: set APP_URL, SESSION_SECRET, DB_PASSWORD and ENCRYPTION_KEY.
-# Add INBOXORA_VERSION=4.3.1 to pin both app images.
+# Add INBOXORA_VERSION=4.3.2 to pin both app images.
 docker compose up -d
 docker compose ps
 ```
@@ -117,8 +114,8 @@ Redis and the bundled ntfy service use persistent storage. Keep `.env` private a
 not expose internal service ports publicly. The Wiki covers proxy, DAV and notification setup.
 
 ```text
-ghcr.io/dragonk/inboxora-backend:4.3.1
-ghcr.io/dragonk/inboxora-frontend:4.3.1
+ghcr.io/dragonk/inboxora-backend:4.3.2
+ghcr.io/dragonk/inboxora-frontend:4.3.2
 ```
 
 Both images support AMD64 and ARM64. `latest` follows the current stable release; `dev` is a
@@ -126,7 +123,7 @@ separate, mutable test build. Native apps connect to your server rather than rep
 
 **Upgrading?** Back up PostgreSQL and the matching `.env`, retain your current database/volume
 names, and update backend and frontend together. Startup applies the migration chain through
-**0168**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-431); do not delete an
+**0169**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-432); do not delete an
 account, reset cursors or recreate volumes to clear a migration error.
 
 ## Platforms
