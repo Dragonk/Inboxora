@@ -195,8 +195,10 @@ export async function pruneOperationalHistory(client: PoolClient): Promise<numbe
       ) RETURNING 1
     ), deleted_ingest AS (
       DELETE FROM conversation_ingest_failures WHERE id IN (
-        SELECT id FROM conversation_ingest_failures WHERE resolved_at IS NOT NULL AND resolved_at < NOW() - $3 * INTERVAL '1 day'
-        ORDER BY created_at LIMIT $5 FOR UPDATE SKIP LOCKED
+        SELECT id FROM conversation_ingest_failures
+         WHERE (resolved_at IS NOT NULL AND resolved_at < NOW() - $3 * INTERVAL '1 day')
+            OR (resolved_at IS NULL AND attempts >= 50 AND created_at < NOW() - $3 * INTERVAL '1 day')
+         ORDER BY created_at LIMIT $5 FOR UPDATE SKIP LOCKED
       ) RETURNING 1
     ), updated_outbox AS (
       UPDATE domain_outbox SET payload = '{}'::jsonb, last_error = NULL
@@ -222,9 +224,24 @@ export async function pruneOperationalHistory(client: PoolClient): Promise<numbe
 }
 
 export async function readStorageMaintenanceStatus() {
-  const current = await query<{ database_bytes: string; messages_bytes: string; calendar_journal_bytes: string; contact_journal_bytes: string }>(`
+  const current = await query<{
+    database_bytes: string;
+    messages_bytes: string;
+    messages_heap_bytes: string;
+    messages_index_bytes: string;
+    messages_toast_bytes: string;
+    ingest_failures_bytes: string;
+    ingest_failures_unresolved_count: string;
+    calendar_journal_bytes: string;
+    contact_journal_bytes: string;
+  }>(`
     SELECT pg_database_size(current_database())::text AS database_bytes,
       pg_total_relation_size('messages')::text AS messages_bytes,
+      pg_relation_size('messages')::text AS messages_heap_bytes,
+      pg_indexes_size('messages')::text AS messages_index_bytes,
+      (pg_total_relation_size('messages') - pg_relation_size('messages') - pg_indexes_size('messages'))::text AS messages_toast_bytes,
+      pg_total_relation_size('conversation_ingest_failures')::text AS ingest_failures_bytes,
+      (SELECT count(*)::text FROM conversation_ingest_failures WHERE resolved_at IS NULL) AS ingest_failures_unresolved_count,
       pg_total_relation_size('calendar_sync_changes')::text AS calendar_journal_bytes,
       pg_total_relation_size('contact_sync_changes')::text AS contact_journal_bytes`);
   const tasks = await query<{ task: string; progress: Progress; completed_at: string | null; updated_at: string; next_run_at: string }>(

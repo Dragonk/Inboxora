@@ -1,1 +1,0 @@
-🧪 Add error handling test for malformed JSON for favorite folders

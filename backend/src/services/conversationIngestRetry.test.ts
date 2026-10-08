@@ -71,7 +71,9 @@ describe('conversation ingest retry', () => {
     claim.mockResolvedValueOnce([{ id: 'f1', user_id: 'u1', message_row_id: 'm1' }]);
     query.mockResolvedValueOnce({ rows: [{ account_id: 'a1' }] });
     const client: TransactionClient = {
-      query: vi.fn<TransactionClient['query']>().mockResolvedValueOnce({ rows: [{ id: 'm1', user_id: 'u1', account_id: 'a1' }] }),
+      query: vi.fn<TransactionClient['query']>()
+        .mockResolvedValueOnce({ rows: [{ id: 'm1', user_id: 'u1', account_id: 'a1' }] })
+        .mockResolvedValueOnce({ rows: [] }),
     };
     withTransaction.mockImplementationOnce(callback => callback(client));
     _upsertWithClient.mockResolvedValueOnce({ conversationId: 'c1' });
@@ -93,7 +95,10 @@ describe('conversation ingest retry', () => {
         userId: 'u1',
       }),
     );
-    expect(resolve).toHaveBeenCalledWith('f1');
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE conversation_ingest_failures SET resolved_at = NOW()'),
+      ['u1', 'm1'],
+    );
     expect(result).toEqual([{ id: 'f1', resolved: true, conversationId: 'c1' }]);
   });
 

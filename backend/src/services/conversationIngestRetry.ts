@@ -1,5 +1,5 @@
 import { query, withTransaction } from './db.js';
-import { claimConversationIngestFailures, resolveConversationIngestFailure } from './conversationIngestFailures.js';
+import { claimConversationIngestFailures } from './conversationIngestFailures.js';
 import { resolveOwnIdentityAddresses } from './conversationIngestEnvelope.js';
 import { _upsertConversationCopyWithClient, conversationSerializeKey } from './conversationPersistence.js';
 import { providerIdentityForCopy } from './conversationProviderEnvelope.js';
@@ -40,13 +40,17 @@ export async function retryConversationIngestFailures({ userId = null, limit = 2
         if (row.rows.length !== 1) throw new Error('Message row no longer exists');
         const account = row.rows[0];
         const identities = await resolveOwnIdentityAddresses(client, account.account_id, account);
-        return _upsertConversationCopyWithClient(client, row.rows[0], {
+        const persistResult = await _upsertConversationCopyWithClient(client, row.rows[0], {
           identities,
           provider: providerIdentityForCopy(row.rows[0], row.rows[0]),
           userId: failure.user_id,
         });
+        await client.query(
+          'UPDATE conversation_ingest_failures SET resolved_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND message_row_id = $2 AND resolved_at IS NULL',
+          [failure.user_id, failure.message_row_id],
+        );
+        return persistResult;
       }, { serializable: true, serializeKey });
-      await resolveConversationIngestFailure(failure.id);
       results.push({ id: failure.id, resolved: true, ...result });
     } catch (caught) {
       const error = toAppError(caught);

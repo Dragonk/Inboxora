@@ -1,3 +1,0 @@
-🎯 **What:** The error handling gap for `favoriteFolders` malformed JSON was successfully resolved and verified.
-📊 **Coverage:** The test explicitly verifies that `JSON.parse` fallback triggers when malformed JSON (`{ malformed: `) is in `localStorage.getItem('mailflow_favorite_folders')`.
-✨ **Result:** Test coverage improved, and `catch` block on `index.ts:1640` verified correctly handling edge cases returning `[]`.

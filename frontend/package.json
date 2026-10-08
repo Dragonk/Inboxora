@@ -1,7 +1,7 @@
 {
   "name": "inboxora-frontend",
   "productName": "Inboxora",
-  "version": "4.3.1",
+  "version": "4.3.2",
   "description": "A self-hosted inbox for email, contacts and calendars.",
   "homepage": "https://github.com/Dragonk/Inboxora",
   "author": {
@@ -186,8 +186,8 @@
     }
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.4",
-    "@capacitor/core": "^8.3.4",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@tiptap/core": "^3.31.3",
@@ -225,7 +225,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.3.4",
+    "@capacitor/cli": "^8.5.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
     "@types/dompurify": "^3.0.5",

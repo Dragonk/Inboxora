@@ -1,5 +1,0 @@
-fix: iframe renderer parity for MessagePane
-
-Applies the same fix used by the iframe renderer (`grewAfterExpansion`) to the div renderer (`USE_DIV_RENDER`) in `MessagePane.tsx`. This avoids repeatedly applying max-height overrides unless the element actually grew, ensuring consistency between renderer implementations.
-
-The CI failure `github-advanced-security` check run failed due to a quota limit error in Copilot during PR review check, which is completely unrelated to this code change ("Error: You have exceeded your monthly quota"). The frontend tests locally fail on unrelated test cases but the specific UI components test pass, and this fix specifically addresses the bug documented.

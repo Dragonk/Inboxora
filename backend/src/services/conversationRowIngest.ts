@@ -74,6 +74,10 @@ export async function persistConversationCopyForRow(rowId: string, account: Conv
         provider: envelope.provider,
         userId: account.user_id,
       });
+      await client.query(
+        'UPDATE conversation_ingest_failures SET resolved_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND message_row_id = $2 AND resolved_at IS NULL',
+        [account.user_id, rowId],
+      );
       return result.rows[0];
     }, { serializable: true, serializeKey: conversationSerializeKey(account.user_id, account.id) });
     if (!persisted) return;

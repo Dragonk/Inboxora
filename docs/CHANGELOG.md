@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.1](wiki/Release-notes-4.3.1.md). Older release notes are collected in
+[Release notes 4.3.2](wiki/Release-notes-4.3.2.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -20,7 +20,22 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-There are no unreleased changes after **4.3.1**.
+There are no unreleased changes after **4.3.2**.
+
+## [4.3.2] - 2026-10-08
+
+### Added
+- Add additive migration `0169_deduplicate_conversation_ingest_failures.sql` to resolve historical active ingest failure records for messages already successfully ingested into conversations, deduplicate any redundant active unresolved entries, and create a partial index on unresolved ingest failure lookups.
+
+### Changed
+- Clarify storage maintenance delta reporting by exposing positive `database_delta_bytes` from baseline and `database_delta_since_sweep_bytes` from sweep completion alongside backward-compatible `database_change_bytes`, and add heap, index, TOAST and retry queue size breakdown in `--summary`.
+
+### Fixed
+- Deduplicate active conversation ingest failure records per user, message row, and operation with exponential backoff rather than inserting repeated unresolved failure rows upon every failed attempt (#16).
+- Automatically resolve all active ingest failure records for a message upon successful conversation copy persistence and retry processing (#16).
+- Prune exhausted conversation ingest failure records exceeding retry limits during operational maintenance sweeps (#16).
+
+See [Release notes 4.3.2](wiki/Release-notes-4.3.2.md) for user-facing details and upgrade guidance.
 
 ## [4.3.1] - 2026-10-04
 
