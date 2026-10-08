@@ -907,7 +907,14 @@ export default function MailApp() {
               only while the reader was open, stacking a second header under this bar — so
               the reader (like the list) must count as active. */}
           <MobileTopBar position={mobileNavigationPosition} moduleActive actionsRef={setMobileHeaderHost} onMenu={() => setMobileSidebarOpen(true)} onCompose={() => openCompose({ accountId: selectedAccountId || undefined })} t={t} />
-          <div ref={mobileContentRef} style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%', position: 'relative' }}>
+          <div ref={mobileContentRef} style={{
+            display: 'flex',
+            flex: 1,
+            minHeight: 0,
+            width: '100%',
+            position: 'relative',
+            ...(mobileNavigationPosition === 'bottom' && { paddingTop: 'var(--sat)' }),
+          }}>
           {/* Backdrop — covers full screen including status bar area */}
           {mobileSidebarOpen && (
             <div
@@ -1105,7 +1112,8 @@ function MobileTopBar({ position, moduleActive, actionsRef, onMenu, onCompose, t
     <div data-testid="mobile-topbar" data-position={position} style={{
       order: position === 'bottom' ? 2 : 0,
       ...(position === 'bottom' && { borderTop: '1px solid var(--border-subtle)' }),
-      display: 'flex', alignItems: 'center', gap: 4, padding: position === 'bottom' ? '4px 8px calc(4px + var(--sab))' : '4px 8px',
+      display: 'flex', alignItems: 'center', gap: 4,
+      padding: position === 'bottom' ? '4px 8px calc(4px + var(--sab))' : 'calc(4px + var(--sat)) 8px 4px',
       borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)',
       flexShrink: 0,
     }}>

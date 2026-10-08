@@ -328,7 +328,7 @@ conversation-audit, resolved-error and completed-outbox retention remain operati
 container stdout/stderr logs are separate; the standard Compose files rotate **3 × 10 MiB**
 per service, while custom deployments must configure their own Docker logging policy.
 
-For current migration and upgrade guidance, see [Release notes 4.3.2](Release-notes-4.3.2.md).
+For current migration and upgrade guidance, see [Release notes 4.3.3](Release-notes-4.3.3.md).
 
 ### Mail server connection policy
 
