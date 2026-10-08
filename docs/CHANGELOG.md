@@ -26,7 +26,7 @@ There are no unreleased changes after **4.3.3**.
 
 ### Changed
 - Fall back CSS safe-area variables `--sat`, `--sab`, `--sal`, and `--sar` to Capacitor-injected custom properties (`--safe-area-inset-*`) with native `env()` fallback for consistent safe-area handling across native and mobile web environments.
-- Configure Capacitor `SystemBars.insetsHandling` to `disable` to prevent default zeroing of view padding on Android 15+ edge-to-edge screens.
+- Configure Capacitor `SystemBars.insetsHandling` to `native` to handle system bars and gesture navigation natively without zeroing out view padding.
 
 ### Fixed
 - Restore status bar and display cutout spacing on Android 15+ by applying window insets padding to the application content view in `MainActivity`, preventing top bar controls from being obscured behind system clock and battery icons.

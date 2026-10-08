@@ -7,7 +7,7 @@
   },
   "plugins": {
     "SystemBars": {
-      "insetsHandling": "disable"
+      "insetsHandling": "native"
     }
   }
 }

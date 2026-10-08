@@ -122,7 +122,7 @@ separate, mutable test build. Native apps connect to your server rather than rep
 
 **Upgrading?** Back up PostgreSQL and the matching `.env`, retain your current database/volume
 names, and update backend and frontend together. Startup applies the migration chain through
-**0169**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-432); do not delete an
+**0169**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-433); do not delete an
 account, reset cursors or recreate volumes to clear a migration error.
 
 ## Platforms

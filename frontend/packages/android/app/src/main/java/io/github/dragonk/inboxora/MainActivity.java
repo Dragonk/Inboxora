@@ -211,11 +211,12 @@ public class MainActivity extends BridgeActivity {
         View contentView = findViewById(android.R.id.content);
         if (contentView != null) {
             ViewCompat.setOnApplyWindowInsetsListener(contentView, (v, insets) -> {
-                Insets bars = insets.getInsets(
-                    WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.displayCutout()
-                );
+                int handledTypes = WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.displayCutout();
+                Insets bars = insets.getInsets(handledTypes);
                 v.setPadding(bars.left, bars.top, bars.right, 0);
-                return insets;
+                return new WindowInsetsCompat.Builder(insets)
+                    .setInsets(handledTypes, Insets.NONE)
+                    .build();
             });
             ViewCompat.requestApplyInsets(contentView);
         }

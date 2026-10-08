@@ -65,14 +65,18 @@ test('mobile top bar and content containers respect status bar and safe-area ins
   assert.match(indexCss, /--sal:\s*var\(--safe-area-inset-left,\s*env\(safe-area-inset-left,\s*0px\)\);/);
   assert.match(indexCss, /--sar:\s*var\(--safe-area-inset-right,\s*env\(safe-area-inset-right,\s*0px\)\);/);
 
-  // Android Capacitor config disables default zeroing of view padding
+  // Android Capacitor config configures native handling of system bars
   const config = JSON.parse(capConfig);
-  assert.equal(config.plugins?.SystemBars?.insetsHandling, 'disable');
+  assert.equal(config.plugins?.SystemBars?.insetsHandling, 'native');
 
-  // Native MainActivity applies window insets to android.R.id.content
-  assert.match(mainActivity, /applyWindowInsetsPadding\(\)/);
+  // Native MainActivity installs window insets listener in onCreate and consumes handled top insets
+  assert.match(
+    mainActivity,
+    /onCreate\([\s\S]*?\)\s*\{[\s\S]*?applyWindowInsetsPadding\(\)/
+  );
   assert.match(mainActivity, /Type\.statusBars\(\) \| WindowInsetsCompat\.Type\.displayCutout\(\)/);
   assert.match(mainActivity, /v\.setPadding\(bars\.left, bars\.top, bars\.right, 0\)/);
+  assert.match(mainActivity, /setInsets\(handledTypes,\s*Insets\.NONE\)/);
 
   // Android theme enables fitsSystemWindows
   assert.match(stylesXml, /<item name="android:fitsSystemWindows">true<\/item>/);
