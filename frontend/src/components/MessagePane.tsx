@@ -854,7 +854,6 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
           else el.style.removeProperty(name);
         }
       }
-      expandedEls.clear();
     };
 
     // Neutralize nested sender-created scroll containers (overflow:auto/scroll +
@@ -866,7 +865,8 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
       Array.from(root.querySelectorAll<HTMLElement>('*')).reverse().forEach(el => {
         const oy = window.getComputedStyle(el).overflowY;
         const isScroll = (oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2;
-        if (isScroll || expandedEls.has(el)) {
+        const grewAfterExpansion = expandedEls.has(el) && el.scrollHeight > el.clientHeight + 2;
+        if (isScroll || grewAfterExpansion) {
           if (!expandedEls.has(el)) {
             expandedEls.set(el, {
               overflowY: el.style.getPropertyValue('overflow-y'),

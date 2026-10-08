@@ -132,6 +132,20 @@ describe('validateProviderConfig', () => {
       }
     });
 
+    it('ignores empty strings for string fields', () => {
+      const result = validateProviderConfig('microsoft', {
+        clientId: '',
+        redirectUri: '',
+        tenantId: '',
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.config.clientId).toBeUndefined();
+        expect(result.config.redirectUri).toBeUndefined();
+        expect(result.config.tenantId).toBeUndefined();
+      }
+    });
+
     it('rejects too long strings for non-secret fields', () => {
       const longString = 'a'.repeat(4097);
       const result = validateProviderConfig('microsoft', { clientId: longString });
@@ -151,3 +165,4 @@ describe('validateProviderConfig', () => {
     });
   });
 });
+// Just a tiny change to force a commit... EOF

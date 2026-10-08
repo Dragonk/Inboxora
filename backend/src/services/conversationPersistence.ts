@@ -479,21 +479,22 @@ export async function _upsertConversationCopyWithClient(
       }
     }
     const waiting = await client.query(`UPDATE unresolved_message_references SET resolved_logical_message_id = $1, resolved_at = NOW() WHERE user_id = $2 AND account_id = $4 AND referenced_message_id = $3 AND resolved_at IS NULL RETURNING id, child_logical_message_id`, [logical.id, hydrated.userId, hydrated.canonicalMessageId, hydrated.accountId]);
-    for (const reference of waiting.rows) {
-      const component = await client.query(`WITH RECURSIVE component(id, path) AS (
-        SELECT id, ARRAY[id] FROM logical_messages WHERE id = $1 AND user_id = $2 AND account_id = $3
+    if (waiting.rows.length > 0) {
+      const childIds = waiting.rows.map(r => r.child_logical_message_id);
+
+      const component = await client.query(`WITH RECURSIVE component(root_id, id, path) AS (
+        SELECT id as root_id, id, ARRAY[id] FROM logical_messages WHERE id = ANY($1::uuid[]) AND user_id = $2 AND account_id = $3
         UNION ALL
-        SELECT lm.id, component.path || lm.id FROM logical_messages lm JOIN component ON lm.parent_logical_message_id = component.id
+        SELECT component.root_id, lm.id, component.path || lm.id FROM logical_messages lm JOIN component ON lm.parent_logical_message_id = component.id
          WHERE lm.user_id = $2 AND lm.account_id = $3 AND NOT lm.id = ANY(component.path)
-      ) SELECT lm.id, lm.conversation_id, c.manually_locked FROM logical_messages lm JOIN component ON component.id = lm.id LEFT JOIN conversations c ON c.id = lm.conversation_id`, [reference.child_logical_message_id, hydrated.userId, hydrated.accountId]);
-      let blockedMove = false;
-      const oldConversationIds = new Set<string>();
+      ) SELECT component.root_id, lm.id, lm.conversation_id, c.manually_locked FROM logical_messages lm JOIN component ON component.id = lm.id LEFT JOIN conversations c ON c.id = lm.conversation_id`, [childIds, hydrated.userId, hydrated.accountId]);
+
+      const allOldConversationIds = new Set<string>();
       for (const node of component.rows) {
-        if (node.conversation_id) oldConversationIds.add(node.conversation_id);
+        if (node.conversation_id) allOldConversationIds.add(node.conversation_id);
       }
-      // P1-06: Batch-load overrides for all component nodes in two queries
-      // (conversation-level + message-level) instead of N per-node queries.
-      const convIds = [...oldConversationIds];
+
+      const convIds = [...allOldConversationIds];
       const logicalIds = component.rows.map(n => n.id);
       const convOverrides = convIds.length
         ? (await client.query(`SELECT override_type, target_id, reason, logical_message_id, conversation_id FROM conversation_overrides WHERE user_id = $1 AND account_id = $3 AND conversation_id = ANY($2::uuid[]) AND logical_message_id IS NULL ORDER BY created_at DESC, id DESC`, [hydrated.userId, convIds, hydrated.accountId])).rows
@@ -501,6 +502,7 @@ export async function _upsertConversationCopyWithClient(
       const msgOverrides = logicalIds.length
         ? (await client.query(`SELECT override_type, target_id, reason, logical_message_id FROM conversation_overrides WHERE user_id = $1 AND account_id = $3 AND logical_message_id = ANY($2::uuid[]) ORDER BY created_at DESC, id DESC`, [hydrated.userId, logicalIds, hydrated.accountId])).rows
         : [];
+
       // Build per-node override maps
       const convLatestByConv = new Map();
       for (const row of convOverrides) {
@@ -514,32 +516,59 @@ export async function _upsertConversationCopyWithClient(
         const m = msgLatestByLogical.get(row.logical_message_id);
         if (!m.has(row.override_type)) m.set(row.override_type, row);
       }
-      for (const node of component.rows) {
-        const convMap = convLatestByConv.get(node.conversation_id) || new Map();
-        const msgMap = msgLatestByLogical.get(node.id) || new Map();
-        const hasForceExclude = convMap.has('force-exclude') || msgMap.has('force-exclude');
-        const hasForceInclude = convMap.has('force-include') || msgMap.has('force-include');
-        const hasSplit = convMap.has('manual-split') || msgMap.has('manual-split');
-        const hasLock = convMap.has('lock-conversation') || convMap.has('unlock-conversation');
-        if (node.manually_locked || hasForceExclude || hasForceInclude || hasSplit || hasLock) blockedMove = true;
+
+      const nodesByRoot = new Map<string, any[]>();
+      for (const row of component.rows) {
+        if (!nodesByRoot.has(row.root_id)) nodesByRoot.set(row.root_id, []);
+        nodesByRoot.get(row.root_id)!.push(row);
       }
-      if (!blockedMove && component.rows.length && [...oldConversationIds].some(id => id !== conversationId)) {
-        await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN id = $2 THEN $3 ELSE parent_logical_message_id END, updated_at = NOW() WHERE id = ANY($4::uuid[]) AND user_id = $5 AND account_id = $6`, [conversationId, reference.child_logical_message_id, logical.id, component.rows.map(node => node.id), hydrated.userId, hydrated.accountId]);
-        await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = ANY($3::uuid[]) AND conversation_user_id = $2 AND account_id = $4', [conversationId, hydrated.userId, component.rows.map(node => node.id), hydrated.accountId]);
-        const touched = new Set([...oldConversationIds, conversationId]);
+
+      const validRootsToMove = [];
+      const nodesToMove = [];
+      const validOldConvIds = new Set<string>();
+
+      for (const rootId of childIds) {
+        const nodes = nodesByRoot.get(rootId) || [];
+        let blockedMove = false;
+        const oldConversationIdsForRoot = new Set<string>();
+
+        for (const node of nodes) {
+          if (node.conversation_id) oldConversationIdsForRoot.add(node.conversation_id);
+          const convMap = convLatestByConv.get(node.conversation_id) || new Map();
+          const msgMap = msgLatestByLogical.get(node.id) || new Map();
+          const hasForceExclude = convMap.has('force-exclude') || msgMap.has('force-exclude');
+          const hasForceInclude = convMap.has('force-include') || msgMap.has('force-include');
+          const hasSplit = convMap.has('manual-split') || msgMap.has('manual-split');
+          const hasLock = convMap.has('lock-conversation') || convMap.has('lock-conversation');
+          if (node.manually_locked || hasForceExclude || hasForceInclude || hasSplit || hasLock) blockedMove = true;
+        }
+
+        if (!blockedMove && nodes.length && [...oldConversationIdsForRoot].some(id => id !== conversationId)) {
+          validRootsToMove.push(rootId);
+          for (const node of nodes) nodesToMove.push(node.id);
+          for (const cId of oldConversationIdsForRoot) validOldConvIds.add(cId);
+        }
+      }
+
+      if (validRootsToMove.length > 0) {
+        await client.query(`UPDATE logical_messages SET conversation_id = $1, parent_logical_message_id = CASE WHEN id = ANY($2::uuid[]) THEN $3::uuid ELSE parent_logical_message_id END, updated_at = NOW() WHERE id = ANY($4::uuid[]) AND user_id = $5 AND account_id = $6`, [conversationId, validRootsToMove, logical.id, nodesToMove, hydrated.userId, hydrated.accountId]);
+        await client.query('UPDATE messages SET conversation_id = $1, conversation_user_id = $2 WHERE logical_message_id = ANY($3::uuid[]) AND conversation_user_id = $2 AND account_id = $4', [conversationId, hydrated.userId, nodesToMove, hydrated.accountId]);
+
+        const touched = new Set([...validOldConvIds, conversationId]);
         for (const touchedId of touched) await refreshConversationAggregates(client, hydrated.userId, touchedId);
-        // Delayed-parent reconciliation can empty a provisional conversation that
-        // was created while the parent was absent. Remove only truly orphaned,
-        // unaliased and override-free containers; never delete a user-visible
-        // conversation carrying manual state.
-        await client.query(`
-          DELETE FROM conversations c
-           WHERE c.user_id = $1
-             AND c.id = ANY($2::uuid[])
-             AND NOT EXISTS (SELECT 1 FROM logical_messages lm WHERE lm.conversation_id = c.id)
-             AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.alias_conversation_id = c.id OR ca.canonical_conversation_id = c.id)
-             AND NOT EXISTS (SELECT 1 FROM conversation_overrides co WHERE co.conversation_id = c.id)
-        `, [hydrated.userId, [...oldConversationIds]]);
+
+        const oldConvsArr = [...validOldConvIds];
+        if (oldConvsArr.length > 0) {
+          await client.query(`
+            DELETE FROM conversations c
+             WHERE c.user_id = $1
+               AND c.id = ANY($2::uuid[])
+               AND NOT EXISTS (SELECT 1 FROM logical_messages lm WHERE lm.conversation_id = c.id)
+               AND NOT EXISTS (SELECT 1 FROM conversation_aliases ca WHERE ca.alias_conversation_id = c.id OR ca.canonical_conversation_id = c.id)
+               AND NOT EXISTS (SELECT 1 FROM conversation_overrides co WHERE co.conversation_id = c.id)
+          `, [hydrated.userId, oldConvsArr]);
+        }
+
         const crossEdge = await client.query(`SELECT 1 FROM logical_messages child JOIN logical_messages parent ON parent.id = child.parent_logical_message_id WHERE child.user_id = $1 AND child.account_id = $2 AND child.conversation_id IS DISTINCT FROM parent.conversation_id LIMIT 1`, [hydrated.userId, hydrated.accountId]);
         if (crossEdge.rows.length) throw new Error('delayed parent reconcile left a cross-conversation parent edge');
       }

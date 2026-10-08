@@ -30,14 +30,22 @@ export async function openArchive(blob: Blob, maxEntries = 500): Promise<{ reade
 /** Count actual output before retaining each chunk; declared lengths are not a resource boundary. */
 export async function extractEntry(entry: FileEntry, remaining = PREVIEW_LIMIT): Promise<Blob> {
   if (entry.encrypted) throw new Error('ENCRYPTED_ZIP');
-  const chunks: Uint8Array<ArrayBuffer>[] = []; let bytes = 0;
-  await entry.getData(new WritableStream<Uint8Array>({
-    write(chunk) {
-      bytes += chunk.byteLength;
-      if (bytes > Math.min(PREVIEW_LIMIT, remaining)) throw new Error('LIMIT');
-      chunks.push(new Uint8Array(chunk));
-    },
-  }), { checkCrc32: true, strictness: 'strict', useWebWorkers: false, useCompressionStream: true });
+  const chunks: Uint8Array<ArrayBuffer>[] = []; let bytes = 0; let limited = false;
+  try {
+    await entry.getData(new WritableStream<Uint8Array>({
+      write(chunk) {
+        bytes += chunk.byteLength;
+        if (bytes > Math.min(PREVIEW_LIMIT, remaining)) { limited = true; throw new Error('LIMIT'); }
+        chunks.push(new Uint8Array(chunk));
+      },
+    }), { checkCrc32: true, strictness: 'strict', useWebWorkers: false, useCompressionStream: true });
+  } catch (error) {
+    // zip.js closes the writable after a failed write; on newer runtimes (Node >= 24,
+    // modern browsers) that close itself throws ERR_INVALID_STATE and would otherwise
+    // swallow the limit error. Re-surface the original limit violation.
+    if (limited) throw new Error('LIMIT', { cause: error });
+    throw error;
+  }
   if (bytes !== entry.uncompressedSize) throw new Error('CORRUPT');
   return new Blob(chunks);
 }
