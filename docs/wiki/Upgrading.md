@@ -45,7 +45,7 @@ cp .env .env.backup
 
 A readable archive is a basic check, not a substitute for testing a restore. Keep the
 backup and matching `.env` securely outside the database volume. Then set
-`INBOXORA_VERSION=4.3.1` in the existing `.env` when using the supplied GHCR Compose file.
+`INBOXORA_VERSION=4.3.2` in the existing `.env` when using the supplied GHCR Compose file.
 A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
 Do not overwrite secrets, rename the database or recreate its volume.
 
@@ -58,6 +58,22 @@ docker compose logs --tail=100 backend
 
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
+
+## Upgrading to 4.3.2
+
+From 4.3.1, use the standard upgrade steps and deploy matching backend and frontend **4.3.2**
+images. Normal startup automatically applies **0169**:
+
+- `0169_deduplicate_conversation_ingest_failures.sql` resolves historical ingest failure records for
+  messages already ingested, resolves redundant duplicate active failure entries, and adds a partial
+  index `idx_conversation_ingest_failures_unresolved_lookup` for active failure lookups.
+
+This patch stops retry queue bloat in `conversation_ingest_failures` by deduplicating active failure records
+with exponential backoff, auto-resolving failures upon successful ingest and retry, and pruning dead retries
+during operational maintenance (#16). It also clarifies storage maintenance delta metrics.
+
+Android 4.3.2 uses `versionCode 4030200`. Desktop and Android packages are attached to the GitHub
+release after their signed build workflow completes. See [Release notes 4.3.2](Release-notes-4.3.2.md).
 
 ## Upgrading to 4.3.1
 

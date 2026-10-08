@@ -35,7 +35,6 @@ it('pausing data repair leaves the independent privacy-log retention scheduler a
   expect(source).toContain('repairEnabled ? runStorageMaintenancePass() : runOperationalRetentionPass()');
 });
 
-
 it('the scheduled paused-worker tick executes bounded auth retention without header repair', async () => {
   vi.useFakeTimers();
   mocks.connect.mockReset().mockResolvedValue({ query: mocks.query, release: mocks.release });
@@ -57,4 +56,29 @@ it('the scheduled paused-worker tick executes bounded auth retention without hea
     await stopStorageMaintenance();
     vi.useRealTimers();
   }
+});
+
+it('pruning operational history purges dead unresolved failures with excessive attempts', () => {
+  const source = readFileSync(new URL('./storageMaintenance.ts', import.meta.url), 'utf8');
+  expect(source).toContain('resolved_at IS NULL AND attempts >= 50');
+  expect(source).toContain('created_at < NOW() - $3 * INTERVAL \'1 day\'');
+});
+
+it('readStorageMaintenanceStatus queries detailed breakdown for messages and ingest failures', () => {
+  const source = readFileSync(new URL('./storageMaintenance.ts', import.meta.url), 'utf8');
+  expect(source).toContain("pg_relation_size('messages')::text AS messages_heap_bytes");
+  expect(source).toContain("pg_indexes_size('messages')::text AS messages_index_bytes");
+  expect(source).toContain("pg_total_relation_size('conversation_ingest_failures')::text AS ingest_failures_bytes");
+  expect(source).toContain("(SELECT count(*)::text FROM conversation_ingest_failures WHERE resolved_at IS NULL) AS ingest_failures_unresolved_count");
+});
+
+it('storageMaintenanceStatus calculates delta and exposes detailed relation sizes', () => {
+  const source = readFileSync(new URL('../scripts/storageMaintenanceStatus.ts', import.meta.url), 'utf8');
+  expect(source).toContain('database_delta_bytes: before === undefined ? null : (BigInt(current) - BigInt(String(before))).toString()');
+  expect(source).toContain('database_delta_since_sweep_bytes: afterSweep === undefined ? null : (BigInt(current) - BigInt(String(afterSweep))).toString()');
+  expect(source).toContain('messages_heap_mib');
+  expect(source).toContain('messages_index_mib');
+  expect(source).toContain('messages_toast_mib');
+  expect(source).toContain('ingest_failures_mib');
+  expect(source).toContain('ingest_failures_unresolved_count');
 });

@@ -3,14 +3,13 @@
 **Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
 IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest release: **[Inboxora 4.3.1](Release-notes-4.3.1.md)**.
-[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.1) ·
-[Upgrading](Upgrading.md#upgrading-to-431) · [Archive](Archive.md)
+Latest release: **[Inboxora 4.3.2](Release-notes-4.3.2.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.2) ·
+[Upgrading](Upgrading.md#upgrading-to-432) · [Archive](Archive.md)
 
-4.3.1 is a maintenance release for 4.3.0. Expanded mail threads no longer show duplicate rows
-for provider/folder copies of the same logical message, and it also includes native-provider push,
-CardDAV, message-rendering, font and CI reliability fixes. No new database migration or environment
-setting is required.
+4.3.2 is a maintenance release addressing conversation ingest retry queue bloat and
+clarifying storage maintenance reporting metrics (#16). Normal startup applies additive
+migration 0169.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
@@ -36,9 +35,9 @@ setting is required.
 
 ## Release documentation
 
-[Release notes 4.3.1](Release-notes-4.3.1.md) contains the current maintenance changes,
+[Release notes 4.3.2](Release-notes-4.3.2.md) contains the current maintenance changes,
 limitations and migration order. **[Archive](Archive.md)** contains every older release-note
-page, including 4.3.0 and 4.2.0. The Archive sidebar group is collapsed; existing page URLs and release
+page, including 4.3.1, 4.3.0 and 4.2.0. The Archive sidebar group is collapsed; existing page URLs and release
 bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for
 work after the latest release.
 
