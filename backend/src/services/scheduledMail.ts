@@ -260,14 +260,23 @@ export async function enqueueMailMerge(userId: string, inputValue: unknown, key:
     const insertSubjects: string[] = [];
     const insertPayloads: string[] = [];
 
+    const subject = frozen.subject ?? '';
+    const fingerprintJsonPrefix = `{"fingerprint":${JSON.stringify(fingerprint)},"recipient":`;
+    const baseItem = { senderEmail: first.senderEmail, payload: frozen };
+    const itemJsonPrefix = JSON.stringify(baseItem).slice(0, -2);
+    const hasPayloadKeys = Object.keys(frozen).length > 0;
+
     for (const [index, recipient] of recipients.entries()) {
-      const item: PreparedSend = { senderEmail: first.senderEmail,
-        payload: { ...frozen, to: [recipient] } };
       insertIds.push(itemIds[index]);
       insertKeys.push(`merge:${batchId}:${index}`);
-      insertFingerprints.push(createHash('sha256').update(JSON.stringify({ fingerprint, recipient })).digest('hex'));
-      insertSubjects.push(item.payload.subject ?? '');
-      insertPayloads.push(JSON.stringify(item));
+      const recipientStr = JSON.stringify(recipient);
+      const fStr = `${fingerprintJsonPrefix}${recipientStr}}`;
+      insertFingerprints.push(createHash('sha256').update(fStr).digest('hex'));
+      insertSubjects.push(subject);
+      const payloadStr = hasPayloadKeys
+        ? `${itemJsonPrefix},"to":[${recipientStr}]}}`
+        : `${itemJsonPrefix}"to":[${recipientStr}]}}`;
+      insertPayloads.push(payloadStr);
     }
 
     if (insertIds.length > 0) {
