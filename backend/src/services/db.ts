@@ -215,16 +215,26 @@ export async function encryptExistingCredentials() {
     WHERE client_secret IS NOT NULL AND client_secret NOT LIKE 'enc:v1:%'
   `);
 
-  let oidcCount = 0;
+  const oidcIds: string[] = [];
+  const oidcSecrets: string[] = [];
+
   for (const row of oidcResult.rows) {
     if (row.client_secret && !isEncrypted(row.client_secret)) {
-      await pool.query(
-        'UPDATE oidc_providers SET client_secret = $1 WHERE id = $2',
-        [encrypt(row.client_secret), row.id]
-      );
-      oidcCount++;
+      oidcIds.push(row.id);
+      oidcSecrets.push(encrypt(row.client_secret));
     }
   }
+
+  if (oidcIds.length > 0) {
+    await pool.query(
+      `UPDATE oidc_providers
+       SET client_secret = unnest.secret
+       FROM UNNEST($1::uuid[], $2::text[]) AS unnest(id, secret)
+       WHERE oidc_providers.id = unnest.id`,
+      [oidcIds, oidcSecrets]
+    );
+  }
+  const oidcCount = oidcIds.length;
   if (oidcCount > 0) console.log(`Encrypted client secrets for ${oidcCount} OIDC provider(s)`);
 
   // Encrypt legacy calendar URLs after migrations have added their fingerprint.
