@@ -132,9 +132,9 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
       // transaction, so retrying the INSERT on the same client could only have failed with `25P02` (DB-01).
       await withSavepoint(client, `google_calendar_${attempt}`, async () => {
         const calendar = await client.query<{ id: string }>(
-          // A provider calendar starts read-only and hidden from DAV devices.
+          // A provider calendar starts read-only and exposed to DAV devices.
           `INSERT INTO calendars (user_id, owner_user_id, name, color, source, read_only, dav_mode)
-           VALUES ($1, $1, $2, $3, 'google', true, 'off') RETURNING id`,
+           VALUES ($1, $1, $2, $3, 'google', true, 'read_write') RETURNING id`,
           [input.userId, name, calendarColor(input.entry)],
         );
         const calendarId = calendar.rows[0]?.id;
@@ -145,7 +145,7 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
           // side and the provider's own fact, but leave `enabled` and `user_access` as they are (SYNC-09).
           await client.query(
             `UPDATE integration_collections
-                SET local_calendar_id = $2, source_access = $3, dav_mode = 'off', updated_at = NOW()
+                SET local_calendar_id = $2, source_access = $3, dav_mode = 'read_write', updated_at = NOW()
               WHERE id = $1`,
             [existing.rows[0].id, calendarId, sourceAccess],
           );
@@ -155,7 +155,7 @@ export async function ensureGoogleCalendarCollection(client: PoolClient, input: 
         const collection = await client.query<{ id: string }>(
           `INSERT INTO integration_collections
              (user_id, connection_id, kind, remote_id, local_calendar_id, enabled, source_access, user_access, dav_mode)
-           VALUES ($1, $2, 'calendar', $3, $4, true, $5, 'source', 'off')
+           VALUES ($1, $2, 'calendar', $3, $4, true, $5, 'source', 'read_write')
            RETURNING id`,
           [input.userId, input.connectionId, input.entry.id, calendarId, sourceAccess],
         );

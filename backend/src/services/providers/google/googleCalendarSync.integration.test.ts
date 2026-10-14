@@ -179,7 +179,7 @@ describeOrSkip('Google Calendar sync (PostgreSQL)', { timeout: PG_TEST_TIMEOUT_M
     const calendar = await autocommit(client => client.query<{ id: string; source: string; read_only: boolean; dav_mode: string; color: string }>(
       'SELECT id, source, read_only, dav_mode, color FROM calendars WHERE user_id = $1', [USER_ID],
     ));
-    expect(calendar.rows[0]).toMatchObject({ source: 'google', read_only: true, dav_mode: 'off', color: '#4a86e8' });
+    expect(calendar.rows[0]).toMatchObject({ source: 'google', read_only: true, dav_mode: 'read_write', color: '#4a86e8' });
 
     const events = await storedEvents();
     expect(events.map(event => event.uid)).toEqual(['dentist@google.com', 'standup@google.com']);

@@ -45,7 +45,7 @@ cp .env .env.backup
 
 A readable archive is a basic check, not a substitute for testing a restore. Keep the
 backup and matching `.env` securely outside the database volume. Then set
-`INBOXORA_VERSION=4.3.3` in the existing `.env` when using the supplied GHCR Compose file.
+`INBOXORA_VERSION=4.3.4` in the existing `.env` when using the supplied GHCR Compose file.
 A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
 Do not overwrite secrets, rename the database or recreate its volume.
 
@@ -58,6 +58,17 @@ docker compose logs --tail=100 backend
 
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
+
+## Upgrading to 4.3.4
+
+From 4.3.3, use the standard upgrade steps and deploy matching backend and frontend **4.3.4**
+images or install the updated desktop/Android apps. Normal startup automatically applies **0170**:
+
+- `0170_expose_external_collections_over_dav.sql` updates `calendars`, `address_books`, and `integration_collections`
+  where `dav_mode = 'off'` to `'read_write'`, exposing existing external collections over CalDAV and CardDAV.
+
+Android 4.3.4 uses `versionCode 4030400`. Desktop and Android packages are attached to the GitHub
+release after their signed build workflow completes. See [Release notes 4.3.4](Release-notes-4.3.4.md).
 
 ## Upgrading to 4.3.3
 

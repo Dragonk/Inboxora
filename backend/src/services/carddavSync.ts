@@ -157,10 +157,9 @@ async function ensureCardavBook(client: PoolClient, userId: string, sourceConnec
   for (let attempt = 0; attempt < 20; attempt++) {
     const name = attempt === 0 ? book.displayName : `${book.displayName} (${attempt + 1})`;
     const r = await client.query<{ id: string }>(
-      // A newly connected external address book is not published to DAV devices
-      // until the user explicitly enables it (plan §17.1).
+      // An external address book is published to DAV devices by default.
       `INSERT INTO address_books (user_id, name, source, external_url, source_connection_id, dav_mode)
-       VALUES ($1, $2, 'carddav', $3, $4, 'off') ON CONFLICT DO NOTHING RETURNING id`,
+       VALUES ($1, $2, 'carddav', $3, $4, 'read_write') ON CONFLICT DO NOTHING RETURNING id`,
       [userId, name, book.url, sourceConnectionId],
     );
     if (r.rows[0]) return r.rows[0].id;

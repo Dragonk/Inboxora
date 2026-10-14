@@ -127,7 +127,7 @@ describeOrSkip('Google contacts sync (PostgreSQL)', () => {
     const book = await autocommit(client => client.query<{ id: string; source: string; dav_mode: string }>(
       'SELECT id, source, dav_mode FROM address_books WHERE user_id = $1', [USER_ID],
     ));
-    expect(book.rows[0]).toMatchObject({ source: 'google', dav_mode: 'off' });
+    expect(book.rows[0]).toMatchObject({ source: 'google', dav_mode: 'read_write' });
 
     // The People API lets the signed-in user modify their own contacts, so the collection records the
     // provider's permission as `read_write`; the user's own choice (`user_access`) stays `source` until

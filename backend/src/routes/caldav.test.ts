@@ -134,6 +134,26 @@ describe('CalDAV discovery', () => {
     expect(body).toContain('<D:current-user-privilege-set>');
   });
 
+  it('exposes external Google and Microsoft calendars in CalDAV discovery with read-only DAV privileges', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+    query.mockResolvedValueOnce({ rows: [
+      { id: 'google-cal', name: 'Google Work', sync_token: 'sync-g', read_only: false, source: 'google', dav_mode: 'read_write' },
+      { id: 'ms-cal', name: 'Microsoft Calendar', sync_token: 'sync-ms', read_only: false, source: 'microsoft', dav_mode: 'read_write' },
+    ] });
+
+    const response = await fetch(`${base}/caldav/user-1/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'test-dav-password'), depth: '1' },
+    });
+
+    expect(response.status).toBe(207);
+    const body = await response.text();
+    expect(body).toContain('/caldav/user-1/google-cal/');
+    expect(body).toContain('/caldav/user-1/ms-cal/');
+    expect(body).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(body).not.toContain('<D:write');
+  });
+
   it('advertises only the DAV classes it implements', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
 
