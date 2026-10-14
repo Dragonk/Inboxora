@@ -398,6 +398,25 @@ describe('Address book DAV sharing (dav_mode)', () => {
     expect(stringParameter(update[1], 2)).toBe('read_only');
   });
 
+  it('stores a DAV mode on a provider address book and syncs integration_collections', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-google' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'book-google', name: 'Google Contacts', source: 'google', visible: true, dav_mode: 'read_write' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const server = createApp().listen(0);
+    const response = await fetch(`http://127.0.0.1:${listeningPort(server)}/api/contacts/address-books/book-google`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ davMode: 'read_write' }),
+    });
+    await new Promise(resolve => server.close(resolve));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ dav_mode: 'read_write' });
+    const updateCollection = findQuery('UPDATE integration_collections SET dav_mode');
+    expect(updateCollection[1]).toEqual(['read_write', 'book-google', 'user-1']);
+  });
+
   it('rejects an unknown DAV mode before touching the book', async () => {
     query.mockResolvedValueOnce({ rows: [{ id: 'user-1' }] });
     const server = createApp().listen(0);

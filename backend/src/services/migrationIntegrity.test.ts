@@ -471,4 +471,14 @@ describe('migration integrity', () => {
     expect(sql).toContain('CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_conversation_ingest_failures_unresolved_lookup');
     expect(sql).toContain('WHERE resolved_at IS NULL AND message_row_id IS NOT NULL');
   });
+
+  it('exposes external collections over CalDAV and CardDAV in 0170 after 0169', () => {
+    const files = readdirSync(join(process.cwd(), 'migrations')).filter(name => name.endsWith('.sql')).sort();
+    expect(files[files.indexOf('0169_deduplicate_conversation_ingest_failures.sql') + 1]).toBe('0170_expose_external_collections_over_dav.sql');
+    const sql = readFileSync(join(process.cwd(), 'migrations/0170_expose_external_collections_over_dav.sql'), 'utf8');
+    expect(sql).toContain("UPDATE calendars\n   SET dav_mode = 'read_write'");
+    expect(sql).toContain("UPDATE address_books\n   SET dav_mode = 'read_write'");
+    expect(sql).toContain("UPDATE integration_collections\n   SET dav_mode = 'read_write'");
+    expect(sql).toContain("WHERE dav_mode = 'off'");
+  });
 });

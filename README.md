@@ -7,28 +7,28 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.3.3-informational" alt="Version 4.3.3">
+  <img src="https://img.shields.io/badge/version-4.3.4-informational" alt="Version 4.3.4">
 </p>
 
 Inboxora brings email, contacts and calendars into one self-hosted workspace. Use existing
 accounts over **IMAP/SMTP**, or connect **Gmail, Google Calendar and People APIs** and
 **Microsoft Graph**. CalDAV and CardDAV keep your other applications and devices connected.
 
-**Current release: 4.3.3.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.3)
+**Current release: 4.3.4.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.4)
 or deploy the versioned Docker images. Full documentation lives in the
 [Wiki](https://github.com/Dragonk/Inboxora/wiki).
 
-## What's new in 4.3.3
+## What's new in 4.3.4
 
-- **Android status bar and display cutout insets.** Restores system status bar and display cutout
-  spacing on Android 15+ edge-to-edge devices, ensuring navigation controls, menu buttons, and top
-  content containers do not render behind the system status bar.
-- **Safe-area custom properties fallback.** CSS safe area variables now fall back to Capacitor-injected
-  custom properties and native viewport insets across Android and mobile web environments.
-- **Capacitor SystemBars insets handling.** Configures native window insets padding on the content view
-  while preventing Capacitor from zeroing view padding.
+- **External calendars and contacts over CalDAV and CardDAV.** Calendars and contacts from external accounts
+  (including Google and Microsoft Graph, as well as external CalDAV and CardDAV subscriptions) are now exposed
+  over Inboxora's CalDAV and CardDAV servers.
+- **Configurable DAV sharing for provider collections.** The DAV sharing mode (`off`, `read_only`, `read_write`)
+  can now be configured on external calendars and address books in settings.
+- **Default read-write sharing for new syncs.** Newly synchronized external collections default to `dav_mode = 'read_write'`
+  and advertise honest read-only DAV privileges to external clients.
 
-See the [4.3.3 release notes](docs/wiki/Release-notes-4.3.3.md) for the full maintenance changes
+See the [4.3.4 release notes](docs/wiki/Release-notes-4.3.4.md) for the full maintenance changes
 and upgrade notes.
 
 ## Highlights
@@ -99,10 +99,10 @@ Use Docker Compose with the prebuilt release images:
 
 ```bash
 mkdir inboxora && cd inboxora
-curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.3/docker-compose.ghcr.yml
-curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.3/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.4/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.3.4/.env.example
 # Edit .env: set APP_URL, SESSION_SECRET, DB_PASSWORD and ENCRYPTION_KEY.
-# Add INBOXORA_VERSION=4.3.3 to pin both app images.
+# Add INBOXORA_VERSION=4.3.4 to pin both app images.
 docker compose up -d
 docker compose ps
 ```
@@ -113,8 +113,8 @@ Redis and the bundled ntfy service use persistent storage. Keep `.env` private a
 not expose internal service ports publicly. The Wiki covers proxy, DAV and notification setup.
 
 ```text
-ghcr.io/dragonk/inboxora-backend:4.3.3
-ghcr.io/dragonk/inboxora-frontend:4.3.3
+ghcr.io/dragonk/inboxora-backend:4.3.4
+ghcr.io/dragonk/inboxora-frontend:4.3.4
 ```
 
 Both images support AMD64 and ARM64. `latest` follows the current stable release; `dev` is a
@@ -122,7 +122,7 @@ separate, mutable test build. Native apps connect to your server rather than rep
 
 **Upgrading?** Back up PostgreSQL and the matching `.env`, retain your current database/volume
 names, and update backend and frontend together. Startup applies the migration chain through
-**0169**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-433); do not delete an
+**0170**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-434); do not delete an
 account, reset cursors or recreate volumes to clear a migration error.
 
 ## Platforms

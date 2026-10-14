@@ -190,7 +190,7 @@ describeOrSkip('Microsoft Graph contacts sync (PostgreSQL)', () => {
     const book = await autocommit(client => client.query<{ source: string; dav_mode: string }>(
       'SELECT source, dav_mode FROM address_books WHERE user_id = $1', [USER_ID],
     ));
-    expect(book.rows[0]).toMatchObject({ source: 'microsoft', dav_mode: 'off' });
+    expect(book.rows[0]).toMatchObject({ source: 'microsoft', dav_mode: 'read_write' });
 
     // The collection records what the **grant** permits, not a blanket read-only: the connection above was
     // authorized with `Contacts.ReadWrite`, so the write-back switch can be offered. `user_access` stays

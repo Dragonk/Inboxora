@@ -487,10 +487,10 @@ export default function ContactsPage({ isActive = true, settingsOnly = false, se
     finally { setDeletingBook(false); }
   };
 
-  /** The DAV sharing mode is a property of a local book, and the server enforces that. */
+  /** The DAV sharing mode can be updated on any owned address book. */
   const changeAddressBookDavMode = async (mode: AddressBookDavMode) => {
     const book = addressBooks.find(item => item.id === selectedAddressBookId);
-    if (!book || (book.source ?? 'local') !== 'local') return;
+    if (!book) return;
     setDavBusy(true);
     try {
       await api.addressBooks.update(book.id, { davMode: mode });

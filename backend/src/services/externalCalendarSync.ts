@@ -130,7 +130,7 @@ async function calendarFor(source: ExternalCalendarSource, state: CalendarSyncSt
     const name = attempt ? `${source.display_name} (${attempt + 1})` : source.display_name;
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO calendars (user_id, owner_user_id, name, color, source, external_url, read_only, dav_mode)
-       VALUES ($1, $1, $2, $3, $4, $5, true, 'off') ON CONFLICT DO NOTHING RETURNING id`,
+       VALUES ($1, $1, $2, $3, $4, $5, true, 'read_write') ON CONFLICT DO NOTHING RETURNING id`,
       [source.user_id, name, source.color, source.kind, externalUrl],
     );
     if (inserted.rows[0]) return inserted.rows[0].id;

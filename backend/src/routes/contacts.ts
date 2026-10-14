@@ -321,9 +321,8 @@ router.patch('/address-books/:id', async (req, res) => {
   if (rawName === undefined && visible === undefined && (davMode === undefined || davMode === null)) return res.status(400).json({ error: 'No address book changes supplied' });
   try {
     // Visibility is the viewer's own preference, also for read-only provider books.
-    // Name and DAV-export policy remain local-only mutations. Imports/deletes keep
-    // their own stricter guard and never delete a provider's local projection.
-    if (rawName === undefined && (davMode === undefined || davMode === null)) {
+    // Name mutations remain local-only. DAV-export policy can now be toggled for any owned address book.
+    if (rawName === undefined) {
       const owned = await query<{ id: string }>('SELECT id FROM address_books WHERE id = $1 AND user_id = $2', [req.params.id, sessionUserId(req)]);
       if (!owned.rows[0]) return res.status(404).json({ code: 'BOOK_NOT_AVAILABLE', error: 'Address book not found' });
     } else {
@@ -331,6 +330,12 @@ router.patch('/address-books/:id', async (req, res) => {
       if ('error' in local) return res.status(local.status).json({ error: local.error });
     }
     const result = await query(`UPDATE address_books SET name = COALESCE($1, name), visible = COALESCE($2, visible), dav_mode = COALESCE($3, dav_mode), updated_at = NOW() WHERE id = $4 AND user_id = $5 RETURNING id, name, source, visible, dav_mode`, [rawName === undefined ? null : localBookName(rawName), visible === undefined ? null : visible, davMode ?? null, req.params.id, sessionUserId(req)]);
+    if (davMode) {
+      await query(
+        `UPDATE integration_collections SET dav_mode = $1, updated_at = NOW() WHERE local_address_book_id = $2 AND user_id = $3`,
+        [davMode, req.params.id, sessionUserId(req)],
+      );
+    }
     res.json(result.rows[0]);
   } catch (caught) {
     const err = toAppError(caught);

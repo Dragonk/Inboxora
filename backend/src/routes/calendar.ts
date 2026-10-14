@@ -826,14 +826,32 @@ router.patch('/calendars/:calendarId', async (req, res) => {
     return res.json({ calendar: { id: 'contacts-birthdays', name: customName || 'Contact dates', custom_name: Boolean(customName), color, display_visible: displayVisible, source: 'contacts', read_only: true, dav_mode: 'off' } });
   }
   try {
-    const existing = await query<{ source: string | null }>(
-      'SELECT source FROM calendars WHERE id = $1 AND owner_user_id = $2 AND user_id = $2',
+    const existing = await query<{ source: string | null; name: string }>(
+      'SELECT source, name FROM calendars WHERE id = $1 AND owner_user_id = $2 AND user_id = $2',
       [req.params.calendarId, sessionUserId(req)],
     );
     if (!existing.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
-    // Generic local metadata mutations are not provider collection operations.
-    // Refuse rather than creating a misleading local/provider divergence.
-    if (existing.rows[0].source !== 'local') return res.status(409).json({ error: 'Provider calendars cannot be edited here' });
+    const current = existing.rows[0];
+    if (current.source !== 'local') {
+      if (name !== current.name) {
+        return res.status(409).json({ error: 'Provider calendars cannot be edited here' });
+      }
+      const result = await query(
+        `UPDATE calendars
+         SET color = $1, display_visible = $2, dav_mode = COALESCE($3, dav_mode), updated_at = NOW()
+         WHERE id = $4 AND owner_user_id = $5 AND user_id = $5
+         RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
+        [color, displayVisible, davMode ?? null, req.params.calendarId, sessionUserId(req)],
+      );
+      if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
+      if (davMode) {
+        await query(
+          `UPDATE integration_collections SET dav_mode = $1, updated_at = NOW() WHERE local_calendar_id = $2 AND user_id = $3`,
+          [davMode, req.params.calendarId, sessionUserId(req)],
+        );
+      }
+      return res.json({ calendar: result.rows[0] });
+    }
     const result = await query(
       `UPDATE calendars
        SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode), updated_at = NOW()
@@ -842,6 +860,12 @@ router.patch('/calendars/:calendarId', async (req, res) => {
       [name, color, displayVisible, davMode ?? null, req.params.calendarId, sessionUserId(req)],
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
+    if (davMode) {
+      await query(
+        `UPDATE integration_collections SET dav_mode = $1, updated_at = NOW() WHERE local_calendar_id = $2 AND user_id = $3`,
+        [davMode, req.params.calendarId, sessionUserId(req)],
+      );
+    }
     return res.json({ calendar: result.rows[0] });
   } catch (caught) {
     const error = toAppError(caught);

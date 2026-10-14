@@ -169,7 +169,7 @@ export async function ensureExternalCollectionLink(input: {
     `INSERT INTO integration_collections
        (user_id, source_connection_id, kind, remote_id, local_calendar_id, local_address_book_id,
         enabled, source_access, user_access, dav_mode)
-     VALUES ($1, $2, $3, $4, $5, $6, true, $7, 'source', 'off')
+     VALUES ($1, $2, $3, $4, $5, $6, true, $7, 'source', 'read_write')
      ON CONFLICT DO NOTHING RETURNING id`,
     [
       input.userId, sourceConnectionId, collectionKind, input.remoteId,

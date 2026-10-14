@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.3](wiki/Release-notes-4.3.3.md). Older release notes are collected in
+[Release notes 4.3.4](wiki/Release-notes-4.3.4.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -20,7 +20,20 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-There are no unreleased changes after **4.3.3**.
+There are no unreleased changes after **4.3.4**.
+
+## [4.3.4] - 2026-10-14
+
+### Added
+- Add additive migration `0170_expose_external_collections_over_dav.sql` to expose existing external calendars, address books, and integration collection links over CalDAV and CardDAV by setting `dav_mode` from `off` to `read_write`.
+- Expose external calendars and address books (including Google, Microsoft 365, and external CalDAV/CardDAV sources) over Inboxora CalDAV and CardDAV server endpoints.
+- Allow updating CalDAV and CardDAV sharing mode (`dav_mode`: `off`, `read_only`, `read_write`) for external calendars and address books in settings.
+
+### Changed
+- Default newly synchronized external Google, Microsoft Graph, and remote CalDAV/CardDAV collections to `dav_mode = 'read_write'`, making them immediately discoverable and readable via personal CalDAV/CardDAV client setups.
+- Sync `dav_mode` updates on external calendars and address books to their underlying `integration_collections` rows.
+
+See [Release notes 4.3.4](wiki/Release-notes-4.3.4.md) for user-facing details and upgrade guidance.
 
 ## [4.3.3] - 2026-10-08
 

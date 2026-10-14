@@ -79,8 +79,8 @@ describe('the external collection link', () => {
     const insert = query.mock.calls[3];
     const sql = String(insert[0]);
     expect(sql).toContain('INSERT INTO integration_collections');
-    // The user's choice starts at `source` — read-only until they opt in — and DAV publishing starts off.
-    expect(sql).toContain("'source', 'off'");
+    // The user's choice starts at `source` — read-only until they opt in — and DAV publishing defaults to read_write.
+    expect(sql).toContain("'source', 'read_write'");
     expect(insert[1]).toEqual([
       'user-1', 'source-1', 'address_book', 'https://dav.example/addressbooks/user/',
       null, 'book-1', 'read_write',

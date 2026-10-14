@@ -146,8 +146,8 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
       // instead of aborting the transaction with `25P02` (DB-01).
       return await withSavepoint(client, `graph_book_${attempt}`, async () => {
         const created = await client.query<{ id: string }>(
-          // A provider book starts hidden from DAV devices (plan §17.1).
-          `INSERT INTO address_books (user_id, name, source, dav_mode) VALUES ($1, $2, 'microsoft', 'off') RETURNING id`,
+          // A provider book starts exposed to DAV devices.
+          `INSERT INTO address_books (user_id, name, source, dav_mode) VALUES ($1, $2, 'microsoft', 'read_write') RETURNING id`,
           [input.userId, name],
         );
         const addressBookId = created.rows[0]?.id;
@@ -158,7 +158,7 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
           // disabled this collection must not have a sync switch it back on.
           await client.query(
             `UPDATE integration_collections
-                SET local_address_book_id = $2, source_access = $3, updated_at = NOW()
+                SET local_address_book_id = $2, source_access = $3, dav_mode = 'read_write', updated_at = NOW()
               WHERE id = $1`,
             [existing.rows[0].id, addressBookId, sourceAccess],
           );
@@ -168,7 +168,7 @@ export async function ensureGraphAddressBook(client: PoolClient, input: {
         const collection = await client.query<{ id: string }>(
           `INSERT INTO integration_collections
              (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
-           VALUES ($1, $2, 'address_book', $3, $4, true, $5, 'source', 'off')
+           VALUES ($1, $2, 'address_book', $3, $4, true, $5, 'source', 'read_write')
            ON CONFLICT DO NOTHING
            RETURNING id`,
           [input.userId, input.connectionId, remoteId, addressBookId, sourceAccess],

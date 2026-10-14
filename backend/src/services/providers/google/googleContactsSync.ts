@@ -98,8 +98,8 @@ export async function ensureGoogleAddressBook(client: PoolClient, input: {
       // instead of aborting the transaction with `25P02` (DB-01).
       return await withSavepoint(client, `google_book_${attempt}`, async () => {
         const created = await client.query<{ id: string }>(
-          // A new provider book starts hidden from DAV devices (plan §17.1).
-          `INSERT INTO address_books (user_id, name, source, dav_mode) VALUES ($1, $2, 'google', 'off') RETURNING id`,
+          // A new provider book starts exposed to DAV devices.
+          `INSERT INTO address_books (user_id, name, source, dav_mode) VALUES ($1, $2, 'google', 'read_write') RETURNING id`,
           [input.userId, name],
         );
         const addressBookId = created.rows[0]?.id;
@@ -111,7 +111,7 @@ export async function ensureGoogleAddressBook(client: PoolClient, input: {
           // provider's fact, so it is set to this source's answer.
           await client.query(
             `UPDATE integration_collections
-                SET local_address_book_id = $2, source_access = 'read_write', updated_at = NOW()
+                SET local_address_book_id = $2, source_access = 'read_write', dav_mode = 'read_write', updated_at = NOW()
               WHERE id = $1`,
             [existing.rows[0].id, addressBookId],
           );
@@ -121,7 +121,7 @@ export async function ensureGoogleAddressBook(client: PoolClient, input: {
         const collection = await client.query<{ id: string }>(
           `INSERT INTO integration_collections
              (user_id, connection_id, kind, remote_id, local_address_book_id, enabled, source_access, user_access, dav_mode)
-           VALUES ($1, $2, 'address_book', $3, $4, true, 'read_write', 'source', 'off')
+           VALUES ($1, $2, 'address_book', $3, $4, true, 'read_write', 'source', 'read_write')
            ON CONFLICT DO NOTHING
            RETURNING id`,
           [input.userId, input.connectionId, GOOGLE_PERSONAL_COLLECTION_REMOTE_ID, addressBookId],

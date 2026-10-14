@@ -131,7 +131,7 @@ describe('remote CardDAV contact-date persistence', () => {
     expect(link).toBeDefined();
     const sql = String(link?.[0]);
     expect(sql).toContain('INSERT INTO integration_collections');
-    expect(sql).toContain("'source', 'off'");
+    expect(sql).toContain("'source', 'read_write'");
     expect(link?.[1]).toEqual([
       'user-1', expect.any(String), 'address_book', 'https://dav.example/contacts', null, 'book-1', 'read_only',
     ]);

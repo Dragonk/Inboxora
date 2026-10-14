@@ -134,6 +134,34 @@ describe('CardDAV authentication', () => {
     expect(remoteBody).not.toContain('<D:write');
   });
 
+  it('exposes external Google and Microsoft address books with honest read-only privileges', async () => {
+    authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
+
+    query.mockResolvedValueOnce({ rows: [
+      { id: 'google-book', name: 'Google Contacts', sync_token: 'sync-g', dav_mode: 'read_write', source: 'google' },
+      { id: 'ms-book', name: 'Microsoft Contacts', sync_token: 'sync-ms', dav_mode: 'read_write', source: 'microsoft' },
+    ] });
+
+    const discovery = await fetch(`${base}/carddav/user-1/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'secret'), depth: '1' },
+    });
+    expect(discovery.status).toBe(207);
+    const discoveryXml = await discovery.text();
+    expect(discoveryXml).toContain('/carddav/user-1/google-book/');
+    expect(discoveryXml).toContain('/carddav/user-1/ms-book/');
+
+    query.mockReset();
+    query.mockResolvedValueOnce({ rows: [{ id: 'google-book', name: 'Google Contacts', sync_token: 'sync-g', source: 'google', dav_mode: 'read_write' }] });
+    const googleProp = await fetch(`${base}/carddav/user-1/google-book/`, {
+      method: 'PROPFIND',
+      headers: { authorization: basic('sam@example.test', 'secret'), depth: '0' },
+    });
+    const googleBody = await googleProp.text();
+    expect(googleBody).toContain('<D:privilege><D:read/></D:privilege>');
+    expect(googleBody).not.toContain('<D:write');
+  });
+
   it('rejects writes to an imported address book', async () => {
     authenticateDavCredential.mockResolvedValue({ userId: 'user-1', credentialId: 'credential-1', maxDavMode: 'read_write' });
     query.mockResolvedValueOnce({ rows: [{ id: 'book-1', source: 'carddav' }] });

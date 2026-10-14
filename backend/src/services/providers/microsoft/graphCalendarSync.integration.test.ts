@@ -178,7 +178,7 @@ describeOrSkip('Microsoft Graph calendar sync (PostgreSQL)', { timeout: PG_TEST_
     ));
     expect(calendars.rows).toHaveLength(2);
     for (const row of calendars.rows) {
-      expect(row).toMatchObject({ source: 'microsoft', read_only: true, dav_mode: 'off' });
+      expect(row).toMatchObject({ source: 'microsoft', read_only: true, dav_mode: 'read_write' });
     }
     expect(calendarColors(calendars.rows)).toEqual(['#0f6cbd', '#1a7f37']);
 

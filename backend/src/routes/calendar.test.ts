@@ -669,7 +669,7 @@ describe('local calendar API', () => {
   });
 
   it('refuses generic local metadata edits on an imported provider calendar', async () => {
-    query.mockResolvedValueOnce({ rows: [{ source: 'ical_url' }] });
+    query.mockResolvedValueOnce({ rows: [{ source: 'ical_url', name: 'Remote Work' }] });
     const response = await fetch(`${base}/api/calendar/calendars/remote-calendar`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true }),
@@ -678,6 +678,26 @@ describe('local calendar API', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Provider calendars cannot be edited here' });
     expect(query).toHaveBeenCalledTimes(1);
   });
+
+  it('allows updating DAV sharing mode on a provider calendar and syncs integration_collections', async () => {
+    query
+      .mockResolvedValueOnce({ rows: [{ source: 'google', name: 'Work' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'google-calendar-1', name: 'Work', color: '#123456', display_visible: true, source: 'google', read_only: false, dav_mode: 'read_write' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await fetch(`${base}/api/calendar/calendars/google-calendar-1`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Work', color: '#123456', displayVisible: true, davMode: 'read_write' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(responseObject(await response.json(), 'calendar').dav_mode).toBe('read_write');
+    expect(queryCall(1)[0]).toContain('dav_mode = COALESCE($3, dav_mode)');
+    expect(queryCall(1)[1]).toEqual(['#123456', true, 'read_write', 'google-calendar-1', 'user-1']);
+    expect(queryCall(2)[0]).toContain('UPDATE integration_collections SET dav_mode = $1');
+    expect(queryCall(2)[1]).toEqual(['read_write', 'google-calendar-1', 'user-1']);
+  });
+
   it('persists contact calendar appearance per user while retaining translated default names', async () => {
     query.mockResolvedValueOnce({ rows: [] });
     const response = await fetch(`${base}/api/calendar/calendars/contacts-birthdays`, {
