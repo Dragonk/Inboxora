@@ -22,3 +22,18 @@ describe('how a failed mail sync is classified', () => {
     assert.equal((source.match(classifier) ?? []).length, 2);
   });
 });
+
+describe('new-mail notification parity with the IMAP sync', () => {
+  it('emits the canonical new-mail event for incremental INBOX deltas only', async () => {
+    // Every notification channel (Web Push for the PWA, native Android push)
+    // derives from the one event the IMAP sync builds. The Graph sync must
+    // feed the same helper — without it, native-transport accounts never
+    // notified at all.
+    const source = await readFile(new URL('./graphMailSync.ts', import.meta.url), 'utf8');
+    assert.match(source, /import \{ scheduleProviderMailNotifications \} from '\.\.\/\.\.\/providerMailNotifications\.js';/);
+    // A full baseline is the mailbox's past, not new mail; non-inbox folders
+    // never notify; only rows the delta created (ingestRowIds) are candidates.
+    assert.match(source, /if \(!fullSync && input\.target\.folderPath === 'INBOX' && applied\.ingestRowIds\.length > 0\) \{/);
+    assert.match(source, /scheduleProviderMailNotifications\(\{ userId: input\.userId, rowIds: applied\.ingestRowIds \}\);/);
+  });
+});
