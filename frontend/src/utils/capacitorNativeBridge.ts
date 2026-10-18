@@ -74,6 +74,31 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
         ...existingBridge.badges,
         setUnreadCount: async (count: number) => callNative('setUnreadCount', { count }),
       },
+
+      // Attachment downloads. Inside the Android WebView an <a download> click
+      // silently does nothing, so every download route re-routes through the
+      // native side: server URLs go through the system DownloadManager, and
+      // blobs the app already holds (archive entries, exports) are streamed
+      // back as bounded base64 chunks and reassembled natively.
+      attachments: {
+        ...existingBridge.attachments,
+        download: async (url: string, filename?: string) => callNativeWithFallback('downloadAttachment', { url, ...(filename ? { filename } : {}) }, { queued: false }),
+        saveBlob: async (blob: Blob, filename: string) => {
+          const begin = await callNative<{ id?: string }>('saveAttachmentBegin', { filename, mimeType: blob.type || 'application/octet-stream', size: blob.size }, null);
+          if (!begin?.id) throw new Error('native attachment save unavailable');
+          const buffer = new Uint8Array(await blob.arrayBuffer());
+          // 384 KiB of bytes encodes to 512 KiB of base64, safely under the
+          // 1 MB Binder transaction limit.
+          const CHUNK_BYTES = 384 * 1024;
+          for (let offset = 0; offset < buffer.length; offset += CHUNK_BYTES) {
+            const slice = buffer.subarray(offset, Math.min(offset + CHUNK_BYTES, buffer.length));
+            let binary = '';
+            for (let i = 0; i < slice.length; i += 0x8000) binary += String.fromCharCode(...slice.subarray(i, i + 0x8000));
+            await callNative('saveAttachmentChunk', { id: begin.id, data: btoa(binary) }, null);
+          }
+          return callNativeWithFallback('saveAttachmentFinish', { id: begin.id }, { ok: false });
+        },
+      },
       updates: {
         ...existingBridge.updates,
         check: async (verbose) => callNative('checkForUpdates', { verbose }),

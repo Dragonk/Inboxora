@@ -1,6 +1,6 @@
 # Development changes — unreleased
 
-There are no unreleased changes after **4.3.4**.
+There are no unreleased changes after **4.3.5**.
 
-For the current stable release, see [Release notes 4.3.4](Release-notes-4.3.4.md). Older
+For the current stable release, see [Release notes 4.3.5](Release-notes-4.3.5.md). Older
 versions are listed in [Archive](Archive.md).

@@ -33,6 +33,7 @@ import {
 } from './gmailMail.js';
 import type { GmailMessage, GmailThread, LocalGmailMessage } from './gmailMail.js';
 import { applyIngestRulesToRows } from '../../providerIngestRules.js';
+import { scheduleProviderMailNotifications } from '../../providerMailNotifications.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import type { ConversationAccountRow } from '../../conversationRowIngest.js';
 import type { FetchLike, GoogleConfig } from '../../providerAuthService.js';
@@ -743,8 +744,8 @@ export async function applyGmailThread(
   context: GmailMessageContext,
   thread: GmailThread,
   seenProviderIds?: Set<string>,
-): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[] }> {
-  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[] };
+): Promise<{ created: number; updated: number; deleted: number; skipped: number; rowIds: string[]; insertedRowIds: string[] }> {
+  const totals = { created: 0, updated: 0, deleted: 0, skipped: 0, rowIds: [] as string[], insertedRowIds: [] as string[] };
   for (const message of thread.messages ?? []) {
     const local = localMessageForGmailMessage(message, {
       accountId: context.accountId,
@@ -761,8 +762,12 @@ export async function applyGmailThread(
     // transaction commits: the engine opens its own, and nesting the two is the
     // mistake this return value exists to prevent.
     totals.rowIds.push(applied.id);
-    if (applied.inserted) totals.created += 1;
-    else totals.updated += 1;
+    if (applied.inserted) {
+      totals.created += 1;
+      totals.insertedRowIds.push(applied.id);
+    } else {
+      totals.updated += 1;
+    }
   }
   return totals;
 }
@@ -1111,7 +1116,7 @@ export async function syncGmailMailMessagesForAccount(input: {
   // MAIL-01: the block list runs on the rows this sync just stored, exactly as the IMAP path runs it on the
   // messages it fetched. It acts through the provider port, so a blocked sender's mail leaves the inbox on a
   // native account too. The label the rows were stored under is the engine's `folder`, and only INBOX is a target.
-  const afterIngest = async (rowIds: readonly string[], labelPath: string): Promise<void> => {
+  const afterIngest = async (rowIds: readonly string[], labelPath: string, notifyRowIds?: readonly string[]): Promise<void> => {
     await applyIngestRulesToRows({
       userId: input.userId,
       connectionId: input.connectionId,
@@ -1121,6 +1126,12 @@ export async function syncGmailMailMessagesForAccount(input: {
       providerName: 'Gmail',
     }).catch((error: unknown) => console.warn('Gmail ingest block list failed:', error instanceof Error ? error.message : error));
     if (rowIds.length) publishMailStateChanged({ userId: input.userId, accountId: input.accountId });
+    // Notification parity with the IMAP sync's canonical new-mail event. Only
+    // the incremental history feed passes the rows it created, and only the
+    // INBOX label is a target: a baseline is the mailbox's past, not new mail.
+    if (labelPath === 'INBOX' && notifyRowIds && notifyRowIds.length > 0) {
+      scheduleProviderMailNotifications({ userId: input.userId, rowIds: notifyRowIds });
+    }
   };
 
   const maxThreadsPerRun = input.maxThreadsPerRun ?? GMAIL_MAX_THREADS_PER_RUN;
@@ -1134,7 +1145,7 @@ export async function syncGmailMailMessagesForAccount(input: {
 
   try {
     if (mode === 'incremental' && cursor !== null) {
-      const applied = await runIncremental(api, context, account, cursor, totals, renew, fenced, maxThreadsPerRun, rowIds => afterIngest(rowIds, 'INBOX'));
+      const applied = await runIncremental(api, context, account, cursor, totals, renew, fenced, maxThreadsPerRun, (rowIds, _labelPath, notifyRowIds) => afterIngest(rowIds, 'INBOX', notifyRowIds));
       if (applied === 'expired') {
         // Gmail answered `404` for the stored history id: it has aged out. A baseline
         // is the only honest recovery, and it reconciles.
@@ -1197,7 +1208,7 @@ async function runIncremental(
   renew: () => Promise<void>,
   fenced: <T>(run: (client: PoolClient) => Promise<T>) => Promise<T>,
   maxThreadsPerRun: number,
-  afterIngest: (rowIds: readonly string[], labelPath: string) => Promise<void>,
+  afterIngest: (rowIds: readonly string[], labelPath: string, notifyRowIds?: readonly string[]) => Promise<void>,
 ): Promise<{ cursor: string } | 'expired'> {
   const threadIds = new Set<string>();
   const deletedMessageIds = new Set<string>();
@@ -1241,7 +1252,7 @@ async function runIncremental(
     if (!thread) continue;
     const applied = await fenced(client => applyGmailThread(client, context, thread));
     await persistConversations(applied.rowIds, account);
-    await afterIngest(applied.rowIds, 'INBOX');
+    await afterIngest(applied.rowIds, 'INBOX', applied.insertedRowIds);
     addTotals(totals, applied);
   }
 

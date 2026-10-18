@@ -33,6 +33,7 @@ import {
 } from './graphMail.js';
 import type { GraphMessage, LocalMailFolder } from './graphMail.js';
 import { applyIngestRulesToRows } from '../../providerIngestRules.js';
+import { scheduleProviderMailNotifications } from '../../providerMailNotifications.js';
 import { persistConversationCopyForRow } from '../../conversationRowIngest.js';
 import { immutableIdsEnabled } from './graphMessageIdType.js';
 import {
@@ -1032,6 +1033,13 @@ export async function syncGraphMailMessagesForFolder(input: {
         rowIds: applied.ingestRowIds,
         providerName: 'Microsoft Graph',
       }).catch((error: unknown) => console.warn('Microsoft Graph ingest block list failed:', error instanceof Error ? error.message : error));
+      // Notification parity with the IMAP sync's canonical new-mail event: an
+      // incremental INBOX delta notifies once per page, using only the rows the
+      // delta created (ingestRowIds). A full baseline is the mailbox's past, not
+      // new mail, and non-inbox folders never notify.
+      if (!fullSync && input.target.folderPath === 'INBOX' && applied.ingestRowIds.length > 0) {
+        scheduleProviderMailNotifications({ userId: input.userId, rowIds: applied.ingestRowIds });
+      }
       // Rules can finish after the first invalidation. Reconcile their final state too.
       if (applied.created || applied.updated || applied.deleted) {
         publishMailStateChanged({ userId: input.userId, accountId: input.accountId });

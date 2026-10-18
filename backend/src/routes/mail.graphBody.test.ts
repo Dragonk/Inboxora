@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   fetchMessageBody: vi.fn(),
   fetchAttachment: vi.fn(),
   immutableIdsEnabled: vi.fn(),
+  ghost: vi.fn(),
 }));
 
 vi.mock('../services/db.js', () => ({ query: mocks.query, withTransaction: vi.fn() }));
@@ -32,6 +33,10 @@ vi.mock('../index.js', () => ({
     _enqueueFlagPush: vi.fn(),
     pluginFacade: {},
   },
+}));
+vi.mock('../services/providers/microsoft/graphPendingMessageRemovals.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/providers/microsoft/graphPendingMessageRemovals.js')>()),
+  scheduleGraphGhostRemoval: mocks.ghost,
 }));
 vi.mock('../services/providers/microsoft/graphMessageIdType.js', () => ({
   immutableIdsEnabled: mocks.immutableIdsEnabled,
@@ -98,6 +103,7 @@ beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.query.mockResolvedValue({ rows: [], rowCount: 0 });
   mocks.immutableIdsEnabled.mockResolvedValue(true);
+  mocks.ghost.mockReset();
   mocks.collectGraphInlineImages.mockResolvedValue([]);
 });
 
@@ -228,6 +234,14 @@ describe('a Graph message body is read from the provider and cached', () => {
     const response = await fetch(`${base}/api/mail/messages/${MESSAGE_ID}/body`);
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    // The provider just proved the message is gone, so the ghost row is handed
+    // to the durable reconciliation instead of lingering unread forever.
+    expect(mocks.ghost).toHaveBeenCalledWith({
+      connectionId: 'connection-1',
+      accountId: ACCOUNT_ID,
+      providerMessageId: 'AAMkAD-1',
+      folderPath: 'INBOX',
+    });
   });
 });
 

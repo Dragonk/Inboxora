@@ -16,6 +16,11 @@ import android.os.Environment;
 import android.provider.Settings;
 import android.util.Log;
 import android.webkit.WebView;
+import android.app.DownloadManager;
+import android.content.ContentValues;
+import android.provider.MediaStore;
+import android.util.Base64;
+import android.webkit.CookieManager;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -34,12 +39,15 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URLDecoder;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -1454,6 +1462,225 @@ public class InboxoraNativePlugin extends Plugin {
         result.put("installed", false);
         result.put("reason", "unavailable");
         return result;
+    }
+
+    // --- Attachment downloads ------------------------------------------------
+    //
+    // The WebView cannot save files: an <a download> click that works in Chrome
+    // silently does nothing inside the app. Two shapes exist:
+    //   - an attachment the server can serve by URL (top-level files, the zip):
+    //     DownloadManager streams it with the session cookie and the CSRF header
+    //     the API requires, into Downloads/Inboxora;
+    //   - a blob the frontend already holds (archive entries, exports): base64
+    //     chunks reassembled through MediaStore (API 29+), or the app's external
+    //     files directory on older releases where public storage would need a
+    //     legacy write permission this app does not request.
+    // Chunks stay well under the 1 MB Binder limit; the id is a session token,
+    // not a file name, and a failed or abandoned save deletes its partial file.
+
+    private static class AttachmentSaveSession {
+        String filename;
+        String mimeType;
+        Uri pendingUri;
+        File legacyFile;
+        OutputStream stream;
+
+        void closeQuietly() {
+            try {
+                if (stream != null) stream.close();
+            } catch (Exception ignored) {
+            }
+        }
+
+        void discard(Context context) {
+            closeQuietly();
+            if (pendingUri != null) {
+                try {
+                    context.getContentResolver().delete(pendingUri, null, null);
+                } catch (Exception ignored) {
+                }
+            }
+            if (legacyFile != null && legacyFile.exists()) {
+                try {
+                    legacyFile.delete();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private final Map<String, AttachmentSaveSession> attachmentSaves = new HashMap<>();
+
+    @PluginMethod
+    public void downloadAttachment(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || !isConfiguredHost(getContext(), url)) {
+            call.reject("Attachments can only be downloaded from the configured Inboxora server.");
+            return;
+        }
+        String filename = sanitizeAttachmentName(call.getString("filename"));
+        try {
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            request.setTitle(filename);
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "Inboxora/" + filename);
+            // The server requires the same CSRF header the API client sends.
+            request.addRequestHeader("X-Requested-With", "MailFlow");
+            String cookies = CookieManager.getInstance().getCookie(url);
+            if (cookies != null && !cookies.isEmpty()) request.addRequestHeader("Cookie", cookies);
+            DownloadManager manager = (DownloadManager) getContext().getSystemService(Context.DOWNLOAD_SERVICE);
+            if (manager == null) throw new Exception("The download manager is unavailable.");
+            long downloadId = manager.enqueue(request);
+            JSObject result = new JSObject();
+            result.put("queued", true);
+            result.put("id", downloadId);
+            result.put("filename", filename);
+            call.resolve(result);
+        } catch (Exception error) {
+            Log.w(TAG, "Attachment download could not be queued", error);
+            call.reject("The download could not be started.");
+        }
+    }
+
+    @PluginMethod
+    public void saveAttachmentBegin(PluginCall call) {
+        String filename = sanitizeAttachmentName(call.getString("filename"));
+        String mimeType = call.getString("mimeType");
+        if (mimeType == null || mimeType.trim().isEmpty()) mimeType = "application/octet-stream";
+        AttachmentSaveSession session = new AttachmentSaveSession();
+        session.filename = filename;
+        session.mimeType = mimeType;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Inboxora");
+                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                session.pendingUri = getContext().getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (session.pendingUri != null) session.stream = getContext().getContentResolver().openOutputStream(session.pendingUri);
+            } else {
+                File directory = new File(getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "Inboxora");
+                if (!directory.exists()) directory.mkdirs();
+                session.legacyFile = uniqueDownloadFile(directory, filename);
+                session.stream = new FileOutputStream(session.legacyFile);
+            }
+            if (session.stream == null) throw new Exception("The destination could not be opened.");
+            String id = UUID.randomUUID().toString();
+            synchronized (attachmentSaves) {
+                attachmentSaves.put(id, session);
+            }
+            JSObject result = new JSObject();
+            result.put("id", id);
+            call.resolve(result);
+        } catch (Exception error) {
+            session.discard(getContext());
+            Log.w(TAG, "Attachment save could not start", error);
+            call.reject("The download could not be started.");
+        }
+    }
+
+    @PluginMethod
+    public void saveAttachmentChunk(PluginCall call) {
+        String id = call.getString("id");
+        String data = call.getString("data");
+        AttachmentSaveSession session;
+        synchronized (attachmentSaves) {
+            session = attachmentSaves.get(id);
+        }
+        if (session == null || data == null) {
+            call.reject("This download is no longer active.");
+            return;
+        }
+        try {
+            byte[] chunk = Base64.decode(data, Base64.NO_WRAP);
+            session.stream.write(chunk);
+            JSObject result = new JSObject();
+            result.put("id", id);
+            result.put("bytes", chunk.length);
+            call.resolve(result);
+        } catch (Exception error) {
+            synchronized (attachmentSaves) {
+                attachmentSaves.remove(id);
+            }
+            session.discard(getContext());
+            Log.w(TAG, "Attachment save chunk failed", error);
+            call.reject("The download could not be saved.");
+        }
+    }
+
+    @PluginMethod
+    public void saveAttachmentFinish(PluginCall call) {
+        String id = call.getString("id");
+        AttachmentSaveSession session;
+        synchronized (attachmentSaves) {
+            session = attachmentSaves.remove(id);
+        }
+        if (session == null) {
+            call.reject("This download is no longer active.");
+            return;
+        }
+        try {
+            session.closeQuietly();
+            if (session.pendingUri != null) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                getContext().getContentResolver().update(session.pendingUri, values, null, null);
+            }
+            JSObject result = new JSObject();
+            result.put("ok", true);
+            result.put("filename", session.filename);
+            if (session.legacyFile != null) result.put("path", session.legacyFile.getAbsolutePath());
+            call.resolve(result);
+        } catch (Exception error) {
+            session.discard(getContext());
+            Log.w(TAG, "Attachment save failed", error);
+            call.reject("The download could not be saved.");
+        }
+    }
+
+    @PluginMethod
+    public void saveAttachmentAbort(PluginCall call) {
+        String id = call.getString("id");
+        AttachmentSaveSession session;
+        synchronized (attachmentSaves) {
+            session = attachmentSaves.remove(id);
+        }
+        if (session != null) session.discard(getContext());
+        call.resolve();
+    }
+
+    /** Keep unicode names readable; remove only what a file system cannot store. */
+    private static String sanitizeAttachmentName(String value) {
+        String name = value == null ? "" : value.trim();
+        name = stripUnsafeAttachmentChars(name);
+        while (!name.isEmpty() && name.charAt(0) == (char) 46) name = name.substring(1);
+        if (name.isEmpty()) name = "attachment";
+        if (name.length() > 200) name = name.substring(name.length() - 200);
+        return name;
+    }
+
+    /** Replace characters a file system cannot store in a filename. */
+    private static String stripUnsafeAttachmentChars(String value) {
+        StringBuilder cleaned = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            cleaned.append(c == (char) 47 || c == (char) 92 || c < 32 ? (char) 95 : c);
+        }
+        return cleaned.toString();
+    }
+
+    private static File uniqueDownloadFile(File directory, String filename) {
+        File file = new File(directory, filename);
+        if (!file.exists()) return file;
+        int dot = filename.lastIndexOf('.');
+        String base = dot > 0 ? filename.substring(0, dot) : filename;
+        String extension = dot > 0 ? filename.substring(dot) : "";
+        for (int i = 1; i < 1000; i++) {
+            file = new File(directory, base + " (" + i + ")" + extension);
+            if (!file.exists()) return file;
+        }
+        return new File(directory, base + "-" + UUID.randomUUID() + extension);
     }
 
     private static void putExtra(Intent intent, String key, String value) {

@@ -53,6 +53,7 @@ import {
   localAttachmentsForGraph,
 } from '../services/providers/microsoft/graphMailBody.js';
 import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
+import { scheduleGraphGhostRemoval } from '../services/providers/microsoft/graphPendingMessageRemovals.js';
 import { immutableIdsEnabled } from '../services/providers/microsoft/graphMessageIdType.js';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 /** Attachment metadata as stored in messages.attachments (JSON) and fetched from IMAP. */
@@ -1656,7 +1657,21 @@ async function respondWithGraphBody(
   } catch (caught) {
     const problem = caught instanceof GraphApiError ? caught : null;
     console.error('Graph body fetch error:', problem?.message ?? (caught instanceof Error ? caught.message : caught));
-    if (problem?.code === 'RESOURCE_NOT_FOUND') return void res.status(404).json({ error: 'This message no longer exists in the mailbox', code: problem.code });
+    if (problem?.code === 'RESOURCE_NOT_FOUND') {
+      // The provider just proved this message no longer exists in the mailbox.
+      // Enqueue the same tombstone the folder delta uses so the durable
+      // reconciliation deletes the ghost row instead of leaving an unread
+      // message that can never be read or flagged again.
+      if (account.provider_connection_id && message.provider_message_id) {
+        scheduleGraphGhostRemoval({
+          connectionId: account.provider_connection_id,
+          accountId: message.account_id,
+          providerMessageId: message.provider_message_id,
+          folderPath: message.folder,
+        });
+      }
+      return void res.status(404).json({ error: 'This message no longer exists in the mailbox', code: problem.code });
+    }
     if (problem?.code === 'RATE_LIMITED') return void res.status(503).json({ error: 'Microsoft Graph is throttling this mailbox. Please try again shortly.', code: problem.code, retryable: true });
     if (problem && (problem.code === 'PROVIDER_AUTH_REQUIRED' || problem.code === 'INSUFFICIENT_SCOPES')) {
       return void res.status(403).json({ error: 'Microsoft Graph refused this request. Reconnect the account or check its permissions.', code: problem.code });

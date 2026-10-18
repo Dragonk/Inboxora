@@ -454,3 +454,68 @@ export async function processGraphPendingRemovals(input: {
 
   return summary;
 }
+
+/**
+ * Enqueue a durable removal candidate for a message the provider just proved
+ * is gone from its mailbox.
+ *
+ * The read paths (flag write, body read) used to answer a Graph 404 with an
+ * error and leave the local row standing forever: a deleted-on-the-server
+ * message stayed in the list, could never be marked read and kept the unread
+ * badge stuck. Enqueueing the same tombstone the folder delta uses lets the
+ * existing reconciliation verify the deletion and clear the ghost row.
+ *
+ * The provider folder id is resolved here from the folder link the sync
+ * maintains, because callers only know the local folder path. An unmapped path
+ * is a refusal: verification requires the remote id.
+ */
+export async function enqueueGraphGhostRemoval(
+  client: PoolClient,
+  input: {
+    connectionId: string;
+    accountId: string;
+    providerMessageId: string;
+    folderPath: string;
+  },
+): Promise<boolean> {
+  const linked = await client.query<{ remote_id: string }>(
+    `SELECT ic.remote_id
+       FROM integration_collections ic
+       JOIN folders f ON f.id = ic.local_folder_id
+      WHERE ic.connection_id = $1
+        AND ic.kind = 'mail_folder'
+        AND ic.enabled = true
+        AND (ic.account_id = $2 OR (ic.account_id IS NULL AND f.account_id = $2))
+        AND f.path = $3
+      LIMIT 1`,
+    [input.connectionId, input.accountId, input.folderPath],
+  );
+
+  const remoteId = linked.rows[0]?.remote_id;
+  if (!remoteId) return false;
+
+  return enqueueGraphPendingRemoval(client, {
+    connectionId: input.connectionId,
+    accountId: input.accountId,
+    providerMessageId: input.providerMessageId,
+    sourceFolderPath: input.folderPath,
+    sourceFolderRemoteId: remoteId,
+  });
+}
+
+/**
+ * Fire-and-forget wrapper for call sites that are not already in a transaction
+ * (the message body route): the user-visible answer must never wait on the
+ * tombstone bookkeeping, and a failed enqueue only means the next delta's
+ * reconciliation has one less candidate.
+ */
+export function scheduleGraphGhostRemoval(input: {
+  connectionId: string;
+  accountId: string;
+  providerMessageId: string;
+  folderPath: string;
+}): void {
+  withTransaction(client => enqueueGraphGhostRemoval(client, input)).catch((error: unknown) => {
+    console.warn('Graph ghost removal enqueue failed:', error instanceof Error ? error.message : error);
+  });
+}
