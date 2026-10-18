@@ -120,6 +120,14 @@ interface InboxoraNativeUpdates {
   openDownload?(): Promise<unknown>;
 }
 
+interface InboxoraNativeAttachments {
+  // Android WebView: <a download> does nothing, so downloads re-route natively.
+  // URLs go through the system DownloadManager; blobs stream back as base64
+  // chunks and are reassembled into Downloads/Inboxora.
+  download?(url: string, filename?: string): Promise<{ queued?: boolean; id?: number; filename?: string } | null>;
+  saveBlob?(blob: Blob, filename: string): Promise<{ ok?: boolean; filename?: string; path?: string } | null>;
+}
+
 interface InboxoraNativeActions {
   ack?(id: string): Promise<unknown>;
   onAction?(callback: (payload: unknown) => void): () => void;
@@ -137,6 +145,7 @@ interface InboxoraNativeBridge {
   resetHost?(): Promise<unknown>;
   notifications?: InboxoraNativeNotifications;
   badges?: InboxoraNativeBadges;
+  attachments?: InboxoraNativeAttachments;
   updates?: InboxoraNativeUpdates;
   mailto?: InboxoraNativeMailto;
   titlebar?: InboxoraNativeTitlebar;

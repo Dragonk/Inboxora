@@ -83,8 +83,17 @@ export function acquireAttachment(path: string, epoch: number, progress?: (loade
 export function clearAttachmentCache(): void { for (const entry of entries.values()) { entry.listeners.clear(); entry.controller.abort(); } entries.clear(); }
 export function clearIdleAttachments(): void { for (const [key, entry] of entries) if (!entry.users) { entry.controller.abort(); entries.delete(key); } }
 export function downloadBlob(blob: Blob, filename: string): void {
+  const safeName = filename.split('').map(c => c.charCodeAt(0) < 32 || c === '/' || c === '\\' ? '_' : c).join('') || 'attachment';
+  // The Android WebView ignores <a download> clicks, so the installed native
+  // shell takes over: the blob is streamed back in base64 chunks and saved to
+  // Downloads/Inboxora. Outside the shell the anchor path is unchanged.
+  const native = window.inboxoraNative?.attachments;
+  if (native?.saveBlob) {
+    native.saveBlob(blob, safeName).catch((error: unknown) => console.error('Native attachment save failed:', error instanceof Error ? error.message : error));
+    return;
+  }
   const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
-  anchor.href = url; anchor.download = filename.split('').map(c => c.charCodeAt(0) < 32 || c === '/' || c === '\\' ? '_' : c).join('') || 'attachment';
+  anchor.href = url; anchor.download = safeName;
   document.body.append(anchor); anchor.click(); anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

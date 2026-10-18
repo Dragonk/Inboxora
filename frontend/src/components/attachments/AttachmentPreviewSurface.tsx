@@ -92,8 +92,15 @@ export default function AttachmentPreviewSurface({ selection, onSelect, onDetach
   useEffect(() => {
     const element = root.current; if (element && !element.contains(document.activeElement)) element.focus();
   }, [source?.path]);
-  const all = () => {
+  const all = async () => {
     if (!selection.downloadAllPath || !isCurrentAuthEpoch(selection.authEpoch)) return;
+    // The Android WebView ignores <a download> clicks, so the native shell
+    // hands the URL to the system DownloadManager with the session's cookie.
+    const native = window.inboxoraNative?.attachments;
+    if (native?.download) {
+      const host = await window.inboxoraNative?.getHost?.();
+      if (host) { void native.download(host + attachmentPath(selection.downloadAllPath), 'attachments.zip'); return; }
+    }
     const anchor = document.createElement('a'); anchor.href = attachmentPath(selection.downloadAllPath); anchor.download = ''; document.body.append(anchor); anchor.click(); anchor.remove();
   };
   const original = async () => {
@@ -101,9 +108,24 @@ export default function AttachmentPreviewSurface({ selection, onSelect, onDetach
     const controller = new AbortController(); downloadRequest.current = controller; setDownloading(true); setDownloadFailed(false);
     try {
       const local = localFiles?.get(source.path);
-      const blob = local ? await local() : await fetchOriginalAttachment(source.path, selection.authEpoch, controller.signal);
-      controller.signal.throwIfAborted();
-      if (isCurrentAuthEpoch(selection.authEpoch)) downloadBlob(blob, source.filename);
+      if (local) {
+        const blob = await local();
+        controller.signal.throwIfAborted();
+        if (isCurrentAuthEpoch(selection.authEpoch)) downloadBlob(blob, source.filename);
+      } else {
+        // In the native shell the system DownloadManager streams the original
+        // bytes straight from the server with the CSRF header and the session
+        // cookie; only the WebView needs the in-memory blob detour.
+        const native = window.inboxoraNative?.attachments;
+        const host = native?.download ? await window.inboxoraNative?.getHost?.() : null;
+        if (native?.download && host) {
+          await native.download(host + attachmentPath(source.path), source.filename);
+        } else {
+          const blob = await fetchOriginalAttachment(source.path, selection.authEpoch, controller.signal);
+          controller.signal.throwIfAborted();
+          if (isCurrentAuthEpoch(selection.authEpoch)) downloadBlob(blob, source.filename);
+        }
+      }
     } catch { if (!controller.signal.aborted && isCurrentAuthEpoch(selection.authEpoch)) setDownloadFailed(true); }
     finally { if (downloadRequest.current === controller) { downloadRequest.current = undefined; if (!controller.signal.aborted) setDownloading(false); } }
   };
