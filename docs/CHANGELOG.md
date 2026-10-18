@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.4](wiki/Release-notes-4.3.4.md). Older release notes are collected in
+[Release notes 4.3.5](wiki/Release-notes-4.3.5.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -20,7 +20,17 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-There are no unreleased changes after **4.3.4**.
+There are no unreleased changes after **4.3.5**.
+
+## [4.3.5] - 2026-10-18
+
+### Fixed
+- Emit the canonical new-mail notification event for Microsoft Graph and Gmail API syncs (incremental INBOX deltas only), so Web Push for the PWA, the unread badge and native Android push now fire for native-transport accounts instead of IMAP accounts only.
+- Enqueue a durable removal candidate when Microsoft Graph confirms a message is gone (404 on a flag write or a body read), so a ghost message no longer lingers unread and unflaggable in the message list; the existing reconciliation verifies and deletes the row.
+- Fix the Android top bar rendering below the status bar: remove the redundant manual window-insets padding and the theme fitsSystemWindows handling added in 4.3.3 and let Capacitor's native system-bar handling own the insets edge-to-edge, matching the PWA.
+- Fix attachment downloads in the Android app: server URLs (single files, the zip) go through the system DownloadManager with the session cookie and CSRF header, and blobs the app already holds (archive entries, exports) stream back in base64 chunks into Downloads/Inboxora; the previously silent download button now works.
+
+See [Release notes 4.3.5](wiki/Release-notes-4.3.5.md) for user-facing details and upgrade guidance.
 
 ## [4.3.4] - 2026-10-14
 

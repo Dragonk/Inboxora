@@ -1,7 +1,7 @@
 {
   "name": "inboxora-frontend",
   "productName": "Inboxora",
-  "version": "4.3.4",
+  "version": "4.3.5",
   "description": "A self-hosted inbox for email, contacts and calendars.",
   "homepage": "https://github.com/Dragonk/Inboxora",
   "author": {
@@ -126,8 +126,8 @@
             "Name[fr]": "Composer",
             "Name[es]": "Redactar",
             "Name[it]": "Scrivi",
-            "Name[ru]": "Написать",
-            "Name[zh_CN]": "撰写",
+            "Name[ru]": "\u041d\u0430\u043f\u0438\u0441\u0430\u0442\u044c",
+            "Name[zh_CN]": "\u64b0\u5199",
             "Exec": "/opt/Inboxora/Inboxora --inboxora-action=new-mail",
             "Icon": "Inboxora"
           },
@@ -136,12 +136,12 @@
             "Name[en]": "Calendar",
             "Name[pl]": "Kalendarz",
             "Name[de]": "Kalender",
-            "Name[cs]": "Kalendář",
+            "Name[cs]": "Kalend\u00e1\u0159",
             "Name[fr]": "Calendrier",
             "Name[es]": "Agenda",
             "Name[it]": "Calendario",
-            "Name[ru]": "Календарь",
-            "Name[zh_CN]": "日历",
+            "Name[ru]": "\u041a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u044c",
+            "Name[zh_CN]": "\u65e5\u5386",
             "Exec": "/opt/Inboxora/Inboxora --inboxora-action=open-calendar",
             "Icon": "Inboxora"
           },
@@ -154,8 +154,8 @@
             "Name[fr]": "Contacts",
             "Name[es]": "Contactos",
             "Name[it]": "Contatti",
-            "Name[ru]": "Контакты",
-            "Name[zh_CN]": "联系人",
+            "Name[ru]": "\u041a\u043e\u043d\u0442\u0430\u043a\u0442\u044b",
+            "Name[zh_CN]": "\u8054\u7cfb\u4eba",
             "Exec": "/opt/Inboxora/Inboxora --inboxora-action=open-contacts",
             "Icon": "Inboxora"
           }
