@@ -8,9 +8,6 @@ import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -20,7 +17,6 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(InboxoraNativePlugin.class);
         super.onCreate(savedInstanceState);
-        applyWindowInsetsPadding();
         InboxoraNativeLocale.publishShortcuts(this);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -207,18 +203,4 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private void applyWindowInsetsPadding() {
-        View contentView = findViewById(android.R.id.content);
-        if (contentView != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(contentView, (v, insets) -> {
-                int handledTypes = WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.displayCutout();
-                Insets bars = insets.getInsets(handledTypes);
-                v.setPadding(bars.left, bars.top, bars.right, 0);
-                return new WindowInsetsCompat.Builder(insets)
-                    .setInsets(handledTypes, Insets.NONE)
-                    .build();
-            });
-            ViewCompat.requestApplyInsets(contentView);
-        }
-    }
 }

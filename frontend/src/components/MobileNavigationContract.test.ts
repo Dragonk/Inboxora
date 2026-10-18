@@ -69,15 +69,13 @@ test('mobile top bar and content containers respect status bar and safe-area ins
   const config = JSON.parse(capConfig);
   assert.equal(config.plugins?.SystemBars?.insetsHandling, 'native');
 
-  // Native MainActivity installs window insets listener in onCreate and consumes handled top insets
-  assert.match(
-    mainActivity,
-    /onCreate\([\s\S]*?\)\s*\{[\s\S]*?applyWindowInsetsPadding\(\)/
-  );
-  assert.match(mainActivity, /Type\.statusBars\(\) \| WindowInsetsCompat\.Type\.displayCutout\(\)/);
-  assert.match(mainActivity, /v\.setPadding\(bars\.left, bars\.top, bars\.right, 0\)/);
-  assert.match(mainActivity, /setInsets\(handledTypes,\s*Insets\.NONE\)/);
-
-  // Android theme enables fitsSystemWindows
-  assert.match(stylesXml, /<item name="android:fitsSystemWindows">true<\/item>/);
+  // Capacitor 8's SystemBars plugin owns the insets natively: a recent WebView
+  // gets an edge-to-edge passthrough with correct env() values. The manual
+  // content padding, the legacy theme inset handling and a viewport-fit hint
+  // must all stay out of the way, or the top bar renders below the status bar
+  // a second time (the double inset PR 4.3.3 shipped).
+  assert.doesNotMatch(mainActivity, /applyWindowInsetsPadding/);
+  assert.doesNotMatch(mainActivity, /WindowInsetsCompat/);
+  assert.doesNotMatch(stylesXml, /<item name="android:fitsSystemWindows">true<\/item>/);
+  assert.equal(config.plugins?.SystemBars?.initialViewportFitValueHint, 'cover');
 });
