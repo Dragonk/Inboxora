@@ -1653,11 +1653,21 @@ public class InboxoraNativePlugin extends Plugin {
     /** Keep unicode names readable; remove only what a file system cannot store. */
     private static String sanitizeAttachmentName(String value) {
         String name = value == null ? "" : value.trim();
-        name = name.replaceAll("[/\\\\\x00-\x1f]", "_");
-        name = name.replaceAll("^\\.+", "");
+        name = stripUnsafeAttachmentChars(name);
+        while (!name.isEmpty() && name.charAt(0) == (char) 46) name = name.substring(1);
         if (name.isEmpty()) name = "attachment";
         if (name.length() > 200) name = name.substring(name.length() - 200);
         return name;
+    }
+
+    /** Replace characters a file system cannot store in a filename. */
+    private static String stripUnsafeAttachmentChars(String value) {
+        StringBuilder cleaned = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            cleaned.append(c == (char) 47 || c == (char) 92 || c < 32 ? (char) 95 : c);
+        }
+        return cleaned.toString();
     }
 
     private static File uniqueDownloadFile(File directory, String filename) {
