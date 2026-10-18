@@ -10,6 +10,7 @@ import type { ProviderAdapterOutcome, ProviderMutationStatus } from './providerM
 import { graphFlagMutationAdapter } from './providers/microsoft/graphMailMutations.js';
 import { gmailFlagMutationAdapter } from './providers/google/gmailMailMutations.js';
 import { classifyImapFlagFailure } from './providers/imapFlagMutation.js';
+import { enqueueGraphGhostRemoval } from './providers/microsoft/graphPendingMessageRemovals.js';
 import { graphGet } from './providers/microsoft/graphApiClient.js';
 import { googleApiFetch } from './providers/google/googleApiClient.js';
 import { googleConfigFromEnv, microsoftConfigFromEnv } from './providerAuthService.js';
@@ -309,6 +310,24 @@ export async function processMailFlagIntent(messageId: string, flag: string, por
             reading = false;
         }
         const status = observed ? 'reconciled' : reading ? 'readback' : outcome.status === 'committed' ? 'confirmed' : outcome.status === 'retryable' ? 'pending' : 'failed';
+        // A provider-confirmed 404 on the flag write means the message is gone from
+        // the mailbox. Without this, a ghost row could never be marked read and kept
+        // the unread badge stuck forever; the tombstone feeds the same durable
+        // reconciliation the folder delta uses, which verifies before deleting.
+        if (outcome.status === 'permanent' && outcome.code === 'RESOURCE_NOT_FOUND' && current
+            && current.identity.transport === 'microsoft_graph' && current.identity.connection
+            && current.identity.providerId) {
+            try {
+                await enqueueGraphGhostRemoval(client, {
+                    connectionId: current.identity.connection,
+                    accountId: current.account_id,
+                    providerMessageId: current.identity.providerId,
+                    folderPath: current.identity.folder,
+                });
+            } catch (enqueueError) {
+                console.warn('Graph ghost removal enqueue failed:', enqueueError instanceof Error ? enqueueError.message : enqueueError);
+            }
+        }
         const retrySeconds = outcome.status === 'retryable' && Number.isFinite(outcome.retryAfterSeconds)
             ? Math.min(86400, Math.max(30, Math.ceil(outcome.retryAfterSeconds ?? 30))) : 30;
         await client.query(`UPDATE mail_flag_intents SET status=$5,code=$6,lease_token=NULL,lease_until=NULL,next_attempt_at=NOW()+make_interval(secs=>$7),updated_at=NOW()
