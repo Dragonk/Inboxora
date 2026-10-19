@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo } from 'react';
 export { EMAIL_SANITIZE_POLICY, sanitizeMessageHtml, emailCsp, EMAIL_BASE_TAG, buildSrcDoc } from './messageBodySecurity.ts';
 import { sanitizeMessageHtml, buildSrcDoc, escapeMessageText } from './messageBodySecurity.ts';
 import { installMessageQuoteFolding } from './messageQuoteFolding.ts';
-import { scheduleInitialLayoutReady, measureMessageFrameHeight } from './messageBodyLayout.ts';
+import { scheduleInitialLayoutReady, measureMessageFrameHeight, fitMessageFrameToWidth } from './messageBodyLayout.ts';
 import { useStore } from '../store/index.ts';
 import { getEmailSurface } from '../themes.ts';
 
@@ -18,6 +18,9 @@ import { getEmailSurface } from '../themes.ts';
  *   - remote-image blocking (default), with opt-in for allow-listed senders
  *   - CID references preserved (backend resolves to attachment content)
  *   - auto-height sizing to content
+ *   - Gmail-style shrink-to-fit: a body still wider than the frame after the
+ *     srcDoc reflow pass is scaled down so no horizontal scrolling is needed;
+ *     documentLayout frames (docx previews) keep their natural width
  *
  * The iframe has NO allow-scripts, so even if an attacker injects <script>,
  * event handlers, javascript: URIs, or SVG tricks, they cannot execute.
@@ -82,7 +85,10 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
         // value is at least the old iframe viewport height and prevents a later quote
         // collapse from shrinking the frame. Resetting to a natural viewport before
         // reading body.scrollHeight makes H3 reflect the currently visible DOM.
-        const contentHeight = measureMessageFrameHeight(iframe);
+        // Fit before measuring so the reported height matches the scaled
+        // content: a shrunken email must not leave empty space below it.
+        const fitScale = fitMessageFrameToWidth(iframe, !documentLayout);
+        const contentHeight = measureMessageFrameHeight(iframe, fitScale);
         if (contentHeight === null) return;
         onHeightChange?.(contentHeight);
         if (!initialLayoutReported) {
@@ -226,7 +232,7 @@ export default function MessageBodyRenderer({ html = '', text = '', remoteImages
       cancelInitialLayout?.();
       iframe.removeEventListener('load', onLoaded);
     };
-  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, onFrameKeyDown, iframeRef]);
+  }, [srcDoc, remoteImages, quoteFolding, showQuotedTextLabel, hideQuotedTextLabel, onQuoteDetected, onHeightChange, onInitialLayoutReady, onLoad, onContextMenu, onOpenLink, onFrameKeyDown, iframeRef, documentLayout]);
 
 
   return (

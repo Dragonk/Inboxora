@@ -196,4 +196,18 @@ describe('mail body surface contract', () => {
     const doc = buildSrcDoc('<p>hello</p>', { surface: { tone: 'neon', background: '#000', foreground: '#fff' } });
     assert.doesNotMatch(doc, /color-scheme/);
   });
+
+  it('scales wide email bodies down to the frame width and keeps documentLayout at natural size', () => {
+    const renderer = read('MessageBodyRenderer.tsx');
+    const layout = read('messageBodyLayout.ts');
+    // The fit runs before the height measurement so the reported height is the scaled one.
+    assert.match(renderer, /fitMessageFrameToWidth\(iframe, !documentLayout\)/);
+    assert.match(renderer, /measureMessageFrameHeight\(iframe, fitScale\)/);
+    // The scale is clamped to 1 and only applied on real overflow.
+    assert.match(layout, /Math\.min\(1, viewportWidth \/ contentWidth\)/);
+    assert.match(layout, /contentWidth <= viewportWidth \+ 1\) return 1/);
+    // documentLayout frames (docx preview) are excluded from the fit and keep
+    // their own scrolling contract.
+    assert.match(renderer, /iframeRef, documentLayout\]/);
+  });
 });

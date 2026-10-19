@@ -283,8 +283,10 @@ export function buildSrcDoc(html: unknown, { remoteImages = false, surface = nul
 ${colorSchemeMeta}<meta http-equiv="Content-Security-Policy" content="${csp}">
 ${EMAIL_BASE_TAG}
 <style>
-  /* Shared MessagePane/ConversationReader mobile fit contract. Never hide overflow:
-     an oversized legacy newsletter must reflow or remain horizontally accessible. */
+  /* Shared mobile fit contract: first let the email reflow (fluid widths,
+     wrapping, narrow-viewport table normalisation); whatever still overflows
+     is scaled down to the frame width by the renderer fit-to-width pass, so
+     nothing is clipped and no horizontal scrolling is needed. */
   html { margin: 0; padding: 0; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
   body { margin: 0; padding: 8px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
   ${documentLayout ? '' : '@media (max-width: 767px) { table { width: 100% !important; max-width: 100% !important; } }'}
