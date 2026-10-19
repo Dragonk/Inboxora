@@ -17,6 +17,8 @@ versions are listed in [Archive](Archive.md).
 
 ## Fixed
 
+- **Reminders for fresh events.** The on-the-fly reminder fallback for events the occurrence worker has not built yet keyed its rows by a column the query never selected, so reminders for freshly created or edited events never reached the preview or a device until the worker caught up. The fallback now carries the event id explicitly.
+
 - **Phone-width reminder settings.** The calendar reminder lead-time chips wrap
   instead of shrinking into unreadable slivers, the lead/mode pair stacks on phones,
   upcoming reminder rows wrap with a compact date, and delivery-warning rows let their
