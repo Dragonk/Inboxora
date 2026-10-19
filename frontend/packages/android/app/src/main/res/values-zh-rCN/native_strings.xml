@@ -46,6 +46,13 @@
     <string name="native_open_link" formatted="false">打开链接</string>
     <string name="native_copy_link" formatted="false">复制链接</string>
     <string name="native_copy_image_address" formatted="false">复制图片地址</string>
+    <string name="native_live_push_title" formatted="false">Inboxora 实时通知</string>
+    <string name="native_live_push_body" formatted="false">已连接到您的 Inboxora 服务器。</string>
+    <string name="native_calendar_reminder_title" formatted="false">日历提醒</string>
+    <string name="native_calendar_reminders_channel" formatted="false">日历提醒</string>
+    <string name="native_calendar_alarm_title" formatted="false">日历闹钟</string>
+    <string name="native_calendar_alarms_channel" formatted="false">日历闹钟</string>
+    <string name="native_calendar_alarm_stop" formatted="false">停止闹钟</string>
     <string name="native_compose" formatted="false">撰写</string>
     <string name="native_calendar" formatted="false">日历</string>
     <string name="native_contacts" formatted="false">联系人</string>

@@ -68,4 +68,21 @@ public class InboxoraNotificationDedupTest {
         assertTrue(first >= 0);
         assertNotEquals(first, other);
     }
+
+    @Test
+    public void forgetRemovesAnEventFromTheDedupAndActiveSet() {
+        InboxoraNotificationDedup dedup = new InboxoraNotificationDedup(null, 1000, 10);
+        dedup.remember("msg-1", 1000);
+        dedup.remember("msg-2", 1000);
+        assertEquals(java.util.Arrays.asList("msg-1", "msg-2"), dedup.activeEventIds());
+
+        dedup.forget("msg-1");
+        assertEquals(java.util.Arrays.asList("msg-2"), dedup.activeEventIds());
+        // The same id may notify again later (e.g. a follow-up move back to INBOX).
+        assertFalse(dedup.isDuplicate("msg-1", 1500));
+        // Unknown and empty ids are safe no-ops.
+        dedup.forget(null);
+        dedup.forget("");
+        assertEquals(1, dedup.activeEventIds().size());
+    }
 }

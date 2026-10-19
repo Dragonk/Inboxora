@@ -1076,6 +1076,36 @@
       "loadError": "无法加载保留设置。",
       "saveError": "无法保存保留设置。",
       "saved": "保留设置已保存。"
+    },
+    "reminders": {
+      "title": "日历提醒",
+      "description": "提前时间由服务器计算（全局 → 日历 → 活动）；Android 应用会以通知或持续响铃的闹钟形式提醒。",
+      "enabled": "活动提醒",
+      "enabledHint": "适用于所有日历，除非被某个日历或活动覆盖。",
+      "on": "开",
+      "off": "关",
+      "lead": "提前提醒",
+      "mode": "提醒方式",
+      "modeNotification": "通知",
+      "modeAlarm": "闹钟",
+      "upcoming": "即将到来的提醒（48 小时）",
+      "upcomingEmpty": "未来 48 小时内没有提醒。",
+      "previewUnavailable": "预览不可用。",
+      "before": "提前 {{minutes}} 分钟",
+      "deviceTitle": "Android 设备",
+      "exactAlarms": "精确闹钟",
+      "granted": "已允许",
+      "missing": "未允许",
+      "grantExact": "允许",
+      "battery": "电池优化",
+      "batteryRestricted": "受限",
+      "batteryExempt": "不受限",
+      "batteryFix": "解除限制",
+      "live": "实时连接",
+      "liveConnected": "已连接",
+      "liveDisconnected": "已断开",
+      "scheduled": "已在此设备上计划",
+      "syncNow": "立即同步提醒"
     }
   },
   "blockList": {
@@ -2271,7 +2301,17 @@
     "importIcs": "导入 .ics 文件",
     "importDone": "已导入 {{count}} 个日程。",
     "importProtected": "{{count}} 个日程保持不变，因为 Inboxora 已发送其邀请。",
-    "showAgendaDescription": "在桌面端日历右侧显示所选日期的日程。"
+    "showAgendaDescription": "在桌面端日历右侧显示所选日期的日程。",
+    "reminder": "提醒",
+    "reminderInherit": "日历默认",
+    "reminderOn": "开启",
+    "reminderOff": "关闭",
+    "reminderMinutes": "提前分钟数",
+    "reminderMode": "类型",
+    "reminderModeNotification": "通知",
+    "reminderModeAlarm": "闹钟",
+    "reminderError": "无法保存提醒。",
+    "reminderHours": "{{count}} 小时"
   },
   "mailFolders": {
     "inbox": "收件箱",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "提醒",
+    "reminderOn": "启用",
+    "reminderOff": "禁用",
+    "reminderLeadTime": "提前提醒分钟数",
+    "reminderInherit": "全局默认",
+    "reminderAtStart": "开始时"
   },
   "undoSendSetting": {
     "legacyValue": "当前延迟：{{count}} 秒。选择四个选项之一进行更改。",

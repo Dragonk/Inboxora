@@ -6,9 +6,12 @@ import androidx.work.Constraints;
 import androidx.work.Data;
 import androidx.work.ExistingWorkPolicy;
 import androidx.work.NetworkType;
+import androidx.work.ExistingPeriodicWorkPolicy;
 import androidx.work.OneTimeWorkRequest;
+import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 import org.json.JSONObject;
 
@@ -27,6 +30,8 @@ final class InboxoraNativePush {
     static final String PREF_TRANSPORT = "push_transport";
     static final String PREF_REGISTERED_HOST = "push_registered_host";
     static final String PREF_STATUS = "push_status";
+    static final String PREF_LIVE_STATUS = "live_status";
+    static final String PREF_SCHEDULED_REMINDERS = "scheduled_reminders";
 
     static final String SECRET_DEVICE_TOKEN = "push_device_token";
     // The provider endpoint/token is a bearer credential for the provider, so it
@@ -36,10 +41,14 @@ final class InboxoraNativePush {
     static final String KEY_EVENT_ID = "eventId";
 
     static final String WORK_FETCH = "inboxora-push-fetch";
+    static final String WORK_REMINDER_SYNC = "inboxora-reminder-sync";
     static final String WORK_REGISTER = "inboxora-push-register";
 
     static final String TRANSPORT_UNIFIEDPUSH = "unifiedpush";
     static final String TRANSPORT_FCM = "fcm";
+    // In-app foreground service keeping its own WebSocket to the server alive;
+    // no external distributor involved.
+    static final String TRANSPORT_LIVE = "live";
 
     // Settings-facing states, mirrored by the InboxoraNative JS bridge.
     static final String STATUS_CONNECTED = "connected";
@@ -85,6 +94,15 @@ final class InboxoraNativePush {
 
     static String status(Context context) {
         return prefs(context).getString(PREF_STATUS, STATUS_UNAVAILABLE);
+    }
+
+    /** Connection state of the app-owned live WebSocket (not the provider). */
+    static void setLiveStatus(Context context, String value) {
+        prefs(context).edit().putString(PREF_LIVE_STATUS, value).apply();
+    }
+
+    static String liveStatus(Context context) {
+        return prefs(context).getString(PREF_LIVE_STATUS, STATUS_UNAVAILABLE);
     }
 
     static String deviceToken(Context context) {
@@ -136,6 +154,30 @@ final class InboxoraNativePush {
         try {
             WorkManager.getInstance(context.getApplicationContext())
                 .enqueueUniqueWork(WORK_REGISTER, ExistingWorkPolicy.REPLACE, request);
+        } catch (Exception ignored) {}
+    }
+
+    /** On-demand calendar reminder sync (settings change, app start). */
+    static void enqueueReminderSync(Context context) {
+        if (context == null) return;
+        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(InboxoraReminderSyncWorker.class)
+            .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build();
+        try {
+            WorkManager.getInstance(context.getApplicationContext())
+                .enqueueUniqueWork(WORK_REMINDER_SYNC, ExistingWorkPolicy.REPLACE, request);
+        } catch (Exception ignored) {}
+    }
+
+    /** Periodic calendar reminder refresh so upcoming alarms stay scheduled. */
+    static void scheduleReminderSync(Context context) {
+        if (context == null) return;
+        try {
+            PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(InboxoraReminderSyncWorker.class, 6, TimeUnit.HOURS)
+                .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build();
+            WorkManager.getInstance(context.getApplicationContext())
+                .enqueueUniquePeriodicWork(WORK_REMINDER_SYNC, ExistingPeriodicWorkPolicy.KEEP, request);
         } catch (Exception ignored) {}
     }
 

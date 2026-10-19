@@ -1,9 +1,16 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('./diagnosticsRing.js', () => ({ recordWsConnect: vi.fn(), recordWsDisconnect: vi.fn() }));
+const { authenticatePushDevice, bearerTokenFromHeader } = vi.hoisted(() => ({
+  // The real helpers live in pushDevices.js; the device-token leg of the
+  // handshake is what these tests exercise, so the store is faked here.
+  bearerTokenFromHeader: vi.fn<(header?: string) => string | null>(),
+  authenticatePushDevice: vi.fn<(token: string | null) => Promise<{ id: string; userId: string; deviceId: string; transport: string } | null>>(),
+}));
+vi.mock('./pushDevices.js', () => ({ authenticatePushDevice, bearerTokenFromHeader }));
 import { setupWebSocket } from './websocket.js';
 
 type UpgradeRequest = {
-  headers: { origin?: string };
+  headers: { origin?: string; authorization?: string };
   session?: { userId?: string; locked?: boolean } | null;
 };
 
@@ -78,6 +85,7 @@ function setup(sessionMiddleware: SessionMiddleware, manager: ImapManager) {
   return { ws, manager };
 }
 afterEach(() => vi.restoreAllMocks());
+afterEach(() => { authenticatePushDevice.mockReset(); bearerTokenFromHeader.mockReset(); });
 describe('WebSocket failure recovery', () => {
   it('absorbs transport errors even while session lookup is pending', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -109,5 +117,61 @@ describe('WebSocket failure recovery', () => {
     await Promise.resolve();
     expect(error).toHaveBeenCalledWith('WebSocket account reconnect failed:', 'database unavailable');
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'connected' }));
+  });
+});
+
+describe('device-token sockets (the native live push service)', () => {
+  it('authenticates a socket with a valid device token and no browser session', async () => {
+    bearerTokenFromHeader.mockReturnValue('mf_push_device.example');
+    authenticatePushDevice.mockResolvedValue({ id: 'row-1', userId: 'user-9', deviceId: 'device-1', transport: 'live' });
+    const wss = new TestWebSocketServer();
+    const ws = new TestWebSocket();
+    setupWebSocket(wss, (_req, _res, next) => next(), createImapManager());
+    wss.connect(ws, { headers: { authorization: 'Bearer mf_push_device.example' }, session: null });
+    // The session callback is async now: the device lookup resolves first.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ws.userId).toBe('user-9');
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'connected' }));
+  });
+
+  it('rejects a socket whose device token no longer authenticates', async () => {
+    bearerTokenFromHeader.mockReturnValue('mf_push_revoked.example');
+    authenticatePushDevice.mockResolvedValue(null);
+    const wss = new TestWebSocketServer();
+    const ws = new TestWebSocket();
+    setupWebSocket(wss, (_req, _res, next) => next(), createImapManager());
+    wss.connect(ws, { headers: { authorization: 'Bearer mf_push_revoked.example' }, session: null });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ws.close).toHaveBeenCalledWith(1008, 'Unauthorized');
+    expect(ws.userId).toBeUndefined();
+  });
+
+  it('never falls back to a device token when a session is already present and locked', async () => {
+    bearerTokenFromHeader.mockReturnValue('mf_push_device.example');
+    const wss = new TestWebSocketServer();
+    const ws = new TestWebSocket();
+    setupWebSocket(wss, (_req, _res, next) => next(), createImapManager());
+    wss.connect(ws, { headers: { authorization: 'Bearer mf_push_device.example' }, session: { userId: 'u1', locked: true } });
+    expect(ws.close).toHaveBeenCalledWith(1008, 'Locked');
+    expect(authenticatePushDevice).not.toHaveBeenCalled();
+  });
+
+  it('delivers mail-state events to a device socket the same as to a browser socket', async () => {
+    bearerTokenFromHeader.mockReturnValue('mf_push_device.example');
+    authenticatePushDevice.mockResolvedValue({ id: 'row-1', userId: 'user-9', deviceId: 'device-1', transport: 'live' });
+    const wss = new TestWebSocketServer();
+    const ws = new TestWebSocket();
+    setupWebSocket(wss, (_req, _res, next) => next(), createImapManager());
+    wss.connect(ws, { headers: { authorization: 'Bearer mf_push_device.example' }, session: null });
+    await Promise.resolve();
+    await Promise.resolve();
+    const { publishMailStateChanged } = await import('./mailStateEvents.js');
+    publishMailStateChanged({ userId: 'user-9', accountId: 'acct-1' });
+    // mail-state changes are coalesced on a short timer before delivery.
+    await new Promise(resolve => setTimeout(resolve, 350));
+    const sent = (ws.send as unknown as { mock: { calls: unknown[][] } }).mock.calls.flat();
+    expect(sent).toContain(JSON.stringify({ type: 'mail_state_changed', accountId: 'acct-1', folders: null }));
   });
 });

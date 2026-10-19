@@ -1092,6 +1092,36 @@
       "loadError": "Impossibile caricare le impostazioni di conservazione.",
       "saveError": "Impossibile salvare le impostazioni di conservazione.",
       "saved": "Impostazioni di conservazione salvate."
+    },
+    "reminders": {
+      "title": "Promemoria del calendario",
+      "description": "L'anticipo lo calcola il server (globale → calendario → evento); l'app Android li emette come notifiche o allarmi insistenti.",
+      "enabled": "Promemoria eventi",
+      "enabledHint": "Si applica a tutti i calendari, salvo override di un calendario o evento.",
+      "on": "Attivo",
+      "off": "Disattivo",
+      "lead": "Avvisa prima",
+      "mode": "Consegna",
+      "modeNotification": "Notifica",
+      "modeAlarm": "Allarme",
+      "upcoming": "Prossimi promemoria (48 h)",
+      "upcomingEmpty": "Nessun promemoria nelle prossime 48 ore.",
+      "previewUnavailable": "Anteprima non disponibile.",
+      "before": "{{minutes}} min prima",
+      "deviceTitle": "Dispositivo Android",
+      "exactAlarms": "Allarmi esatti",
+      "granted": "Consentito",
+      "missing": "Non consentito",
+      "grantExact": "Consenti",
+      "battery": "Ottimizzazione batteria",
+      "batteryRestricted": "Limitata",
+      "batteryExempt": "Senza limitazioni",
+      "batteryFix": "Rimuovi limitazioni",
+      "live": "Connessione attiva",
+      "liveConnected": "Connessa",
+      "liveDisconnected": "Disconnessa",
+      "scheduled": "Pianificati sul dispositivo",
+      "syncNow": "Sincronizza i promemoria"
     }
   },
   "blockList": {
@@ -2287,7 +2317,17 @@
     "importIcs": "Importa file .ics",
     "importDone": "{{count}} evento/i importato/i.",
     "importProtected": "{{count}} evento/i sono rimasti invariati perché Inboxora ha inviato i relativi inviti.",
-    "showAgendaDescription": "Mostra l’agenda del giorno selezionato a destra del calendario sul computer."
+    "showAgendaDescription": "Mostra l’agenda del giorno selezionato a destra del calendario sul computer.",
+    "reminder": "Promemoria",
+    "reminderInherit": "Predefinito del calendario",
+    "reminderOn": "Attivo",
+    "reminderOff": "Disattivo",
+    "reminderMinutes": "Minuti prima",
+    "reminderMode": "Tipo",
+    "reminderModeNotification": "Notifica",
+    "reminderModeAlarm": "Allarme",
+    "reminderError": "Impossibile salvare il promemoria.",
+    "reminderHours": "{{count}} h"
   },
   "mailFolders": {
     "inbox": "Posta in arrivo",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "Promemoria",
+    "reminderOn": "Attivato",
+    "reminderOff": "Disattivato",
+    "reminderLeadTime": "Avvisa minuti prima",
+    "reminderInherit": "Predefinito globale",
+    "reminderAtStart": "All'inizio"
   },
   "undoSendSetting": {
     "legacyValue": "Ritardo attuale: {{count}} s. Scegli una delle quattro opzioni per modificarlo.",

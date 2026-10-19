@@ -1092,6 +1092,36 @@
       "loadError": "Impossible de charger les paramètres de conservation.",
       "saveError": "Impossible d’enregistrer les paramètres de conservation.",
       "saved": "Paramètres de conservation enregistrés."
+    },
+    "reminders": {
+      "title": "Rappels du calendrier",
+      "description": "Le serveur calcule l'avance (global → calendrier → événement) ; l'application Android les déclenche en notifications ou alarmes insistantes.",
+      "enabled": "Rappels d'événements",
+      "enabledHint": "S'applique à tous vos calendriers sauf si un calendrier ou un événement le remplace.",
+      "on": "Activé",
+      "off": "Désactivé",
+      "lead": "Rappel avant",
+      "mode": "Diffusion",
+      "modeNotification": "Notification",
+      "modeAlarm": "Alarme",
+      "upcoming": "Rappels à venir (48 h)",
+      "upcomingEmpty": "Aucun rappel dans les 48 prochaines heures.",
+      "previewUnavailable": "Aperçu indisponible.",
+      "before": "{{minutes}} min avant",
+      "deviceTitle": "Appareil Android",
+      "exactAlarms": "Alarmes exactes",
+      "granted": "Autorisé",
+      "missing": "Refusé",
+      "grantExact": "Autoriser",
+      "battery": "Optimisation de la batterie",
+      "batteryRestricted": "Restreinte",
+      "batteryExempt": "Sans restriction",
+      "batteryFix": "Retirer la restriction",
+      "live": "Connexion en direct",
+      "liveConnected": "Connecté",
+      "liveDisconnected": "Déconnecté",
+      "scheduled": "Planifiés sur l'appareil",
+      "syncNow": "Synchroniser les rappels"
     }
   },
   "blockList": {
@@ -2287,7 +2317,17 @@
     "importIcs": "Importer un fichier .ics",
     "importDone": "{{count}} événement(s) importé(s).",
     "importProtected": "{{count}} événement(s) sont restés inchangés car Inboxora a envoyé leurs invitations.",
-    "showAgendaDescription": "Afficher le programme du jour sélectionné à droite du calendrier sur ordinateur."
+    "showAgendaDescription": "Afficher le programme du jour sélectionné à droite du calendrier sur ordinateur.",
+    "reminder": "Rappel",
+    "reminderInherit": "Valeur du calendrier",
+    "reminderOn": "Activé",
+    "reminderOff": "Désactivé",
+    "reminderMinutes": "Minutes avant",
+    "reminderMode": "Type",
+    "reminderModeNotification": "Notification",
+    "reminderModeAlarm": "Alarme",
+    "reminderError": "Impossible d'enregistrer le rappel.",
+    "reminderHours": "{{count}} h"
   },
   "mailFolders": {
     "inbox": "Boîte de réception",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "Rappels",
+    "reminderOn": "Activé",
+    "reminderOff": "Désactivé",
+    "reminderLeadTime": "Avertir minutes avant",
+    "reminderInherit": "Valeur globale",
+    "reminderAtStart": "Au début"
   },
   "undoSendSetting": {
     "legacyValue": "Délai actuel : {{count}} s. Choisissez l’une des quatre options pour le modifier.",

@@ -1092,6 +1092,36 @@
       "loadError": "No se pudieron cargar los ajustes de retención.",
       "saveError": "No se pudieron guardar los ajustes de retención.",
       "saved": "Ajustes de retención guardados."
+    },
+    "reminders": {
+      "title": "Recordatorios del calendario",
+      "description": "El servidor calcula la antelación (global → calendario → evento); la app de Android los emite como notificaciones o alarmas persistentes.",
+      "enabled": "Recordatorios de eventos",
+      "enabledHint": "Se aplica a todos tus calendarios salvo que un calendario o evento lo invalide.",
+      "on": "Sí",
+      "off": "No",
+      "lead": "Avisar antes de",
+      "mode": "Entrega",
+      "modeNotification": "Notificación",
+      "modeAlarm": "Alarma",
+      "upcoming": "Próximos recordatorios (48 h)",
+      "upcomingEmpty": "No hay recordatorios en las próximas 48 horas.",
+      "previewUnavailable": "Vista previa no disponible.",
+      "before": "{{minutes}} min antes",
+      "deviceTitle": "Dispositivo Android",
+      "exactAlarms": "Alarmas exactas",
+      "granted": "Permitido",
+      "missing": "No permitido",
+      "grantExact": "Permitir",
+      "battery": "Optimización de batería",
+      "batteryRestricted": "Restringida",
+      "batteryExempt": "Sin restricciones",
+      "batteryFix": "Quitar restricciones",
+      "live": "Conexión en vivo",
+      "liveConnected": "Conectado",
+      "liveDisconnected": "Desconectado",
+      "scheduled": "Programados en el dispositivo",
+      "syncNow": "Sincronizar recordatorios ahora"
     }
   },
   "blockList": {
@@ -2287,7 +2317,17 @@
     "importIcs": "Importar archivo .ics",
     "importDone": "{{count}} evento(s) importado(s).",
     "importProtected": "{{count}} evento(s) quedaron sin cambios porque Inboxora envió sus invitaciones.",
-    "showAgendaDescription": "Mostrar la agenda del día seleccionado a la derecha del calendario en el ordenador."
+    "showAgendaDescription": "Mostrar la agenda del día seleccionado a la derecha del calendario en el ordenador.",
+    "reminder": "Recordatorio",
+    "reminderInherit": "Predeterminado del calendario",
+    "reminderOn": "Sí",
+    "reminderOff": "No",
+    "reminderMinutes": "Minutos antes",
+    "reminderMode": "Tipo",
+    "reminderModeNotification": "Notificación",
+    "reminderModeAlarm": "Alarma",
+    "reminderError": "No se pudo guardar el recordatorio.",
+    "reminderHours": "{{count}} h"
   },
   "mailFolders": {
     "inbox": "Recibidos",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "Recordatorios",
+    "reminderOn": "Activado",
+    "reminderOff": "Desactivado",
+    "reminderLeadTime": "Avisar minutos antes",
+    "reminderInherit": "Valor global",
+    "reminderAtStart": "Al comenzar"
   },
   "undoSendSetting": {
     "legacyValue": "Retraso actual: {{count}} s. Elige una de las cuatro opciones para cambiarlo.",

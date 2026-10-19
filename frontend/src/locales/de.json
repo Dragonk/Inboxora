@@ -1092,6 +1092,36 @@
       "loadError": "Aufbewahrungseinstellungen konnten nicht geladen werden.",
       "saveError": "Aufbewahrungseinstellungen konnten nicht gespeichert werden.",
       "saved": "Aufbewahrungseinstellungen gespeichert."
+    },
+    "reminders": {
+      "title": "Kalender-Erinnerungen",
+      "description": "Die Vorlaufzeiten berechnet der Server (global → Kalender → Termin); die Android-App spielt sie als Benachrichtigungen oder hartnäckige Alarme ab.",
+      "enabled": "Termin-Erinnerungen",
+      "enabledHint": "Gilt für alle Kalender, sofern ein Kalender oder Termin es nicht überschreibt.",
+      "on": "Ein",
+      "off": "Aus",
+      "lead": "Erinnern vor",
+      "mode": "Zustellung",
+      "modeNotification": "Benachrichtigung",
+      "modeAlarm": "Alarm",
+      "upcoming": "Anstehende Erinnerungen (48 h)",
+      "upcomingEmpty": "Keine Erinnerungen in den nächsten 48 Stunden.",
+      "previewUnavailable": "Vorschau nicht verfügbar.",
+      "before": "{{minutes}} Min. vorher",
+      "deviceTitle": "Android-Gerät",
+      "exactAlarms": "Exakte Alarme",
+      "granted": "Erlaubt",
+      "missing": "Nicht erlaubt",
+      "grantExact": "Erlauben",
+      "battery": "Batterieoptimierung",
+      "batteryRestricted": "Eingeschränkt",
+      "batteryExempt": "Uneingeschränkt",
+      "batteryFix": "Einschränkung aufheben",
+      "live": "Live-Verbindung",
+      "liveConnected": "Verbunden",
+      "liveDisconnected": "Getrennt",
+      "scheduled": "Auf dem Gerät geplant",
+      "syncNow": "Erinnerungen jetzt synchronisieren"
     }
   },
   "blockList": {
@@ -2287,7 +2317,17 @@
     "importIcs": "ICS-Datei importieren",
     "importDone": "{{count}} Termin(e) importiert.",
     "importProtected": "{{count}} Termin(e) blieben unverändert, weil Inboxora deren Einladungen versendet hat.",
-    "showAgendaDescription": "Die Tagesübersicht rechts neben dem Kalender auf dem Computer anzeigen."
+    "showAgendaDescription": "Die Tagesübersicht rechts neben dem Kalender auf dem Computer anzeigen.",
+    "reminder": "Erinnerung",
+    "reminderInherit": "Kalenderstandard",
+    "reminderOn": "Ein",
+    "reminderOff": "Aus",
+    "reminderMinutes": "Minuten vorher",
+    "reminderMode": "Art",
+    "reminderModeNotification": "Benachrichtigung",
+    "reminderModeAlarm": "Alarm",
+    "reminderError": "Die Erinnerung konnte nicht gespeichert werden.",
+    "reminderHours": "{{count}} Std."
   },
   "mailFolders": {
     "inbox": "Posteingang",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "Erinnerungen",
+    "reminderOn": "Aktiviert",
+    "reminderOff": "Deaktiviert",
+    "reminderLeadTime": "Minuten vorher erinnern",
+    "reminderInherit": "Globale Voreinstellung",
+    "reminderAtStart": "Bei Beginn"
   },
   "undoSendSetting": {
     "legacyValue": "Aktuelle Verzögerung: {{count}} s. Wählen Sie eine der vier Optionen, um sie zu ändern.",

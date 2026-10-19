@@ -502,6 +502,15 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   'message.date': [['en', 'fr'], ['it', 'pl'], ['cs', 'de']],
   // Minute is the same standard time-unit noun in these language groups.
   'queue.minute': [['cs', 'pl'], ['de', 'en', 'fr'], ['es', 'it']],
+  // Reminder delivery nouns and device labels share spellings across these groups.
+  'admin.reminders.modeNotification': [['en', 'fr']],
+  'admin.reminders.modeAlarm': [['de', 'en', 'pl']],
+  'admin.reminders.deviceTitle': [['es', 'it']],
+  'calendar.reminderMode': [['en', 'fr'], ['es', 'it']],
+  'calendar.reminderModeNotification': [['en', 'fr']],
+  'calendar.reminderModeAlarm': [['de', 'en', 'pl']],
+  // The hour abbreviation is the same unit symbol in these locales.
+  'calendar.reminderHours': [['cs', 'en', 'es', 'fr', 'it', 'pl']],
   // Provider and protocol names are the same word in every language these files cover.
   'contacts.booksManager.sourceGoogle': 'any',
   'calendar.sourceCategoryGoogle': 'any',

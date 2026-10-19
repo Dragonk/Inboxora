@@ -633,6 +633,18 @@ export const api = {
     deleteSource: (id: string) => request('DELETE', `/calendar/sources/${encodeURIComponent(id)}`),
     forgetLegacySource: (sourceIdentity: string) =>
       request('DELETE', `/calendar/legacy-sources/${encodeURIComponent(sourceIdentity)}`),
+    // Calendar reminder cascade (global -> calendar -> event override), resolved server-side.
+    getReminderSettings: () => request('GET', '/calendar/reminder-settings'),
+    updateReminderSettings: (data: { enabled?: boolean; minutes?: number; mode?: 'notification' | 'alarm' }) =>
+      request('PUT', '/calendar/reminder-settings', data),
+    getReminderPreview: (hours: number = 48) =>
+      request('GET', `/calendar/reminder-preview?hours=${encodeURIComponent(String(hours))}`),
+    getEventReminder: (eventId: string) =>
+      request('GET', `/calendar/events/${encodeURIComponent(eventId)}/reminder`),
+    setEventReminder: (eventId: string, data: { enabled?: boolean; minutesBefore?: number; mode?: 'notification' | 'alarm' }) =>
+      request('PUT', `/calendar/events/${encodeURIComponent(eventId)}/reminder`, data),
+    clearEventReminder: (eventId: string) =>
+      request('DELETE', `/calendar/events/${encodeURIComponent(eventId)}/reminder`),
   },
 
   // Image whitelist

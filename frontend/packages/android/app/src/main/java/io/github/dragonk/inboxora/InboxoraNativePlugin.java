@@ -12,7 +12,9 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.app.AlarmManager;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
 import android.webkit.WebView;
@@ -74,6 +76,9 @@ public class InboxoraNativePlugin extends Plugin {
     private static final String TAG = "InboxoraUpdater";
     private static final String CHANNEL_NEW_MAIL = "inboxora_new_mail";
     private static final String CHANNEL_UPDATES = "inboxora_updates";
+    static final String CHANNEL_LIVE_PUSH = "inboxora_live_push";
+    static final String CHANNEL_CALENDAR_REMINDERS = "calendar_reminders";
+    static final String CHANNEL_CALENDAR_ALARM = "calendar_alarm";
     private static final String NOTIFICATION_GROUP = "inboxora_new_mail";
     private static final int NOTIFICATION_SUMMARY_ID = 0x494e424f; // "INBO"
     private static final String PREFS_NAME = "inboxora-native";
@@ -109,6 +114,11 @@ public class InboxoraNativePlugin extends Plugin {
         // rotated provider token, a reinstalled distributor or a stale server row.
         InboxoraPushManager.ensureRegistered(getContext());
         InboxoraNativePush.enqueueRegistration(getContext());
+        // The live push service and the AlarmManager reminder set both need a
+        // nudge after process death: they survive only while scheduled.
+        try { InboxoraLivePushService.ensureStarted(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraNativePush.scheduleReminderSync(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraNativePush.enqueueReminderSync(getContext()); } catch (Throwable ignored) {}
         checkForUpdatesInBackground(false, null);
     }
 
@@ -185,6 +195,8 @@ public class InboxoraNativePlugin extends Plugin {
         try { InboxoraBackgroundSync.schedule(getContext()); } catch (Throwable ignored) {}
         try { InboxoraPushManager.ensureRegistered(getContext()); } catch (Throwable ignored) {}
         try { InboxoraNativePush.enqueueRegistration(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraLivePushService.ensureStarted(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraNativePush.enqueueReminderSync(getContext()); } catch (Throwable ignored) {}
 
         // Load the server natively. The setup screen also calls
         // window.location.replace(), but a JS-initiated navigation can race the
@@ -207,6 +219,8 @@ public class InboxoraNativePlugin extends Plugin {
     public void resetHost(PluginCall call) {
         // Forget the server-side device registration and every local trace of it
         // before the host is dropped.
+        try { InboxoraLivePushService.stop(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraReminderScheduler.cancelAll(getContext()); } catch (Throwable ignored) {}
         InboxoraPushManager.unregister(getContext());
         InboxoraNotificationDedupStore.clear(getContext());
         getPrefs(getContext()).edit().remove(PREF_HOST).apply();
@@ -369,6 +383,7 @@ public class InboxoraNativePlugin extends Plugin {
         for (String packageName : InboxoraPushManager.distributors(context)) installed.put(packageName);
         result.put("distributors", installed);
         result.put("hasEndpoint", InboxoraNativePush.endpoint(context) != null);
+        result.put("live", InboxoraNativePush.liveStatus(context));
         call.resolve(result);
     }
 
@@ -386,6 +401,8 @@ public class InboxoraNativePlugin extends Plugin {
     // device token so no notification can arrive for the old session.
     @PluginMethod
     public void clearPush(PluginCall call) {
+        try { InboxoraLivePushService.stop(getContext()); } catch (Throwable ignored) {}
+        try { InboxoraReminderScheduler.cancelAll(getContext()); } catch (Throwable ignored) {}
         InboxoraPushManager.unregister(getContext());
         InboxoraNotificationDedupStore.clear(getContext());
         JSObject result = new JSObject();
@@ -416,6 +433,90 @@ public class InboxoraNativePlugin extends Plugin {
         call.resolve();
     }
 
+    // Settings action / read-state cleanup: dismiss the native notification of
+    // messages that were read elsewhere (the WebView calls this when its own
+    // mail_state_changed handling notices the change first).
+    @PluginMethod
+    public void cancelMessageNotifications(PluginCall call) {
+        JSArray ids = call.getArray("messageIds", null);
+        Context context = getContext();
+        if (ids != null) {
+            for (int i = 0; i < ids.length(); i++) {
+                String id = ids.optString(i, null);
+                if (id != null && !id.isEmpty()) InboxoraLivePushService.cancelMessageNotification(context, id);
+            }
+        }
+        call.resolve();
+    }
+
+    // Settings action: refresh the AlarmManager calendar reminder set now.
+    @PluginMethod
+    public void syncReminders(PluginCall call) {
+        Context context = getContext();
+        InboxoraNativePush.enqueueReminderSync(context);
+        JSObject result = new JSObject();
+        result.put("scheduled", InboxoraReminderScheduler.scheduledCount(context));
+        call.resolve(result);
+    }
+
+    // Reminder health for the settings screen. No secrets.
+    @PluginMethod
+    public void getReminderStatus(PluginCall call) {
+        Context context = getContext();
+        JSObject result = new JSObject();
+        boolean exactGranted = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            exactGranted = manager != null && manager.canScheduleExactAlarms();
+        }
+        result.put("exactAlarmsGranted", exactGranted);
+        result.put("remindersScheduled", InboxoraReminderScheduler.scheduledCount(context));
+        PowerManager power = context.getSystemService(PowerManager.class);
+        result.put("batteryOptimized", power == null || !power.isIgnoringBatteryOptimizations(context.getPackageName()));
+        result.put("live", InboxoraNativePush.liveStatus(context));
+        call.resolve(result);
+    }
+
+    // Deep-link to the Android 12+ exact alarm permission prompt.
+    @PluginMethod
+    public void requestExactAlarmPermission(PluginCall call) {
+        Context context = getContext();
+        boolean granted = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            granted = manager != null && manager.canScheduleExactAlarms();
+        }
+        if (!granted) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                intent.setData(Uri.parse("package:" + context.getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (Exception ignored) {}
+        }
+        JSObject result = new JSObject();
+        result.put("granted", granted);
+        call.resolve(result);
+    }
+
+    // Deep-link to the battery-optimization exemption prompt.
+    @PluginMethod
+    public void requestIgnoreBatteryOptimizations(PluginCall call) {
+        Context context = getContext();
+        PowerManager power = context.getSystemService(PowerManager.class);
+        boolean ignoring = power != null && power.isIgnoringBatteryOptimizations(context.getPackageName());
+        if (!ignoring) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + context.getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (Exception ignored) {}
+        }
+        JSObject result = new JSObject();
+        result.put("ignored", ignoring);
+        call.resolve(result);
+    }
     @PluginMethod
     public void showNewMail(PluginCall call) {
         String title = call.getString("title", InboxoraNativeLocale.text(getContext(), R.string.native_new_mail));
@@ -698,6 +799,11 @@ public class InboxoraNativePlugin extends Plugin {
             + "window.inboxoraNative.notifications.openDistributor=function(){return call('openPushDistributor',{},{});};"
             + "window.inboxoraNative.notifications.openInstallPage=function(){return call('openPushInstallPage',{},{});};"
             + "window.inboxoraNative.notifications.openHelp=function(){return call('openPushHelp',{},{});};"
+            + "window.inboxoraNative.notifications.cancelMessageNotifications=function(ids){return call('cancelMessageNotifications',{messageIds:ids||[]},{});};"
+            + "window.inboxoraNative.notifications.syncReminders=function(){return call('syncReminders',{},{});};"
+            + "window.inboxoraNative.notifications.getReminderStatus=function(){return call('getReminderStatus',{},{});};"
+            + "window.inboxoraNative.notifications.requestExactAlarmPermission=function(){return call('requestExactAlarmPermission',{},{});};"
+            + "window.inboxoraNative.notifications.requestIgnoreBatteryOptimizations=function(){return call('requestIgnoreBatteryOptimizations',{},{});};"
             + "}catch(e){}})();";
 
         webView.post(() -> webView.evaluateJavascript(script, null));
@@ -1385,6 +1491,35 @@ public class InboxoraNativePlugin extends Plugin {
             );
             updatesChannel.setDescription("Inboxora app update notifications.");
             manager.createNotificationChannel(updatesChannel);
+            NotificationChannel liveChannel = new NotificationChannel(
+                CHANNEL_LIVE_PUSH,
+                InboxoraNativeLocale.text(context, R.string.native_live_push_title),
+                NotificationManager.IMPORTANCE_MIN
+            );
+            liveChannel.setDescription(InboxoraNativeLocale.text(context, R.string.native_live_push_body));
+            liveChannel.setShowBadge(false);
+            manager.createNotificationChannel(liveChannel);
+
+            NotificationChannel reminderChannel = new NotificationChannel(
+                CHANNEL_CALENDAR_REMINDERS,
+                InboxoraNativeLocale.text(context, R.string.native_calendar_reminder_title),
+                NotificationManager.IMPORTANCE_HIGH
+            );
+            reminderChannel.setDescription(InboxoraNativeLocale.text(context, R.string.native_calendar_reminders_channel));
+            manager.createNotificationChannel(reminderChannel);
+
+            NotificationChannel alarmChannel = new NotificationChannel(
+                CHANNEL_CALENDAR_ALARM,
+                InboxoraNativeLocale.text(context, R.string.native_calendar_alarm_title),
+                NotificationManager.IMPORTANCE_HIGH
+            );
+            alarmChannel.setDescription(InboxoraNativeLocale.text(context, R.string.native_calendar_alarms_channel));
+            alarmChannel.setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM),
+                new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build());
+            manager.createNotificationChannel(alarmChannel);
         }
     }
 
