@@ -494,6 +494,8 @@ const SAME_VALUE_ALLOWED: Record<string, SameValueRule> = {
   // Protocol names and the noun "port" have identical spellings in these locales.
   'admin.systemEmail.starttlsOption': [['cs', 'en', 'fr', 'pl']],
   'admin.systemEmail.tlsOption': [['cs', 'en', 'fr', 'pl']],
+  // Firebase Cloud Messaging is the product's own name in every locale.
+  'admin.push.instantTransportFcm': 'any',
   // Emoji is an established loanword in these languages.
   'compose.toolbar.emoji': [['cs', 'de', 'en', 'es', 'it', 'pl']],
   // Czech/Polish both use "faktura"; from: is untranslated search syntax.

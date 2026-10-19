@@ -16,7 +16,7 @@ import org.json.JSONObject;
 /**
  * Periodic reconciliation and fallback — deliberately NOT the primary channel.
  *
- * New mail is delivered instantly by native push (UnifiedPush / FCM). This worker
+ * New mail is delivered instantly by native push (the live WebSocket / FCM). This worker
  * exists so a missed, dropped or not-yet-registered push still surfaces: it
  * compares the server's authoritative unread total against the last baseline and,
  * on an increase, asks the native notification path to post the newest unread

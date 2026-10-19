@@ -44,13 +44,12 @@ describe('device tokens', () => {
 });
 
 describe('device registration validation', () => {
-  it('accepts a valid UnifiedPush registration', () => {
+  it('accepts a live registration with no endpoint at all', () => {
     expect(validateDeviceRegistration({
-      deviceId: 'device-1', platform: 'android', transport: 'unifiedpush',
-      endpoint: 'https://ntfy.example.com/up/abc', appVersion: '4.0.0',
+      deviceId: 'device-1', platform: 'android', transport: 'live', appVersion: '4.0.0',
     })).toEqual({
-      deviceId: 'device-1', platform: 'android', transport: 'unifiedpush',
-      endpoint: 'https://ntfy.example.com/up/abc', appVersion: '4.0.0',
+      deviceId: 'device-1', platform: 'android', transport: 'live',
+      endpoint: '', appVersion: '4.0.0',
     });
   });
 
@@ -59,21 +58,7 @@ describe('device registration validation', () => {
     expect(() => validateDeviceRegistration({ deviceId: 'd', platform: 'android', transport: 'carrier-pigeon', endpoint: 'x' })).toThrow(/transport/i);
   });
 
-  it('requires HTTPS for a UnifiedPush endpoint', () => {
-    expect(() => validateDeviceRegistration({ deviceId: 'd', platform: 'android', transport: 'unifiedpush', endpoint: 'http://ntfy.local/up' })).toThrow(/HTTPS/);
-    expect(() => validateDeviceRegistration({ deviceId: 'd', platform: 'android', transport: 'unifiedpush', endpoint: 'not-a-url' })).toThrow(/valid URL/);
-  });
-
-  it('accepts a plain-http /push endpoint only for a LAN install that opted in', () => {
-    vi.stubEnv('PUSH_ALLOW_PRIVATE_ENDPOINTS', 'true');
-    expect(validateDeviceRegistration({
-      deviceId: 'd', platform: 'android', transport: 'unifiedpush',
-      endpoint: 'http://192.168.1.10/push/upABCDEF123456?up=1',
-    })).toMatchObject({ endpoint: 'http://192.168.1.10/push/upABCDEF123456?up=1' });
-    vi.unstubAllEnvs();
-  });
-
-  it('requires a device id and an endpoint', () => {
+  it('requires a device id and an endpoint for provider transports', () => {
     expect(() => validateDeviceRegistration({ platform: 'android', transport: 'fcm', endpoint: 'token' })).toThrow(/deviceId/);
     expect(() => validateDeviceRegistration({ deviceId: 'd', platform: 'android', transport: 'fcm' })).toThrow(/endpoint/);
   });

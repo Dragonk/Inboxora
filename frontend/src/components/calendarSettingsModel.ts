@@ -3,6 +3,7 @@ export interface CalendarRow {
   id: string; name?: string | null; color?: string | null; source_color?: string | null; color_override?: string | null;
   source?: string | null; read_only?: boolean | null; owner_user_id?: string | null; display_visible?: boolean | null;
   custom_name?: boolean | null; dav_mode?: string | null; collection_id?: string | null;
+  notify_enabled?: boolean | null; notify_minutes?: number | null; notify_mode?: string | null;
   source_access?: string | null; user_access?: string | null; deletion?: CollectionDeletionCapability | null;
   [key: string]: unknown;
 }

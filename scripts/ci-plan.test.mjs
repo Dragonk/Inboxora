@@ -15,11 +15,11 @@ test('documentation-only changes omit runtime validation',()=>{
 test('small unit-test PRs select only their own stack',()=>{
   const backend=classifyChanges(['backend/src/routes/oidc.insecurefetch.test.ts'],'pull_request');
   assert.equal(backend.run_backend,true);
-  for(const key of ['run_backend_database','run_frontend','run_browser_e2e','run_postgres_e2e','run_real_app_e2e','run_docs_screenshots','run_push_stack']) assert.equal(backend[key],false,key);
+  for(const key of ['run_backend_database','run_frontend','run_browser_e2e','run_postgres_e2e','run_real_app_e2e','run_docs_screenshots']) assert.equal(backend[key],false,key);
 
   const frontend=classifyChanges(['frontend/src/fonts.test.ts'],'pull_request');
   assert.equal(frontend.run_frontend,true);
-  for(const key of ['run_backend','run_backend_database','run_browser_e2e','run_postgres_e2e','run_real_app_e2e','run_docs_screenshots','run_push_stack']) assert.equal(frontend[key],false,key);
+  for(const key of ['run_backend','run_backend_database','run_browser_e2e','run_postgres_e2e','run_real_app_e2e','run_docs_screenshots']) assert.equal(frontend[key],false,key);
 });
 
 test('production changes select relevant integration layers',()=>{
@@ -43,9 +43,9 @@ test('production changes select relevant integration layers',()=>{
 });
 
 test('specialized paths select specialized checks',()=>{
-  const push=classifyChanges(['frontend/nginx.conf'],'pull_request');
-  assert.equal(push.run_frontend,true);
-  assert.equal(push.run_push_stack,true);
+  const nginx=classifyChanges(['frontend/nginx.conf'],'pull_request');
+  assert.equal(nginx.run_frontend,true);
+  assert.equal(nginx.run_browser_e2e,true);
 
   const screenshot=classifyChanges(['media/screenshots/inbox.png'],'pull_request');
   assert.equal(screenshot.run_docs_screenshots,true);
@@ -56,7 +56,7 @@ test('specialized paths select specialized checks',()=>{
 test('unknown runtime and CI infrastructure changes fail safe to full validation',()=>{
   for (const path of ['Dockerfile','.env.example','docs/fixture.sql','.github/workflows/ci.yml','scripts/ci-plan.mjs']) {
     const result=classifyChanges([path],'pull_request');
-    for(const key of ['run_backend','run_backend_database','run_frontend','run_browser_e2e','run_postgres_e2e','run_real_app_e2e','run_docs_screenshots','run_push_stack']) assert.equal(result[key],true,`${path}: ${key}`);
+    for(const key of ['run_backend','run_backend_database','run_frontend','run_browser_e2e','run_postgres_e2e','run_real_app_e2e','run_docs_screenshots']) assert.equal(result[key],true,`${path}: ${key}`);
   }
   const manual=classifyChanges(['README.md'],'workflow_dispatch');
   assert.equal(manual.run_tests,true);
@@ -110,7 +110,6 @@ test('workflow gates keep required check names, selective outputs and 15 minute 
   for (const [file,output] of [
     ['../.github/workflows/conversation-v2-real-app-playwright.yml','run_real_app_e2e'],
     ['../.github/workflows/docs-screenshots.yml','run_docs_screenshots'],
-    ['../.github/workflows/push-stack.yml','run_push_stack'],
   ]) {
     const text=readFileSync(new URL(file,import.meta.url),'utf8');
     assert.ok(text.includes(output),file);

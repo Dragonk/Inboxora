@@ -10,7 +10,6 @@ const CHECKS = [
   'run_postgres_e2e',
   'run_real_app_e2e',
   'run_docs_screenshots',
-  'run_push_stack',
 ];
 
 function emptySelection(value = false) {
@@ -52,12 +51,6 @@ function isConversationDatabasePath(path) {
     || /^backend\/src\/(?:services|routes|scripts)\/(?:conversation|logical|mailThread|messageFolder|mailFlag|providerSchema|upgrade|storageUpgrade)/i.test(path)
     || /^backend\/src\/services\/(?:db|migrations)\.[cm]?[jt]s$/.test(path)
     || /conversation.*\.(?:integration\.)?test\.[cm]?[jt]sx?$/i.test(path);
-}
-
-function isPushStackPath(path) {
-  return /^(?:docker-compose(?:\.ghcr)?\.yml|frontend\/nginx\.conf|scripts\/push-integration-test\.mjs)$/.test(path)
-    || /^backend\/src\/(?:routes|services)\/.*(?:push|ntfy|unifiedpush)/i.test(path)
-    || /^frontend\/src\/.*(?:push|ntfy|unifiedpush)/i.test(path);
 }
 
 function isDocsScreenshotPath(path) {
@@ -114,7 +107,6 @@ export function classifyChanges(paths, eventName) {
       if (production || integration) selection.run_backend_database = true;
       if (isConversationDatabasePath(path)) selection.run_postgres_e2e = true;
       if (production && /^backend\/src\/(?:index|routes|middleware|services)\//.test(path)) selection.run_real_app_e2e = true;
-      if (isPushStackPath(path)) selection.run_push_stack = true;
       continue;
     }
 
@@ -124,12 +116,6 @@ export function classifyChanges(paths, eventName) {
       if (production || /^frontend\/e2e\//.test(path)) selection.run_browser_e2e = true;
       if (production) selection.run_real_app_e2e = true;
       if (isDocsScreenshotPath(path)) selection.run_docs_screenshots = true;
-      if (isPushStackPath(path)) selection.run_push_stack = true;
-      continue;
-    }
-
-    if (isPushStackPath(path)) {
-      selection.run_push_stack = true;
       continue;
     }
 

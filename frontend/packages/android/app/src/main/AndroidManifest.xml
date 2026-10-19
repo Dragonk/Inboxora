@@ -65,15 +65,6 @@
             android:name=".InboxoraNotificationActionReceiver"
             android:exported="false" />
 
-        <!-- UnifiedPush: the user's distributor wakes this service. -->
-        <service
-            android:name=".InboxoraPushService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
-            </intent-filter>
-        </service>
-
         <!-- FCM: only reachable in builds compiled with a google-services.json. -->
         <service
             android:name=".InboxoraFirebaseMessagingService"

@@ -60,9 +60,7 @@ interface InboxoraNativeNotifications {
   getStatus?(): Promise<InboxoraNativeStatus>;
   register?(): Promise<InboxoraNativeStatus>;
   clear?(): Promise<InboxoraNativeStatus>;
-  openDistributor?(): Promise<InboxoraNativeStatus>;
-  openInstallPage?(): Promise<InboxoraNativeStatus>;
-  openHelp?(): Promise<InboxoraNativeStatus>;
+  openLiveChannelSettings?(): Promise<InboxoraNativeStatus>;
   cancelMessageNotifications?(messageIds: string[]): Promise<InboxoraNativeStatus>;
   syncReminders?(): Promise<InboxoraNativeStatus>;
   getReminderStatus?(): Promise<InboxoraNativeStatus>;

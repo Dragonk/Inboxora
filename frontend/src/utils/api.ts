@@ -641,7 +641,7 @@ export const api = {
       request('GET', `/calendar/reminder-preview?hours=${encodeURIComponent(String(hours))}`),
     getEventReminder: (eventId: string) =>
       request('GET', `/calendar/events/${encodeURIComponent(eventId)}/reminder`),
-    setEventReminder: (eventId: string, data: { enabled?: boolean; minutesBefore?: number; mode?: 'notification' | 'alarm' }) =>
+    setEventReminder: (eventId: string, data: { enabled?: boolean; minutesBefore?: number; mode?: 'notification' | 'alarm' | null }) =>
       request('PUT', `/calendar/events/${encodeURIComponent(eventId)}/reminder`, data),
     clearEventReminder: (eventId: string) =>
       request('DELETE', `/calendar/events/${encodeURIComponent(eventId)}/reminder`),

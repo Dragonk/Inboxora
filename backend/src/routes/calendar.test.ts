@@ -634,13 +634,13 @@ describe('local calendar API', () => {
 
     expect(response.status).toBe(200);
     expect(responseObject(await response.json(), 'calendar')).toMatchObject({ name: 'Updated', display_visible: false });
-    expect(queryCall(1)[0]).toContain("owner_user_id = $9 AND user_id = $9 AND source = 'local'");
+    expect(queryCall(1)[0]).toContain("owner_user_id = $11 AND user_id = $11 AND source = 'local'");
     // davMode is omitted here, which keeps the stored mode (COALESCE) unchanged.
     expect(queryCall(1)[0]).toContain('dav_mode = COALESCE($4, dav_mode)');
     // The reminder defaults are omitted too: COALESCE keeps the stored values,
     // and an absent notifyMinutes flag never rewrites the column.
     expect(queryCall(1)[0]).toContain('notify_enabled = COALESCE($5, notify_enabled)');
-    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', false, null, null, null, false, 'calendar-2', 'user-1']);
+    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', false, null, null, null, false, null, false, 'calendar-2', 'user-1']);
   });
 
   it('updates the reminder defaults of an owned local calendar', async () => {
@@ -648,12 +648,13 @@ describe('local calendar API', () => {
 
     const response = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Updated', color: '#abcdef', displayVisible: true, notifyEnabled: false, notifyMinutes: 45 }),
+      body: JSON.stringify({ name: 'Updated', color: '#abcdef', displayVisible: true, notifyEnabled: false, notifyMinutes: 45, notifyMode: 'alarm' }),
     });
 
     expect(response.status).toBe(200);
-    // notifyMinutes: explicit number stored; notifyEnabled: explicit off stored.
-    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', true, null, false, 45, true, 'calendar-2', 'user-1']);
+    // notifyMinutes: explicit number stored; notifyEnabled: explicit off stored;
+    // notifyMode: explicit alarm stored as the calendar delivery mode.
+    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', true, null, false, 45, true, 'alarm', true, 'calendar-2', 'user-1']);
     // An explicit null notifyMinutes resets the calendar to inherit the global default.
     query.mockClear();
     query.mockResolvedValueOnce({ rows: [{ source: 'local' }] }).mockResolvedValueOnce({ rows: [{ id: 'calendar-2', owner_user_id: 'user-1', name: 'Updated', color: '#abcdef', display_visible: true, source: 'local', read_only: false }] });
@@ -662,7 +663,7 @@ describe('local calendar API', () => {
       body: JSON.stringify({ name: 'Updated', color: '#abcdef', displayVisible: true, notifyMinutes: null }),
     });
     expect(reset.status).toBe(200);
-    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', true, null, null, null, true, 'calendar-2', 'user-1']);
+    expect(queryCall(1)[1]).toEqual(['Updated', '#abcdef', true, null, null, null, true, null, false, 'calendar-2', 'user-1']);
 
     // Out-of-range minutes are rejected before any query runs.
     query.mockClear();
@@ -671,6 +672,14 @@ describe('local calendar API', () => {
       body: JSON.stringify({ name: 'Updated', color: '#abcdef', displayVisible: true, notifyMinutes: 20000 }),
     });
     expect(invalid.status).toBe(400);
+    expect(query).not.toHaveBeenCalled();
+
+    // An unknown delivery mode is rejected before any query runs.
+    const invalidMode = await fetch(`${base}/api/calendar/calendars/calendar-2`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Updated', color: '#abcdef', displayVisible: true, notifyMode: 'buzzer' }),
+    });
+    expect(invalidMode.status).toBe(400);
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -727,7 +736,7 @@ describe('local calendar API', () => {
     expect(response.status).toBe(200);
     expect(responseObject(await response.json(), 'calendar').dav_mode).toBe('read_write');
     expect(queryCall(1)[0]).toContain('dav_mode = COALESCE($3, dav_mode)');
-    expect(queryCall(1)[1]).toEqual(['#123456', true, 'read_write', null, null, false, 'google-calendar-1', 'user-1']);
+    expect(queryCall(1)[1]).toEqual(['#123456', true, 'read_write', null, null, false, null, false, 'google-calendar-1', 'user-1']);
     expect(queryCall(2)[0]).toContain('UPDATE integration_collections SET dav_mode = $1');
     expect(queryCall(2)[1]).toEqual(['read_write', 'google-calendar-1', 'user-1']);
   });

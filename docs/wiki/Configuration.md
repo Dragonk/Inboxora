@@ -198,17 +198,16 @@ appearance and selects **Always light** or **Always dark**, so an upgrade never 
 - The unread count badge on the app icon.
 - **Web Push**, which needs the VAPID keys from the server environment
   ([Installation](Installation.md)). On iOS the app must be added to the Home Screen first.
-- **Instant notifications** (Android app only). Inboxora ships **ntfy** as a
-  UnifiedPush server on the same domain. Enter `${APP_URL}` (the origin, with no
-  path) in the ntfy app. After installing
-  the ntfy app on the phone and pointing it at that URL, the settings card shows
-  *Active* with the provider (ntfy) and the push server. If no distributor app is
-  installed it explains that one is needed and links to it; if notification
-  permission is denied it links straight to the Android settings. Without a
-  distributor, mail still syncs in the background.
+- **Instant notifications** (Android app only). Push is built into Inboxora: the
+  app keeps its own live WebSocket to the server, no extra app or service is
+  needed. The settings card shows *Active* with the transport, warns - with a
+  one-tap fix - when battery optimization, the exact-alarm permission or a
+  dropped socket would break delivery, and links to the channel settings where
+  the low-priority foreground card can be hidden. If notification permission is
+  denied it links straight to the Android settings.
 
 See [Notifications and background delivery](Notifications.md) for the transport,
-the data that does and does not pass through ntfy, the environment variables, and
+what the live connection carries, the environment variables, and
 device revocation.
 
 Mail that a rule marks as read never raises a sound, toast or push notification.

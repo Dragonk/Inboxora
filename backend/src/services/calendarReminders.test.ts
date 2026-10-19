@@ -78,11 +78,65 @@ describe('reminder settings sanitisation', () => {
 });
 
 describe('upcomingCalendarReminders', () => {
-  it('returns nothing when the global preference is off', async () => {
-    mockSettings({ calendarRemindersEnabled: false });
-    expect(await upcomingCalendarReminders('user-1', { from: new Date(), to: new Date(Date.now() + 3_600_000) })).toEqual([]);
-    // Only the settings query may run; no event was even looked at.
-    expect(query).toHaveBeenCalledTimes(1);
+  it('keeps only explicitly pinned events when the global preference is off', async () => {
+    const from = new Date(Date.now() - 60_000);
+    const to = new Date(Date.now() + 24 * 3_600_000);
+    const start = new Date(from.getTime() + 2 * 3_600_000);
+    query.mockImplementation(async (text: string) => {
+      if (text.includes('SELECT preferences FROM users')) return { rows: [{ preferences: { calendarRemindersEnabled: false } }] };
+      if (text.includes('FROM calendar_occurrences o')) {
+        return { rows: [row({ event_id: 'pinned-event', starts_at: start, override_enabled: true, override_minutes: 10 })] };
+      }
+      return { rows: [] };
+    });
+
+    const reminders = await upcomingCalendarReminders('user-1', { from, to });
+    // The pinned event rings anyway; everything without an explicit override is
+    // muted by the cascade.
+    expect(reminders.map(reminder => reminder.eventId)).toEqual(['pinned-event']);
+    expect(reminders[0]?.minutes).toBe(10);
+  });
+
+  it('lets one pinned event ring even when its whole calendar is muted', async () => {
+    const from = new Date(Date.now() - 60_000);
+    const to = new Date(Date.now() + 24 * 3_600_000);
+    const start = new Date(from.getTime() + 2 * 3_600_000);
+    query.mockImplementation(async (text: string) => {
+      if (text.includes('SELECT preferences FROM users')) return { rows: [{ preferences: {} }] };
+      if (text.includes('FROM calendar_occurrences o')) {
+        return { rows: [
+          row({ event_id: 'pinned', starts_at: start, calendar_enabled: false, override_enabled: true }),
+          row({ event_id: 'muted', starts_at: start, calendar_enabled: false, override_enabled: null }),
+        ] };
+      }
+      return { rows: [] };
+    });
+
+    const reminders = await upcomingCalendarReminders('user-1', { from, to });
+    expect(reminders.map(reminder => reminder.eventId)).toEqual(['pinned']);
+  });
+
+  it('resolves the mode cascade: event override > calendar default > global default', async () => {
+    const from = new Date(Date.now() - 60_000);
+    const to = new Date(Date.now() + 24 * 3_600_000);
+    const start = new Date(from.getTime() + 2 * 3_600_000);
+    query.mockImplementation(async (text: string) => {
+      if (text.includes('SELECT preferences FROM users')) return { rows: [{ preferences: { calendarRemindersMode: 'notification' } }] };
+      if (text.includes('FROM calendar_occurrences o')) {
+        return { rows: [
+          row({ event_id: 'mode-event', starts_at: start, override_mode: 'alarm' }),
+          row({ event_id: 'cal-mode-event', starts_at: start, calendar_mode: 'alarm' }),
+          row({ event_id: 'global-event', starts_at: start }),
+        ] };
+      }
+      return { rows: [] };
+    });
+
+    const reminders = await upcomingCalendarReminders('user-1', { from, to });
+    const modeById = new Map(reminders.map(reminder => [reminder.eventId, reminder.mode]));
+    expect(modeById.get('mode-event')).toBe('alarm');
+    expect(modeById.get('cal-mode-event')).toBe('alarm');
+    expect(modeById.get('global-event')).toBe('notification');
   });
 
   it('resolves the minute cascade: event override > calendar default > global default', async () => {

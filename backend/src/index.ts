@@ -297,7 +297,7 @@ app.use('/api/dav-accounts', davAccountsRouter);
 app.use('/api/dav-credentials', davCredentialsRouter);
 // Native (Android) push device registry + the device-token-authenticated
 // background notification API. Absent configuration the routes still answer;
-// only the optional FCM/UnifiedPush legs go quiet.
+// only the optional FCM leg goes quiet.
 app.use('/api/push', pushRoutes);
 app.use('/api/calendar', calendarRouter);
 app.use('/api', aiRoutes);

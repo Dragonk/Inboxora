@@ -713,33 +713,33 @@ function EventReminderField({ eventId }: { eventId: string }) {
   const { t } = useTranslation();
   const [choice, setChoice] = useState<'inherit' | 'on' | 'off' | null>(null);
   const [minutes, setMinutes] = useState(30);
-  const [mode, setMode] = useState<'notification' | 'alarm'>('notification');
+  const [mode, setMode] = useState<'inherit' | 'notification' | 'alarm'>('inherit');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     api.calendar.getEventReminder(eventId)
-      .then((response: { reminder?: { enabled?: boolean; minutesBefore?: number; mode?: string } | null }) => {
+      .then((response: { reminder?: { enabled?: boolean; minutesBefore?: number; mode?: string | null } | null }) => {
         if (cancelled) return;
         const reminder = response?.reminder;
         if (!reminder) { setChoice('inherit'); return; }
         setChoice(reminder.enabled === false ? 'off' : 'on');
         if (typeof reminder.minutesBefore === 'number') setMinutes(reminder.minutesBefore);
-        setMode(reminder.mode === 'alarm' ? 'alarm' : 'notification');
+        setMode(reminder.mode === 'alarm' || reminder.mode === 'notification' ? reminder.mode : 'inherit');
       })
       .catch(() => { if (!cancelled) setChoice('inherit'); });
     return () => { cancelled = true; };
   }, [eventId]);
 
-  const apply = async (nextChoice: 'inherit' | 'on' | 'off', nextMinutes: number, nextMode: 'notification' | 'alarm') => {
+  const apply = async (nextChoice: 'inherit' | 'on' | 'off', nextMinutes: number, nextMode: 'inherit' | 'notification' | 'alarm') => {
     setBusy(true);
     setError(false);
     try {
       if (nextChoice === 'inherit') {
         await api.calendar.clearEventReminder(eventId);
       } else {
-        await api.calendar.setEventReminder(eventId, { enabled: nextChoice === 'on', minutesBefore: nextMinutes, mode: nextMode });
+        await api.calendar.setEventReminder(eventId, { enabled: nextChoice === 'on', minutesBefore: nextMinutes, mode: nextMode === 'inherit' ? null : nextMode });
       }
       setChoice(nextChoice);
       setMinutes(nextMinutes);
@@ -763,8 +763,8 @@ function EventReminderField({ eventId }: { eventId: string }) {
             <option value="off">{t('calendar.reminderOff')}</option>
           </select>
         </label>
-        {choice !== 'inherit' && (
-          <>
+        {choice === 'on' && (
+          <div className="ui-form-columns" style={{ gridColumn: '1 / -1', paddingLeft: 18 }}>
             <label>{t('calendar.reminderMinutes')}
               <select value={String(minutes)} disabled={busy} onChange={e => { const value = Number(e.target.value); void apply(choice, value, mode); }}>
                 {![0, 5, 10, 15, 30, 60, 120, 1440].includes(minutes) ? <option value={String(minutes)}>{minutes}</option> : null}
@@ -772,12 +772,13 @@ function EventReminderField({ eventId }: { eventId: string }) {
               </select>
             </label>
             <label>{t('calendar.reminderMode')}
-              <select value={mode} disabled={busy} onChange={e => { const value = e.target.value === 'alarm' ? 'alarm' as const : 'notification' as const; void apply(choice, minutes, value); }}>
+              <select value={mode} disabled={busy} onChange={e => { const value = e.target.value === 'alarm' ? 'alarm' as const : e.target.value === 'notification' ? 'notification' as const : 'inherit' as const; void apply(choice, minutes, value); }}>
+                <option value="inherit">{t('calendar.reminderInherit')}</option>
                 <option value="notification">{t('calendar.reminderModeNotification')}</option>
                 <option value="alarm">{t('calendar.reminderModeAlarm')}</option>
               </select>
             </label>
-          </>
+          </div>
         )}
       </div>
     </div>
