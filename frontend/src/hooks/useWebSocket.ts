@@ -339,12 +339,20 @@ export function useWebSocket() {
         const { changes } = data;
         if (Array.isArray(changes) && changes.length) {
           const { updateMessage } = useStore.getState();
+          const readIds: string[] = [];
           for (const c of changes) {
             if (!c || !c.id) continue;
             const patch: { is_read?: boolean; is_starred?: boolean } = {};
             if (typeof c.is_read === 'boolean') patch.is_read = c.is_read;
             if (typeof c.is_starred === 'boolean') patch.is_starred = c.is_starred;
             if (Object.keys(patch).length) updateMessage(c.id, patch, data.accountId);
+            // Dismiss the native Android notification once the message is read on ANY
+            // device. The native layer cancels by message id and forgets ids it never
+            // posted, so a fire-and-forget call is safe here.
+            if (c.is_read === true) readIds.push(c.id);
+          }
+          if (readIds.length) {
+            void window.inboxoraNative?.notifications?.cancelMessageNotifications?.(readIds);
           }
           requestMailRefresh(data.accountId);
         }

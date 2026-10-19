@@ -23,6 +23,11 @@ type NativeNotifications = {
   openDistributor?: () => Promise<NativeStatus>;
   openInstallPage?: () => Promise<NativeStatus>;
   openHelp?: () => Promise<NativeStatus>;
+  cancelMessageNotifications?: (messageIds: string[]) => Promise<NativeStatus>;
+  syncReminders?: () => Promise<NativeStatus>;
+  getReminderStatus?: () => Promise<NativeStatus>;
+  requestExactAlarmPermission?: () => Promise<NativeStatus>;
+  requestIgnoreBatteryOptimizations?: () => Promise<NativeStatus>;
 };
 
 type NativePushResult = {

@@ -46,6 +46,13 @@
     <string name="native_open_link" formatted="false">Apri link</string>
     <string name="native_copy_link" formatted="false">Copia link</string>
     <string name="native_copy_image_address" formatted="false">Copia indirizzo immagine</string>
+    <string name="native_live_push_title" formatted="false">Notifiche in tempo reale di Inboxora</string>
+    <string name="native_live_push_body" formatted="false">Connesso al tuo server Inboxora.</string>
+    <string name="native_calendar_reminder_title" formatted="false">Promemoria del calendario</string>
+    <string name="native_calendar_reminders_channel" formatted="false">Promemoria del calendario</string>
+    <string name="native_calendar_alarm_title" formatted="false">Allarme del calendario</string>
+    <string name="native_calendar_alarms_channel" formatted="false">Allarmi del calendario</string>
+    <string name="native_calendar_alarm_stop" formatted="false">Ferma allarme</string>
     <string name="native_compose" formatted="false">Scrivi</string>
     <string name="native_calendar" formatted="false">Calendario</string>
     <string name="native_contacts" formatted="false">Contatti</string>

@@ -44,7 +44,14 @@
     "quit": "Quit",
     "openLink": "Open link",
     "copyLink": "Copy link",
-    "copyImageAddress": "Copy image address"
+    "copyImageAddress": "Copy image address",
+    "livePushTitle": "Inboxora live notifications",
+    "livePushBody": "Connected to your Inboxora server.",
+    "calendarReminderTitle": "Calendar reminder",
+    "calendarRemindersChannel": "Calendar reminders",
+    "calendarAlarmTitle": "Calendar alarm",
+    "calendarAlarmsChannel": "Calendar alarms",
+    "calendarAlarmStop": "Stop alarm"
   },
   "pl": {
     "connectTitle": "Połącz z Inboxora",
@@ -91,7 +98,14 @@
     "quit": "Zakończ",
     "openLink": "Otwórz odnośnik",
     "copyLink": "Kopiuj odnośnik",
-    "copyImageAddress": "Kopiuj adres obrazu"
+    "copyImageAddress": "Kopiuj adres obrazu",
+    "livePushTitle": "Powiadomienia na żywo Inboxora",
+    "livePushBody": "Połączono z serwerem Inboxora.",
+    "calendarReminderTitle": "Przypomnienie kalendarza",
+    "calendarRemindersChannel": "Przypomnienia kalendarza",
+    "calendarAlarmTitle": "Alarm kalendarzowy",
+    "calendarAlarmsChannel": "Alarmy kalendarzowe",
+    "calendarAlarmStop": "Zatrzymaj alarm"
   },
   "de": {
     "connectTitle": "Inboxora verbinden",
@@ -138,7 +152,14 @@
     "quit": "Beenden",
     "openLink": "Link öffnen",
     "copyLink": "Link kopieren",
-    "copyImageAddress": "Bildadresse kopieren"
+    "copyImageAddress": "Bildadresse kopieren",
+    "livePushTitle": "Inboxora Live-Benachrichtigungen",
+    "livePushBody": "Mit deinem Inboxora-Server verbunden.",
+    "calendarReminderTitle": "Kalendererinnerung",
+    "calendarRemindersChannel": "Kalendererinnerungen",
+    "calendarAlarmTitle": "Kalender-Alarm",
+    "calendarAlarmsChannel": "Kalender-Alarme",
+    "calendarAlarmStop": "Alarm beenden"
   },
   "cs": {
     "connectTitle": "Připojit Inboxora",
@@ -185,7 +206,14 @@
     "quit": "Ukončit",
     "openLink": "Otevřít odkaz",
     "copyLink": "Kopírovat odkaz",
-    "copyImageAddress": "Kopírovat adresu obrázku"
+    "copyImageAddress": "Kopírovat adresu obrázku",
+    "livePushTitle": "Živá oznámení Inboxora",
+    "livePushBody": "Připojeno k serveru Inboxora.",
+    "calendarReminderTitle": "Připomínka kalendáře",
+    "calendarRemindersChannel": "Připomínky kalendáře",
+    "calendarAlarmTitle": "Alarm kalendáře",
+    "calendarAlarmsChannel": "Alarmy kalendáře",
+    "calendarAlarmStop": "Zastavit alarm"
   },
   "fr": {
     "connectTitle": "Connecter Inboxora",
@@ -232,7 +260,14 @@
     "quit": "Quitter",
     "openLink": "Ouvrir le lien",
     "copyLink": "Copier le lien",
-    "copyImageAddress": "Copier l’adresse de l’image"
+    "copyImageAddress": "Copier l’adresse de l’image",
+    "livePushTitle": "Notifications en direct Inboxora",
+    "livePushBody": "Connecté à votre serveur Inboxora.",
+    "calendarReminderTitle": "Rappel de calendrier",
+    "calendarRemindersChannel": "Rappels de calendrier",
+    "calendarAlarmTitle": "Alarme du calendrier",
+    "calendarAlarmsChannel": "Alarmes du calendrier",
+    "calendarAlarmStop": "Arrêter l'alarme"
   },
   "es": {
     "connectTitle": "Conectar Inboxora",
@@ -279,7 +314,14 @@
     "quit": "Salir",
     "openLink": "Abrir enlace",
     "copyLink": "Copiar enlace",
-    "copyImageAddress": "Copiar dirección de la imagen"
+    "copyImageAddress": "Copiar dirección de la imagen",
+    "livePushTitle": "Notificaciones en vivo de Inboxora",
+    "livePushBody": "Conectado a tu servidor de Inboxora.",
+    "calendarReminderTitle": "Recordatorio del calendario",
+    "calendarRemindersChannel": "Recordatorios del calendario",
+    "calendarAlarmTitle": "Alarma del calendario",
+    "calendarAlarmsChannel": "Alarmas del calendario",
+    "calendarAlarmStop": "Detener alarma"
   },
   "it": {
     "connectTitle": "Connetti Inboxora",
@@ -326,7 +368,14 @@
     "quit": "Esci",
     "openLink": "Apri link",
     "copyLink": "Copia link",
-    "copyImageAddress": "Copia indirizzo immagine"
+    "copyImageAddress": "Copia indirizzo immagine",
+    "livePushTitle": "Notifiche in tempo reale di Inboxora",
+    "livePushBody": "Connesso al tuo server Inboxora.",
+    "calendarReminderTitle": "Promemoria del calendario",
+    "calendarRemindersChannel": "Promemoria del calendario",
+    "calendarAlarmTitle": "Allarme del calendario",
+    "calendarAlarmsChannel": "Allarmi del calendario",
+    "calendarAlarmStop": "Ferma allarme"
   },
   "ru": {
     "connectTitle": "Подключить Inboxora",
@@ -373,7 +422,14 @@
     "quit": "Выйти",
     "openLink": "Открыть ссылку",
     "copyLink": "Копировать ссылку",
-    "copyImageAddress": "Копировать адрес изображения"
+    "copyImageAddress": "Копировать адрес изображения",
+    "livePushTitle": "Оповещения Inboxora в реальном времени",
+    "livePushBody": "Подключено к вашему серверу Inboxora.",
+    "calendarReminderTitle": "Напоминание календаря",
+    "calendarRemindersChannel": "Напоминания календаря",
+    "calendarAlarmTitle": "Сигнал календаря",
+    "calendarAlarmsChannel": "Сигналы календаря",
+    "calendarAlarmStop": "Остановить сигнал"
   },
   "zhCN": {
     "connectTitle": "连接 Inboxora",
@@ -420,6 +476,13 @@
     "quit": "退出",
     "openLink": "打开链接",
     "copyLink": "复制链接",
-    "copyImageAddress": "复制图片地址"
+    "copyImageAddress": "复制图片地址",
+    "livePushTitle": "Inboxora 实时通知",
+    "livePushBody": "已连接到您的 Inboxora 服务器。",
+    "calendarReminderTitle": "日历提醒",
+    "calendarRemindersChannel": "日历提醒",
+    "calendarAlarmTitle": "日历闹钟",
+    "calendarAlarmsChannel": "日历闹钟",
+    "calendarAlarmStop": "停止闹钟"
   }
 }

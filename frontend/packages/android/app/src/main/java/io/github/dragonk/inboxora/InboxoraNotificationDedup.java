@@ -43,6 +43,17 @@ public final class InboxoraNotificationDedup {
         prune(now);
     }
 
+    /** Drop an event id after its notification was dismissed or the message read. */
+    public synchronized void forget(String eventId) {
+        if (eventId == null || eventId.isEmpty()) return;
+        entries.remove(eventId);
+    }
+
+    /** Event ids that currently have a notification the reconciler should verify. */
+    public synchronized java.util.List<String> activeEventIds() {
+        return new java.util.ArrayList<>(entries.keySet());
+    }
+
     /** Entries to persist, bounded to the most recent {@code maxEntries}. */
     public synchronized Map<String, Long> snapshot() {
         return new LinkedHashMap<>(entries);

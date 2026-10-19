@@ -63,6 +63,11 @@ interface InboxoraNativeNotifications {
   openDistributor?(): Promise<InboxoraNativeStatus>;
   openInstallPage?(): Promise<InboxoraNativeStatus>;
   openHelp?(): Promise<InboxoraNativeStatus>;
+  cancelMessageNotifications?(messageIds: string[]): Promise<InboxoraNativeStatus>;
+  syncReminders?(): Promise<InboxoraNativeStatus>;
+  getReminderStatus?(): Promise<InboxoraNativeStatus>;
+  requestExactAlarmPermission?(): Promise<InboxoraNativeStatus>;
+  requestIgnoreBatteryOptimizations?(): Promise<InboxoraNativeStatus>;
   openSettings?(): Promise<InboxoraNativeStatus>;
   onPush?(callback: (notification: InboxoraNativePushNotification) => void): () => void;
 }

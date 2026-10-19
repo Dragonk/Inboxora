@@ -46,6 +46,13 @@
     <string name="native_open_link" formatted="false">Link öffnen</string>
     <string name="native_copy_link" formatted="false">Link kopieren</string>
     <string name="native_copy_image_address" formatted="false">Bildadresse kopieren</string>
+    <string name="native_live_push_title" formatted="false">Inboxora Live-Benachrichtigungen</string>
+    <string name="native_live_push_body" formatted="false">Mit deinem Inboxora-Server verbunden.</string>
+    <string name="native_calendar_reminder_title" formatted="false">Kalendererinnerung</string>
+    <string name="native_calendar_reminders_channel" formatted="false">Kalendererinnerungen</string>
+    <string name="native_calendar_alarm_title" formatted="false">Kalender-Alarm</string>
+    <string name="native_calendar_alarms_channel" formatted="false">Kalender-Alarme</string>
+    <string name="native_calendar_alarm_stop" formatted="false">Alarm beenden</string>
     <string name="native_compose" formatted="false">Verfassen</string>
     <string name="native_calendar" formatted="false">Kalender</string>
     <string name="native_contacts" formatted="false">Kontakte</string>

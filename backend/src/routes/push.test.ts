@@ -14,13 +14,14 @@ import type {
 import type { transportStatus as TransportStatus } from '../services/pushTransports.js';
 import type { query as Query } from '../services/db.js';
 import type { validateHost as ValidateHost } from '../services/hostValidation.js';
+import type { upcomingCalendarReminders as UpcomingCalendarReminders } from '../services/calendarReminders.js';
 
 // The mocked middleware only reads these fields off the augmented Request.
 type PushDeviceAttrs = Pick<NonNullable<Request['pushDevice']>, 'id' | 'userId' | 'deviceId'>;
 
 const {
   listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices,
-  transportStatus, query, validateHost,
+  transportStatus, query, validateHost, upcomingCalendarReminders,
 } = vi.hoisted(() => ({
   listPushDevices: vi.fn<typeof ListPushDevices>(),
   registerPushDevice: vi.fn<typeof RegisterPushDevice>(),
@@ -30,6 +31,7 @@ const {
   transportStatus: vi.fn<typeof TransportStatus>(),
   query: vi.fn<typeof Query>(),
   validateHost: vi.fn<typeof ValidateHost>(),
+  upcomingCalendarReminders: vi.fn<typeof UpcomingCalendarReminders>(),
 }));
 
 vi.mock('../middleware/auth.js', () => ({
@@ -49,6 +51,7 @@ vi.mock('../services/pushConfig.js', () => ({
 }));
 vi.mock('../services/db.js', () => ({ query }));
 vi.mock('../services/hostValidation.js', () => ({ validateHost }));
+vi.mock('../services/calendarReminders.js', () => ({ upcomingCalendarReminders }));
 
 import express from 'express';
 import pushRouter from './push.js';
@@ -66,7 +69,7 @@ beforeAll(async () => {
 afterAll(async () => { await new Promise((resolve) => server.close(resolve)); });
 
 beforeEach(() => {
-  for (const fn of [listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices, transportStatus, query, validateHost]) fn.mockReset();
+  for (const fn of [listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices, transportStatus, query, validateHost, upcomingCalendarReminders]) fn.mockReset();
   pruneStalePushDevices.mockResolvedValue(0);
   transportStatus.mockReturnValue({ unifiedpush: true, fcm: false });
   validateHost.mockResolvedValue(null);
@@ -205,5 +208,46 @@ describe('native background API', () => {
     expect(body.eventId).toBe('msg-9');
     expect(body.message.title).toBe('bob@example.com');
     expect(body.unreadCount).toBe(2);
+  });
+
+  it('answers the read-check with only the still-unread subset', async () => {
+    query.mockResolvedValue({ rows: [{ id: '11111111-2222-3333-4444-555555555555' }] });
+    const response = await fetch(`${base}/api/push/native/read-check`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messageIds: [
+        '11111111-2222-3333-4444-555555555555',
+        'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        'not-a-uuid',
+      ] }),
+    });
+    const body = (await response.json()) as JsonBody;
+    // The malformed id is filtered before the query; the read one is absent from
+    // the answer so the client cancels its notification.
+    expect(body.unread).toEqual(['11111111-2222-3333-4444-555555555555']);
+    expect(query.mock.calls[0][1]).toEqual(['user-1', ['11111111-2222-3333-4444-555555555555', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee']]);
+  });
+
+  it('short-circuits a read-check without ids', async () => {
+    const response = await fetch(`${base}/api/push/native/read-check`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messageIds: [] }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ unread: [] });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('exposes the reminder schedule for the device, bounded to 72 hours', async () => {
+    upcomingCalendarReminders.mockResolvedValue([{ key: 'e1', eventId: 'e1', calendarId: 'cal-1', calendarName: 'Work', summary: 'Standup', location: null, startsAt: '2026-10-19T10:00:00Z', endsAt: '2026-10-19T10:30:00Z', allDay: false, minutes: 30, remindAt: '2026-10-19T09:30:00Z', mode: 'notification' }]);
+    const response = await fetch(`${base}/api/push/native/reminders?windowHours=999`);
+    const body = (await response.json()) as JsonBody;
+    expect(body.windowHours).toBe(72);
+    expect(body.reminders).toHaveLength(1);
+    const [userId, window] = upcomingCalendarReminders.mock.calls[0];
+    expect(userId).toBe('user-1');
+    assert.ok(window.to instanceof Date);
+    expect(window.to.getTime() - window.from.getTime()).toBe(72 * 3_600_000);
+    // The grace for a device clock drift is added before the window starts.
+    assert.ok(Date.now() - window.from.getTime() >= 120_000);
   });
 });

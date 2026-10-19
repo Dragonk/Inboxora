@@ -46,6 +46,13 @@
     <string name="native_open_link" formatted="false">Otevřít odkaz</string>
     <string name="native_copy_link" formatted="false">Kopírovat odkaz</string>
     <string name="native_copy_image_address" formatted="false">Kopírovat adresu obrázku</string>
+    <string name="native_live_push_title" formatted="false">Živá oznámení Inboxora</string>
+    <string name="native_live_push_body" formatted="false">Připojeno k serveru Inboxora.</string>
+    <string name="native_calendar_reminder_title" formatted="false">Připomínka kalendáře</string>
+    <string name="native_calendar_reminders_channel" formatted="false">Připomínky kalendáře</string>
+    <string name="native_calendar_alarm_title" formatted="false">Alarm kalendáře</string>
+    <string name="native_calendar_alarms_channel" formatted="false">Alarmy kalendáře</string>
+    <string name="native_calendar_alarm_stop" formatted="false">Zastavit alarm</string>
     <string name="native_compose" formatted="false">Napsat</string>
     <string name="native_calendar" formatted="false">Kalendář</string>
     <string name="native_contacts" formatted="false">Kontakty</string>

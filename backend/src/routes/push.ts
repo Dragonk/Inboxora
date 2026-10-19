@@ -10,6 +10,7 @@ import {
 } from '../services/pushDevices.js';
 import { transportStatus } from '../services/pushTransports.js';
 import { pushConfigured } from '../services/pushNotifications.js';
+import { upcomingCalendarReminders } from '../services/calendarReminders.js';
 import { allowPrivatePushEndpoints, pushBaseUrl } from '../services/pushConfig.js';
 import { query } from '../services/db.js';
 import { validateHost } from '../services/hostValidation.js';
@@ -208,6 +209,46 @@ router.get('/native/inbox', requireDeviceAuth, async (req: Request, res: Respons
     eventId: latest.rows[0]?.id ?? null,
     unreadCount: counts.rows[0]?.total ?? 0,
   });
+});
+
+
+// Which of the given message ids are still unread (INBOX)? The native app asks
+// this after a live read-state change and on every reconciliation: any of its
+// posted new-mail notifications whose id is NOT in the answer gets cancelled,
+// so reading mail anywhere — in the app, on another device, on the provider's
+// webmail — clears the stale notification instead of leaving it hanging.
+router.post('/native/read-check', requireDeviceAuth, async (req: Request, res: Response) => {
+  const userId = deviceUserId(req);
+  const ids = Array.isArray(req.body?.messageIds)
+    ? req.body.messageIds.filter((id: unknown): id is string => typeof id === 'string' && UUID_RE.test(id)).slice(0, 200)
+    : [];
+  if (!ids.length) return res.json({ unread: [] });
+  const result = await query<{ id: string }>(
+    `SELECT m.id
+       FROM messages m
+       JOIN email_accounts a ON a.id = m.account_id
+      WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX'
+        AND m.is_read = false AND m.is_deleted = false
+        AND m.id = ANY($2::uuid[])`,
+    [userId, ids],
+  );
+  const unread = new Set(result.rows.map(row => row.id));
+  // A message that is gone, deleted, read on another device or outside the
+  // INBOX is deliberately NOT unread: cancelling its notification is the
+  // point of the reconciliation.
+  res.json({ unread: [...unread] });
+});
+
+// Upcoming calendar reminders for this device to schedule with AlarmManager.
+// The full cascade (global -> calendar -> event) is resolved server-side, so
+// the device never has to know anything about settings, just when to ring.
+router.get('/native/reminders', requireDeviceAuth, async (req: Request, res: Response) => {
+  const userId = deviceUserId(req);
+  const windowHours = Math.min(72, Math.max(1, Number(req.query.windowHours) || 24));
+  const from = new Date(Date.now() - 2 * 60_000); // small grace for a clock drift
+  const to = new Date(from.getTime() + windowHours * 3_600_000);
+  const reminders = await upcomingCalendarReminders(userId, { from, to });
+  res.json({ asOf: new Date().toISOString(), windowHours, reminders });
 });
 
 export default router;

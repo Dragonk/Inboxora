@@ -1076,6 +1076,36 @@
       "loadError": "Nie udało się wczytać ustawień retencji.",
       "saveError": "Nie udało się zapisać ustawień retencji.",
       "saved": "Ustawienia retencji zostały zapisane."
+    },
+    "reminders": {
+      "title": "Przypomnienia kalendarza",
+      "description": "Czas wyprzedzenia liczy serwer (globalnie → kalendarz → wydarzenie); aplikacja Android odtwarza je jako powiadomienia lub uporczywe alarmy.",
+      "enabled": "Przypomnienia o wydarzeniach",
+      "enabledHint": "Dotyczy wszystkich Twoich kalendarzy, chyba że kalendarz lub wydarzenie ma własne ustawienie.",
+      "on": "Wł.",
+      "off": "Wył.",
+      "lead": "Przypomnij przed",
+      "mode": "Dostarczenie",
+      "modeNotification": "Powiadomienie",
+      "modeAlarm": "Alarm",
+      "upcoming": "Nadchodzące przypomnienia (48 h)",
+      "upcomingEmpty": "Brak przypomnień w ciągu najbliższych 48 godzin.",
+      "previewUnavailable": "Podgląd niedostępny.",
+      "before": "{{minutes}} min przed",
+      "deviceTitle": "Urządzenie z Androidem",
+      "exactAlarms": "Dokładne alarmy",
+      "granted": "Dozwolone",
+      "missing": "Niedozwolone",
+      "grantExact": "Zezwól",
+      "battery": "Optymalizacja baterii",
+      "batteryRestricted": "Ograniczona",
+      "batteryExempt": "Bez ograniczeń",
+      "batteryFix": "Usuń ograniczenia",
+      "live": "Połączenie na żywo",
+      "liveConnected": "Połączono",
+      "liveDisconnected": "Rozłączono",
+      "scheduled": "Zaplanowane na urządzeniu",
+      "syncNow": "Synchronizuj przypomnienia"
     }
   },
   "blockList": {
@@ -2271,7 +2301,17 @@
     "importIcs": "Importuj plik .ics",
     "importDone": "Zaimportowano {{count}} wydarzenie/ń.",
     "importProtected": "{{count}} wydarzeń pozostało bez zmian, ponieważ Inboxora wysłała ich zaproszenia.",
-    "showAgendaDescription": "Pokazuj plan wybranego dnia po prawej stronie kalendarza na komputerze."
+    "showAgendaDescription": "Pokazuj plan wybranego dnia po prawej stronie kalendarza na komputerze.",
+    "reminder": "Przypomnienie",
+    "reminderInherit": "Domyślne kalendarza",
+    "reminderOn": "Włączone",
+    "reminderOff": "Wyłączone",
+    "reminderMinutes": "Minut przed",
+    "reminderMode": "Rodzaj",
+    "reminderModeNotification": "Powiadomienie",
+    "reminderModeAlarm": "Alarm",
+    "reminderError": "Nie udało się zapisać przypomnienia.",
+    "reminderHours": "{{count}} h"
   },
   "mailFolders": {
     "inbox": "Odebrane",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "Przypomnienia",
+    "reminderOn": "Włączone",
+    "reminderOff": "Wyłączone",
+    "reminderLeadTime": "Przypomnij minut przed",
+    "reminderInherit": "Ustawienie globalne",
+    "reminderAtStart": "Przy rozpoczęciu"
   },
   "undoSendSetting": {
     "legacyValue": "Obecne opóźnienie: {{count}} s. Wybierz jedną z czterech opcji, aby je zmienić.",
