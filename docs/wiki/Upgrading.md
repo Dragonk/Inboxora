@@ -45,7 +45,7 @@ cp .env .env.backup
 
 A readable archive is a basic check, not a substitute for testing a restore. Keep the
 backup and matching `.env` securely outside the database volume. Then set
-`INBOXORA_VERSION=4.3.4` in the existing `.env` when using the supplied GHCR Compose file.
+`INBOXORA_VERSION` in the existing `.env` to the version you are deploying when using the supplied GHCR Compose file.
 A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
 Do not overwrite secrets, rename the database or recreate its volume.
 
