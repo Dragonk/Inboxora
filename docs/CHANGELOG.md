@@ -18,6 +18,11 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
+## [Unreleased]
+
+### Fixed
+- Reading wide fixed-layout emails on phone-sized screens: the message body first reflows (fluid widths, wrapping, narrow-viewport table normalisation) and whatever still overflows is scaled down to the frame width — the Gmail behaviour — instead of leaving a horizontal scrollbar inside the message. Applies to every message view (reading pane, conversation reader, calendar descriptions, HTML attachment previews); document-layout previews such as docx keep their natural width.
+
 ## [4.3.8] - 2026-10-19
 
 ### Added
