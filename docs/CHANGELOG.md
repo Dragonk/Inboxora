@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.8](wiki/Release-notes-4.3.8.md). Older release notes are collected in
+[Release notes 4.4.0](wiki/Release-notes-4.4.0.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -18,7 +18,7 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
-## [Unreleased]
+## [4.4.0] - 2026-10-19
 
 ### Fixed
 - Reading light-designed emails in the dark appearance: a message authored for a light page is now re-themed to the dark canvas the way Gmail does - light backgrounds (inline styles, background shorthands, legacy bgcolor attributes and the message's own <style> rules) are mirrored into the dark band and the dark text that would vanish on the new canvas is lifted - instead of keeping glaring white cards. A message that already ships a dark design keeps it, and the light appearance adapts nothing.

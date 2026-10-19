@@ -3,15 +3,15 @@
 **Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
 IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest release: **[Inboxora 4.3.8](Release-notes-4.3.8.md)**.
-[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.3.8) ·
-[Upgrading](Upgrading.md#upgrading-to-438) · [Archive](Archive.md)
+Latest release: **[Inboxora 4.4.0](Release-notes-4.4.0.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.0) ·
+[Upgrading](Upgrading.md#upgrading-to-440) · [Archive](Archive.md)
 
-4.3.8 adds MCP tools for calendar reminder settings, fixes phone-width notification and reminder
-screens, and creates the Android notification channels at boot. It follows
-[4.3.6](Release-notes-4.3.6.md), which added native live push and calendar reminders for the
-Android app, and [4.3.7](Release-notes-4.3.7.md), which made push fully built-in by removing
-the external ntfy server and the UnifiedPush pipeline.
+4.4.0 improves how mail reads: wide fixed-layout emails fit the phone without horizontal
+scrolling, and light-designed emails are re-themed for the dark appearance the way Gmail
+renders them. It follows [4.3.8](Release-notes-4.3.8.md), which added MCP tools for calendar
+reminder settings, and [4.3.6](Release-notes-4.3.6.md)/[4.3.7](Release-notes-4.3.7.md), which
+brought native live push and calendar reminders.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
@@ -37,9 +37,9 @@ the external ntfy server and the UnifiedPush pipeline.
 
 ## Release documentation
 
-[Release notes 4.3.8](Release-notes-4.3.8.md) contains the current maintenance changes,
+[Release notes 4.4.0](Release-notes-4.4.0.md) contains the current maintenance changes,
 limitations and upgrade instructions. **[Archive](Archive.md)** contains every older release-note
-page, including 4.3.7, 4.3.6 and 4.3.5. The Archive sidebar group is collapsed; existing page URLs and release
+page, including 4.3.8, 4.3.7 and 4.3.6. The Archive sidebar group is collapsed; existing page URLs and release
 bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for
 work after the latest release.
 
