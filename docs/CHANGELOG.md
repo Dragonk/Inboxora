@@ -20,7 +20,9 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-There are no unreleased changes after **4.3.7**.
+### Fixed
+- Phone-width notification and reminder settings: the calendar reminder lead-time chips wrap instead of shrinking, the lead/mode pair stacks, upcoming reminder rows wrap with a compact date, and delivery-warning rows let their fix buttons flow to the next line.
+- Android notification channels exist from boot: the boot receiver creates them before starting the live push service and the reminder sync, so notifications raised before the app is first opened after a reboot post to real channels instead of silently dropping.
 
 ## [4.3.7] - 2026-10-19
 

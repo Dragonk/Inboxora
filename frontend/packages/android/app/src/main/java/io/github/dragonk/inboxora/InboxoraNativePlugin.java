@@ -1448,7 +1448,7 @@ public class InboxoraNativePlugin extends Plugin {
         }
     }
 
-    private static void createNotificationChannel(Context context) {
+    static void createNotificationChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
         NotificationChannel channel = new NotificationChannel(

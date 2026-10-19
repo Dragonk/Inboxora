@@ -12,6 +12,9 @@ public class InboxoraBootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null || !Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
+        // The boot receiver runs before any plugin load: without the channels every
+        // notification this path starts would post into nothing.
+        try { InboxoraNativePlugin.createNotificationChannel(context); } catch (Throwable ignored) {}
         try { InboxoraLivePushService.ensureStarted(context); } catch (Throwable ignored) {}
         try { InboxoraNativePush.enqueueReminderSync(context); } catch (Throwable ignored) {}
     }
