@@ -5,6 +5,9 @@ import { test, expect } from './fixtures.ts';
 // The regression this guards: an earlier rule decided the canvas from "does the message
 // contain any colours of its own?", so a single dark footer turned the entire reader
 // white in a dark theme. These specs use the shapes of real messages that exposed it.
+// The canvas always follows the app theme; the message's own light design is re-themed
+// to it the way Gmail does — light backgrounds mirrored dark, dark text lifted — so a
+// light-designed newsletter reads dark in a dark theme instead of glaring white.
 
 const DARK = { theme: 'dark_ink', themeMode: 'dark', themeLight: 'ink', themeDark: 'dark_ink' };
 const LIGHT = { theme: 'ink', themeMode: 'light', themeLight: 'ink', themeDark: 'dark_ink' };
@@ -132,28 +135,31 @@ test.describe('dark canvas for real message shapes', () => {
     expect(footer.contrast).toBeGreaterThanOrEqual(4.5);
   });
 
-  test('a light-designed newsletter keeps its cards readable on the dark canvas', async ({ page, fixtureApi }) => {
+  test('a light-designed newsletter is re-themed to the dark canvas like Gmail', async ({ page, fixtureApi }) => {
     test.skip(page.viewportSize().width < 768, 'desktop reader contract');
     await fixtureApi;
     const result = await probe(page, DARK, ALLEGRO_LIKE);
 
-    // The canvas follows the app, while the message keeps the light cards it painted.
+    // The canvas follows the app, and the message's white cards no longer glare white:
+    // they are repainted to their dark mirrors, with readable text on top.
     expect(result.colorScheme).toBe('dark');
     expect(result.rootLuminance).toBeLessThan(0.2);
-    // Nothing is invisible. This is the floor: the newsletter's own teal-on-white brand
-    // link sits at ~3:1 and is the author's choice, so it is not adapted, but no text may
-    // be lost to a canvas/text mismatch.
-    expect(result.invisible).toEqual([]);
+    expect(result.unreadable).toEqual([]);
 
-    // A cell inside a white card that declared no colour of its own must be dark, not the
-    // app's light default — this is the light-on-white regression.
+    // The white card is mirrored to black — exactly how Gmail renders this newsletter in
+    // the dark theme — and the dark text that would vanish on it is lifted instead.
     const cardHeading = result.samples.find(sample => sample.text.startsWith('Odbierz paczkę'));
-    expect(cardHeading.background).toBe('rgb(255, 255, 255)');
-    expect(parseFloat(cardHeading.color.match(/[\d.]+/g)[0])).toBeLessThan(120);
+    expect(cardHeading.background).toBe('rgb(0, 0, 0)');
+    expect(parseFloat(cardHeading.color.match(/[\d.]+/g)[0])).toBeGreaterThan(120);
     expect(cardHeading.contrast).toBeGreaterThanOrEqual(4.5);
 
-    // A dark band nested INSIDE the light wrapper is its own region: its white text must
-    // survive rather than being darkened with the wrapper.
+    // A brand link that was teal-on-white is lifted too, because its region is now dark.
+    const cardLink = result.samples.find(sample => sample.text.startsWith('OTWÓRZ ZDALNIE'));
+    expect(cardLink.declaredColor).not.toBe('rgb(0, 167, 144)');
+    expect(cardLink.contrast).toBeGreaterThanOrEqual(4.5);
+
+    // A dark band nested INSIDE the light wrapper keeps its own dark design: its white
+    // text survives rather than being darkened with the wrapper.
     const darkBand = result.samples.find(sample => sample.text.startsWith('Masz pytania?'));
     expect(darkBand.background).toBe('rgb(58, 78, 88)');
     expect(darkBand.declaredColor).toBe('rgb(255, 255, 255)');

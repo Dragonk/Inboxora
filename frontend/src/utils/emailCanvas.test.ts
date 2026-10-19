@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  adaptBackgroundForDarkCanvas,
   adaptTextForCanvas,
   findColorToken,
   hslToRgb,
@@ -11,7 +12,6 @@ import {
   parseColor,
   rgbToHex,
   rgbToHsl,
-  textForLightBackground,
 } from './emailCanvas.ts';
 
 // The colour-space helpers take and return the module's RGB tuple.
@@ -157,17 +157,29 @@ describe('adapting text to the dark canvas', () => {
   });
 });
 
-describe('text decided from a message’s own light background', () => {
-  it('produces readable dark text for a white card that declares none', () => {
+describe('repainting the light backgrounds mail paints', () => {
+  it('mirrors the light cards mail paints into the dark band', () => {
     for (const hex of ['#ffffff', '#f7f7f7', '#eceff1', '#fff8e1']) {
-      const text = textForLightBackground(parseColor(hex));
-      assert.ok(contrast(text, parseColor(hex)) >= 4.5, `${hex} contrast ${contrast(text, parseColor(hex))}`);
+      const repainted = adaptBackgroundForDarkCanvas(parseColor(hex));
+      assert.ok(lightness(repainted) <= 0.24, `${hex} repainted to ${rgbToHex(repainted)}`);
+      assert.ok(contrast(THEME_TEXT, repainted) >= 4.5, `${hex} default text contrast ${contrast(THEME_TEXT, repainted)}`);
     }
   });
 
-  it('keeps a hint of the card’s hue rather than always using pure black', () => {
-    const onCream = textForLightBackground(parseColor('#fff8e1'));
+  it('keeps a hint of the card’s hue rather than flattening it to neutral black', () => {
+    const onCream = adaptBackgroundForDarkCanvas(parseColor('#fff8e1'));
     assert.ok(rgbToHsl(onCream)[1] > 0, 'the cream card produced a neutral grey');
+  });
+
+  it('preserves relative depth: white is the darkest repaint, light greys stay a shade lighter', () => {
+    const white = adaptBackgroundForDarkCanvas(parseColor('#ffffff'));
+    const grey = adaptBackgroundForDarkCanvas(parseColor('#e0e0e0'));
+    assert.ok(lightness(white) < lightness(grey), 'white and #e0e0e0 repainted to the same shade');
+  });
+
+  it('never repaints a background the message already painted dark', () => {
+    const navy = adaptBackgroundForDarkCanvas(parseColor('#1a2b4a'));
+    assert.deepEqual(navy, parseColor('#1a2b4a'));
   });
 });
 
@@ -199,8 +211,9 @@ describe('what the theme text itself must satisfy', () => {
   });
 
   it('would be darkened if a message declared it inside a light card', () => {
-    // Not something the frame does — it sets its own dark colour on the element that
-    // paints a light background — but the rule has to hold for a message that does.
+    // The frame repaints that card dark, so this rarely happens — but the rule has to
+    // hold for text that ever lands on a region that stayed light (e.g. behind an
+    // unparseable background).
     assert.equal(needsDarkening(THEME_TEXT, true), true);
   });
 });

@@ -103,6 +103,35 @@ describe('safe email CSS contract', () => {
   });
 });
 
+describe('dark canvas re-theming contract', () => {
+  it('wires the Gmail-style re-theme into the dark tone and leaves the light tone out', async () => {
+    const security = read('messageBodySecurity.ts');
+    // Inline re-theming runs only for the dark tone.
+    assert.match(security, /if \(tone === 'dark'\) adaptMessageForDarkCanvas\(template\.content\)/);
+    // <style> colour rules are re-themed by the same helpers, never inside a rule the
+    // message wrote for a dark scheme of its own.
+    assert.match(security, /tone === 'dark' \? adaptEmailCssForDarkCanvas\(safe\) : safe/);
+    assert.match(security, /inAuthoredDarkScheme\(declaration\)/);
+  });
+
+  it('mirrors light background colours to dark and lifts dark text in <style> rules', async () => {
+    const { adaptEmailCssForDarkCanvas } = await import('./messageBodySecurity.ts');
+    const adapted = adaptEmailCssForDarkCanvas('.card { background: #ffffff; color: #222222; } .footer { background-color: #f7f7f7; color: #666666; }');
+    assert.match(adapted, /background: #000000/);
+    assert.match(adapted, /background-color: #080808/);
+    assert.doesNotMatch(adapted, /#ffffff|#f7f7f7|#222222|#666666/);
+  });
+
+  it('leaves rules a message authored for a dark scheme untouched', async () => {
+    const { adaptEmailCssForDarkCanvas } = await import('./messageBodySecurity.ts');
+    // A message that ships its own dark media query keeps it — the frame already forces
+    // prefers-color-scheme: dark, so those rules are authored for this canvas.
+    const authored = adaptEmailCssForDarkCanvas('@media (prefers-color-scheme: dark) { .card { background: #ffffff; color: #222222; } }');
+    assert.match(authored, /#ffffff/);
+    assert.match(authored, /#222222/);
+  });
+});
+
 describe('mail body surface contract', () => {
   const surface = (tone: 'dark' | 'light') => ({ tone, background: '#1a1e25', foreground: '#e8e6df' });
   // The declarations the renderer injected for the frame's own colours. Note that

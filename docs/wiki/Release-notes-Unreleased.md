@@ -1,5 +1,6 @@
 # Development changes - unreleased
 
+Light-designed emails (white cards, dark text) kept glaring white backgrounds in the dark appearance, while Gmail re-themed the same messages to match it. Every message view now re-themes a light-designed message to the dark canvas the way Gmail does: light backgrounds are mirrored into the dark band with hue and relative depth preserved, the dark text that would vanish on the new canvas is lifted to readable light colours, brand links move with their repainted cards, and a message's own dark design (or its own `prefers-color-scheme: dark` rules) is left untouched. The light appearance is unaffected.
 Wide fixed-layout emails (hard-coded 600-700 px newsletters, fixed-width table cells) previously left a horizontal scrollbar inside the message on phone-sized screens. Every message view (reading pane, conversation reader, calendar descriptions, HTML attachment previews) now first lets the body reflow and then scales whatever still overflows down to the frame width — the same fit-to-width behaviour Gmail uses. Pinch zoom and text selection keep working, the scale is recomputed as images load and when the pane resizes, and document-layout previews (e.g. docx) intentionally keep their natural width with their own scrolling.
 
 For the current stable release, see [Release notes 4.3.8](Release-notes-4.3.8.md). Older
