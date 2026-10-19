@@ -23,8 +23,6 @@ on:
         value: ${{ jobs.plan.outputs.run_real_app_e2e }}
       run_docs_screenshots:
         value: ${{ jobs.plan.outputs.run_docs_screenshots }}
-      run_push_stack:
-        value: ${{ jobs.plan.outputs.run_push_stack }}
       docs_only:
         value: ${{ jobs.plan.outputs.docs_only }}
       duplicate_push:
@@ -49,7 +47,6 @@ jobs:
       run_postgres_e2e: ${{ steps.plan.outputs.run_postgres_e2e }}
       run_real_app_e2e: ${{ steps.plan.outputs.run_real_app_e2e }}
       run_docs_screenshots: ${{ steps.plan.outputs.run_docs_screenshots }}
-      run_push_stack: ${{ steps.plan.outputs.run_push_stack }}
       docs_only: ${{ steps.plan.outputs.docs_only }}
       duplicate_push: ${{ steps.plan.outputs.duplicate_push }}
       reason: ${{ steps.plan.outputs.reason }}

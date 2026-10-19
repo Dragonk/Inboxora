@@ -18,8 +18,8 @@ import org.json.JSONObject;
 /**
  * Shared state and helpers for the native push path.
  *
- * Provider-specific receivers (UnifiedPush service, FCM service) do almost
- * nothing: they store the endpoint/token or extract the opaque event id and
+ * Provider-specific receivers (the FCM service) do almost nothing: they store
+ * the provider token or extract the opaque event id and
  * hand the real work to WorkManager. That keeps the receiver inside Android's
  * short execution window and gives us retries, a network constraint and no
  * long-running connection of our own.
@@ -44,7 +44,6 @@ final class InboxoraNativePush {
     static final String WORK_REMINDER_SYNC = "inboxora-reminder-sync";
     static final String WORK_REGISTER = "inboxora-push-register";
 
-    static final String TRANSPORT_UNIFIEDPUSH = "unifiedpush";
     static final String TRANSPORT_FCM = "fcm";
     // In-app foreground service keeping its own WebSocket to the server alive;
     // no external distributor involved.
@@ -74,9 +73,15 @@ final class InboxoraNativePush {
 
     static void setRegistration(Context context, String transport, String endpoint) {
         InboxoraSecretStore.put(context, SECRET_ENDPOINT, endpoint);
+        // The live transport has no endpoint — the device token is the
+        // credential — so a live registration without one is "being set up"
+        // (fallback), not unavailable. The registration worker flips it to
+        // connected once the server has issued the device token.
         prefs(context).edit()
             .putString(PREF_TRANSPORT, transport)
-            .putString(PREF_STATUS, endpoint == null ? STATUS_UNAVAILABLE : STATUS_CONNECTED)
+            .putString(PREF_STATUS, endpoint == null
+                ? (TRANSPORT_LIVE.equals(transport) ? STATUS_FALLBACK : STATUS_UNAVAILABLE)
+                : STATUS_CONNECTED)
             .apply();
     }
 

@@ -30,7 +30,7 @@ import { PluginSlot } from '../plugins/PluginSlot.tsx';
 import { newAiAction, AI_ACTION_LIMITS } from '../aiActions.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { api } from '../utils/api.ts';
-import { getInstantPushState, openPushDistributor, openPushHelp, openPushInstallPage, registerNativePush } from '../utils/nativePush.ts';
+import { getInstantPushState, openLiveChannelSettings, registerNativePush } from '../utils/nativePush.ts';
 import { deriveInstantPushView } from '../utils/instantPushState.ts';
 import {
   AI_ACCOUNT_PROVIDER_OPTIONS,
@@ -5812,15 +5812,15 @@ function UsersAndInvitesPanel() {
 }
 
 // ─── Instant notifications (Android native push) ─────────────────────────────
-// Web Push above covers the PWA. This card explains the separate app that makes
-// notifications arrive after Inboxora is closed (a UnifiedPush distributor such
-// as ntfy), and shows whether this device is connected to this server's /push.
+// Web Push above covers the PWA. This card shows whether this device is
+// registered for the built-in live push transport and warns about the Android
+// settings (battery optimization, exact-alarm permission, dropped live socket)
+// that would silently break delivery.
 // All branching lives in deriveInstantPushView() so it is unit-testable.
 function NativePushSection() {
   const { t } = useTranslation();
   const [state, setState] = useState<Awaited<ReturnType<typeof getInstantPushState>> | null>(null);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const refresh = useCallback(async () => { setState(await getInstantPushState()); }, []);
   useEffect(() => { refresh(); }, [refresh]);
@@ -5828,22 +5828,9 @@ function NativePushSection() {
   const view = deriveInstantPushView(state);
   if (view.kind === 'unsupported') return null;
 
-  const appName = 'Inboxora';
-  const distributorName = view.distributorName || t('admin.push.instantFallbackName');
-  const recommended = 'ntfy';
-
   const run = async (action: () => unknown) => {
     setBusy(true);
     try { await action(); await refresh(); } finally { setBusy(false); }
-  };
-
-  const copyServer = async () => {
-    if (!view.pushBaseUrl) return;
-    try {
-      await navigator.clipboard.writeText(view.pushBaseUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* clipboard unavailable — the URL is visible to type */ }
   };
 
   const buttonStyle = (primary: boolean) => ({
@@ -5854,12 +5841,39 @@ function NativePushSection() {
     border: primary ? '1px solid transparent' : '1px solid var(--border)',
     opacity: busy ? 0.6 : 1, transition: 'all 0.15s',
   });
-  const urlBox: CSSProperties = {
-    fontFamily: 'monospace', fontSize: 12, color: 'var(--text-primary)',
-    padding: '7px 10px', borderRadius: 6, background: 'var(--bg-tertiary)',
-    border: '1px solid var(--border)', wordBreak: 'break-all', flex: 1,
+  const muted: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 480, lineHeight: 1.5 };
+  const warnBox: CSSProperties = {
+    display: 'flex', gap: 8, alignItems: 'flex-start',
+    padding: '10px 12px', borderRadius: 8, marginBottom: 8,
+    background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
   };
-  const muted: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 420, lineHeight: 1.5 };
+
+  // Actionable delivery warnings: Android settings the user - not the app - must
+  // change for notifications to arrive reliably.
+  const warnings: Array<{ key: string; body: string; action: string | null; run: (() => unknown) | null }> = [];
+  if (view.warnings.battery) {
+    warnings.push({ key: 'battery', body: t('admin.push.warnBattery'), action: t('admin.push.warnBatteryFix'), run: () => window.inboxoraNative?.notifications?.requestIgnoreBatteryOptimizations?.() });
+  }
+  if (view.warnings.exactAlarms) {
+    warnings.push({ key: 'exactAlarms', body: t('admin.push.warnExactAlarms'), action: t('admin.push.warnExactAlarmsFix'), run: () => window.inboxoraNative?.notifications?.requestExactAlarmPermission?.() });
+  }
+  if (view.kind === 'connected' && view.warnings.liveNotRunning) {
+    warnings.push({ key: 'live', body: t('admin.push.warnLive'), action: t('admin.push.instantCheckAgain'), run: () => registerNativePush() });
+  }
+
+  const warningRows = warnings.map(warning => (
+    <div key={warning.key} style={warnBox}>
+      <span aria-hidden="true">⚠</span>
+      <div style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{warning.body}</div>
+      {warning.action !== null && warning.run !== null && (
+        <button style={buttonStyle(true)} disabled={busy} onClick={() => { if (warning.run !== null) run(warning.run); }}>{warning.action}</button>
+      )}
+    </div>
+  ));
+
+  const transportLabel = view.kind === 'connected'
+    ? (view.transport === 'fcm' ? t('admin.push.instantTransportFcm') : t('admin.push.instantTransportLive'))
+    : null;
 
   return (
     <div style={{ marginTop: 20, padding: '16px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
@@ -5880,59 +5894,17 @@ function NativePushSection() {
         </div>
       )}
 
-      {view.kind === 'no_distributor' && (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span aria-hidden="true">⚠</span>
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.push.instantNeedsAppTitle')}</span>
-          </div>
-          <div style={{ ...muted, marginBottom: 6 }}>
-            {t('admin.push.instantNeedsAppBody', { app: appName, distributor: recommended })}
-          </div>
-          <div style={{ ...muted, marginBottom: 12 }}>
-            {t('admin.push.instantNeedsAppWhy', { app: appName, distributor: recommended })}
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => openPushInstallPage())}>
-              {t('admin.push.instantInstall', { distributor: recommended })}
-            </button>
-            <button style={buttonStyle(false)} disabled={busy} onClick={() => openPushHelp()}>
-              {t('admin.push.instantLearnMore')}
-            </button>
-          </div>
-        </div>
-      )}
-
       {view.kind === 'pending' && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--amber, #f59e0b)', flexShrink: 0 }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-              {t('admin.push.instantPendingTitle', { distributor: distributorName })}
-            </span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.push.instantPendingTitle')}</span>
           </div>
-          <div style={{ ...muted, marginBottom: 8 }}>
-            {t('admin.push.instantPendingBody', { distributor: distributorName })}
-          </div>
-          {view.pushBaseUrl && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-              <span style={urlBox}>{view.pushBaseUrl}</span>
-              <button style={buttonStyle(false)} disabled={busy} onClick={copyServer}>
-                {copied ? '✓' : t('common.copy')}
-              </button>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => openPushDistributor())}>
-              {t('admin.push.instantOpen', { distributor: distributorName })}
-            </button>
-            <button style={buttonStyle(false)} disabled={busy} onClick={() => run(() => registerNativePush())}>
-              {t('admin.push.instantCheckAgain')}
-            </button>
-            <button style={buttonStyle(false)} disabled={busy} onClick={() => openPushHelp()}>
-              {t('admin.push.instantLearnMore')}
-            </button>
-          </div>
+          <div style={{ ...muted, marginBottom: 12 }}>{t('admin.push.instantPendingBody')}</div>
+          {warningRows}
+          <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => registerNativePush())}>
+            {t('admin.push.instantCheckAgain')}
+          </button>
         </div>
       )}
 
@@ -5942,16 +5914,19 @@ function NativePushSection() {
             <span aria-hidden="true">✓</span>
             <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--green, #22c55e)' }}>{t('admin.push.instantActive')}</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', alignItems: 'baseline' }}>
-            <span style={muted}>{t('admin.push.instantProvider')}</span>
-            <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{distributorName}</span>
-            {view.pushBaseUrl && (
-              <>
-                <span style={muted}>{t('admin.push.instantServer')}</span>
-                <span style={{ ...urlBox, background: 'transparent', border: 'none', padding: 0 }}>{view.pushBaseUrl}</span>
-              </>
-            )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', alignItems: 'baseline', marginBottom: warnings.length > 0 || view.transport !== 'fcm' ? 12 : 0 }}>
+            <span style={muted}>{t('admin.push.instantTransport')}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{transportLabel ?? view.transport}</span>
           </div>
+          {warningRows}
+          {view.transport !== 'fcm' && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ ...muted, flex: 1, minWidth: 240 }}>{t('admin.push.hidePersistentTitle')}</div>
+              <button style={buttonStyle(false)} disabled={busy} onClick={() => run(() => openLiveChannelSettings())}>
+                {t('admin.push.hidePersistentAction')}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

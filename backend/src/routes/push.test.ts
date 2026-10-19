@@ -13,7 +13,6 @@ import type {
 } from '../services/pushDevices.js';
 import type { transportStatus as TransportStatus } from '../services/pushTransports.js';
 import type { query as Query } from '../services/db.js';
-import type { validateHost as ValidateHost } from '../services/hostValidation.js';
 import type { upcomingCalendarReminders as UpcomingCalendarReminders } from '../services/calendarReminders.js';
 
 // The mocked middleware only reads these fields off the augmented Request.
@@ -21,7 +20,7 @@ type PushDeviceAttrs = Pick<NonNullable<Request['pushDevice']>, 'id' | 'userId' 
 
 const {
   listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices,
-  transportStatus, query, validateHost, upcomingCalendarReminders,
+  transportStatus, query, upcomingCalendarReminders,
 } = vi.hoisted(() => ({
   listPushDevices: vi.fn<typeof ListPushDevices>(),
   registerPushDevice: vi.fn<typeof RegisterPushDevice>(),
@@ -30,7 +29,6 @@ const {
   pruneStalePushDevices: vi.fn<typeof PruneStalePushDevices>(),
   transportStatus: vi.fn<typeof TransportStatus>(),
   query: vi.fn<typeof Query>(),
-  validateHost: vi.fn<typeof ValidateHost>(),
   upcomingCalendarReminders: vi.fn<typeof UpcomingCalendarReminders>(),
 }));
 
@@ -45,12 +43,7 @@ vi.mock('../services/pushDevices.js', () => ({
 }));
 vi.mock('../services/pushTransports.js', () => ({ transportStatus }));
 vi.mock('../services/pushNotifications.js', () => ({ pushConfigured: true }));
-vi.mock('../services/pushConfig.js', () => ({
-  pushBaseUrl: () => 'https://mail.example.com',
-  allowPrivatePushEndpoints: () => false,
-}));
 vi.mock('../services/db.js', () => ({ query }));
-vi.mock('../services/hostValidation.js', () => ({ validateHost }));
 vi.mock('../services/calendarReminders.js', () => ({ upcomingCalendarReminders }));
 
 import express from 'express';
@@ -69,22 +62,21 @@ beforeAll(async () => {
 afterAll(async () => { await new Promise((resolve) => server.close(resolve)); });
 
 beforeEach(() => {
-  for (const fn of [listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices, transportStatus, query, validateHost, upcomingCalendarReminders]) fn.mockReset();
+  for (const fn of [listPushDevices, registerPushDevice, removePushDevice, removeAllPushDevices, pruneStalePushDevices, transportStatus, query, upcomingCalendarReminders]) fn.mockReset();
   pruneStalePushDevices.mockResolvedValue(0);
-  transportStatus.mockReturnValue({ unifiedpush: true, fcm: false });
-  validateHost.mockResolvedValue(null);
+  transportStatus.mockReturnValue({ live: true, fcm: false });
 });
 
 describe('POST /api/push/devices', () => {
   it('registers for the session user and returns the device token exactly once', async () => {
     registerPushDevice.mockResolvedValue({
-      device: { id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'unifiedpush', app_version: '4.0.0', created_at: new Date('2024-01-01T00:00:00.000Z'), updated_at: new Date('2024-01-01T00:00:00.000Z'), last_seen: new Date('2024-01-01T00:00:00.000Z') },
+      device: { id: 'row-1', device_id: 'device-1', platform: 'android', transport: 'live', app_version: '4.0.0', created_at: new Date('2024-01-01T00:00:00.000Z'), updated_at: new Date('2024-01-01T00:00:00.000Z'), last_seen: new Date('2024-01-01T00:00:00.000Z') },
       deviceToken: 'mf_push_11111111-2222-3333-4444-555555555555.secret',
     });
 
     const response = await fetch(`${base}/api/push/devices`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId: 'device-1', platform: 'android', transport: 'unifiedpush', endpoint: 'https://ntfy.example.com/up/abc', appVersion: '4.0.0' }),
+      body: JSON.stringify({ deviceId: 'device-1', platform: 'android', transport: 'live', appVersion: '4.0.0' }),
     });
     const body = (await response.json()) as JsonBody;
     assert.ok(body.device);
@@ -94,23 +86,6 @@ describe('POST /api/push/devices', () => {
     // The user id comes from the session, never the request body.
     expect(registerPushDevice).toHaveBeenCalledWith('user-1', expect.objectContaining({ deviceId: 'device-1' }));
     expect(body.device.endpoint).toBeUndefined();
-  });
-
-  it('rejects a non-HTTPS or private UnifiedPush endpoint (SSRF guard)', async () => {
-    const plaintext = await fetch(`${base}/api/push/devices`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId: 'd', platform: 'android', transport: 'unifiedpush', endpoint: 'http://ntfy.local/up' }),
-    });
-    expect(plaintext.status).toBe(400);
-    expect(registerPushDevice).not.toHaveBeenCalled();
-
-    validateHost.mockResolvedValue('Host resolves to a private or reserved IP address');
-    const privateHost = await fetch(`${base}/api/push/devices`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId: 'd', platform: 'android', transport: 'unifiedpush', endpoint: 'https://rebind.example.com/up' }),
-    });
-    expect(privateHost.status).toBe(400);
-    expect(registerPushDevice).not.toHaveBeenCalled();
   });
 
   it('maps service validation errors to 400', async () => {
@@ -158,8 +133,7 @@ describe('device management', () => {
     const body = (await response.json()) as JsonBody;
     expect(body).toEqual({
       webPushConfigured: true,
-      nativeTransports: { unifiedpush: true, fcm: false },
-      pushBaseUrl: 'https://mail.example.com',
+      nativeTransports: { live: true, fcm: false },
       devices: { total: 2, active: 1 },
     });
   });

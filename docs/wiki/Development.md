@@ -198,7 +198,7 @@ application change:
 - conversation/migration paths additionally select the dedicated PostgreSQL upgrade/regression/
   scale workflow;
 - full-stack production changes select real-app Playwright;
-- ntfy, UnifiedPush, nginx and compose paths select the push-stack workflow;
+- nginx and compose paths are shared runtime inputs and select full validation;
 - unknown/shared build or CI inputs deliberately fall back to the full validation set.
 
 This routing is a safety optimisation, not a relaxation of required checks. Each workflow keeps a

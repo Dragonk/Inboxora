@@ -42,7 +42,7 @@ and upgrade notes.
 - **External AI with user-controlled access.** Native MCP connections can be scoped to selected
   mailboxes, folders, calendars and address books, with revocable grants and approval-bound writes.
 - **Desktop and mobile.** Resizable panes, themes, nine languages, installable PWA, Windows/Linux
-  desktop apps and an Android app with UnifiedPush notifications.
+  desktop apps and an Android app with built-in live push notifications.
 
 ## Screenshots
 
@@ -107,8 +107,8 @@ docker compose up -d
 docker compose ps
 ```
 
-Open your configured HTTPS `APP_URL` and create the first administrator account. PostgreSQL,
-Redis and the bundled ntfy service use persistent storage. Keep `.env` private and preserve
+Open your configured HTTPS `APP_URL` and create the first administrator account. PostgreSQL
+and Redis use persistent storage. Keep `.env` private and preserve
 `ENCRYPTION_KEY`: losing it makes saved credentials unreadable. Use your reverse proxy and do
 not expose internal service ports publicly. The Wiki covers proxy, DAV and notification setup.
 
@@ -132,7 +132,7 @@ account, reset cursors or recreate volumes to clear a migration error.
 | Web / PWA | Browser application with optional Web Push and unread badge. |
 | Windows | Electron installer with server selection, tray, mailto handling and update checks. |
 | Linux | Electron DEB and RPM packages for x64 and ARM64. |
-| Android | Capacitor APK/AAB. Closed-app notifications require a configured UnifiedPush distributor such as ntfy. |
+| Android | Capacitor APK/AAB. Closed-app notifications use the built-in live push connection (no distributor app). |
 
 The release includes artifact checksums and a detached signature with the documented public
 key. Provider synchronization and device push notifications are separate: enabling one does

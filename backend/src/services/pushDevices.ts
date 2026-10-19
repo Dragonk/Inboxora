@@ -2,11 +2,10 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from './db.js';
 import { encrypt, decrypt } from './encryption.js';
-import { allowPrivatePushEndpoints } from './pushConfig.js';
 
 // A native push device is stored in push_devices. The row carries two secrets:
-//   1. the provider endpoint/token (FCM registration token or a UnifiedPush
-//      distributor URL) — encrypted at rest, used only by the dispatcher;
+//   1. the provider token (an FCM registration token; the live transport
+//      carries none) — encrypted at rest, used only by the dispatcher;
 //   2. the Inboxora device token (mf_push_<uuid>.<secret>) — returned once at
 //      registration and stored only as a bcrypt hash. It authenticates the
 //      app's background requests (fetching notification details, delete/star)
@@ -19,7 +18,7 @@ const BCRYPT_ROUNDS = 12;
 
 export const DEVICE_PLATFORMS = new Set(['android', 'ios', 'web', 'desktop']);
 // Native transports only. Browser Web Push keeps using push_subscriptions.
-export const NATIVE_TRANSPORTS = new Set(['unifiedpush', 'fcm']);
+export const NATIVE_TRANSPORTS = new Set(['live', 'fcm']);
 
 const MAX_DEVICE_ID = 128;
 const MAX_ENDPOINT = 4096;
@@ -98,18 +97,12 @@ export function validateDeviceRegistration(input: DeviceRegistrationInput) {
   const transport = trimmed(input?.transport, 32).toLowerCase();
   if (!NATIVE_TRANSPORTS.has(transport)) throw Object.assign(new Error('Unsupported push transport'), { statusCode: 400 });
 
-  const endpoint = trimmed(input?.endpoint, MAX_ENDPOINT);
-  if (!endpoint) throw Object.assign(new Error('endpoint is required'), { statusCode: 400 });
-
-  if (transport === 'unifiedpush') {
-    let url;
-    try { url = new URL(endpoint); } catch { throw Object.assign(new Error('UnifiedPush endpoint must be a valid URL'), { statusCode: 400 }); }
-    // A LAN install (PUSH_ALLOW_PRIVATE_ENDPOINTS=true) serves /push over http.
-    const allowHttp = allowPrivatePushEndpoints() && url.protocol === 'http:';
-    if (url.protocol !== 'https:' && !allowHttp) {
-      throw Object.assign(new Error('UnifiedPush endpoint must use HTTPS'), { statusCode: 400 });
-    }
-  }
+  // The live transport needs no endpoint: the app authenticates with its device
+  // token over the WebSocket it keeps open anyway. Every other transport (FCM)
+  // carries an opaque provider token that the server only ever shows to the
+  // provider, so there is no URL to validate and no SSRF surface left.
+  const endpoint = transport === 'live' ? '' : trimmed(input?.endpoint, MAX_ENDPOINT);
+  if (transport !== 'live' && !endpoint) throw Object.assign(new Error('endpoint is required'), { statusCode: 400 });
 
   const appVersion = trimmed(input?.appVersion, MAX_APP_VERSION) || null;
   return { deviceId, platform, transport, endpoint, appVersion };

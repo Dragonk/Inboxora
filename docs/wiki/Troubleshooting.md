@@ -115,22 +115,19 @@ failures below it.
 
 ## Android instant notifications
 
-These cover the built-in ntfy / UnifiedPush path. See
+These cover the built-in live push path. See
 [Notifications and background delivery](Notifications.md) for how it works.
 
 | Symptom | Cause and fix |
 | --- | --- |
-| Settings card says **Additional app required** | No UnifiedPush distributor is installed. Install the **ntfy** app (the card links to it) and reopen Inboxora. Everything else in Inboxora keeps working without it. |
-| ntfy's **Default server** refuses the URL | The ntfy Android app rejects any base URL that contains a path. Enter the **origin only**: `${APP_URL}` (for example `https://mail.example.com`), **not** `${APP_URL}/push`. |
-| ntfy is installed but the card says **not connected** | The ntfy app is not pointed at this server. Open ntfy → Settings → General → **Default server**, enter `${APP_URL}` (origin, no path), then tap *Check again*. The exact URL is shown on the card. |
-| `${APP_URL}/v1/health` (or `/push/v1/health`) returns **502** | The bundled ntfy container is not running. Check `docker compose ps ntfy` and its logs (`docker compose logs ntfy`). If you deliberately use an external ntfy, start with `docker-compose.external-ntfy.yml` and set `PUSH_BASE_URL`. |
-| `${APP_URL}/upXXXXXXXXXXXX?up=1` returns the SPA instead of JSON | A fronting reverse proxy is not forwarding the origin UnifiedPush paths. It must preserve `/up…` and `/v1/` unchanged to the Inboxora frontend; the bundled nginx does the ntfy hop. |
-| Notification arrives only while the app is open | The UnifiedPush socket was closed. Check the proxy WebSocket upgrade and idle timeout for the UnifiedPush paths (use at least a few minutes; the bundled nginx uses 3600 s), and make sure the app is not battery-restricted (next row). |
-| Notifications are delayed or stop after a while | Android battery optimization is suspending ntfy. Exempt **ntfy** and **Inboxora** from battery optimization: Android Settings → Apps → ntfy → Battery → *Unrestricted*, and the same for Inboxora. On aggressive OEM skins (Xiaomi, Huawei, Samsung) also enable autostart for ntfy. |
+| Settings card shows a **battery optimization** warning | Android will suspend the live socket. Use the card's battery action and set Inboxora to *Unrestricted*. On aggressive OEM skins (Xiaomi, Huawei, Samsung) also enable autostart. |
+| Settings card shows an **exact alarm** warning | Reminders need `SCHEDULE_EXACT_ALARM` on Android 14+. Use the card's action, grant *Alarms & reminders* for Inboxora, then *Sync now*. |
+| Settings card shows a **dropped socket** warning | The live WebSocket is not connected. Tap *Check again*; if it persists, check the reverse proxy's WebSocket upgrade and idle timeout for `/ws` and `/api/push/native/ws` (use at least a few hours), and make sure the app is not battery-restricted (first row). |
 | No notification at all, while the app is open | Android notification permission is off. Settings → Notifications in Inboxora shows *Permission denied* and links to the Android notification settings. |
 | Notifications still arrive after switching servers | The old registration was not cleared. Sign out of Inboxora or re-save the host in the app (both unregister the device), or delete the `push_devices` row for that user on the old server. |
-| Need to re-register a device | Inboxora → Settings → Notifications → *Check again*, or reinstall/clear data for the ntfy app and set the server again. The endpoint is rotated automatically on the next registration. |
+| Need to re-register a device | Inboxora → Settings → Notifications → *Check again*. The device token is rotated automatically on the next registration. |
 | Notifications work, but a duplicate appears once after reinstalling | The dedup cache is per install; a fresh install can show one already-seen message. Subsequent events are deduplicated normally. |
+| The persistent "live push" notification annoys me | It is the foreground-service card Android requires. The settings card links to the channel settings where it can be hidden - the socket keeps running. |
 
 ## Provider connections (Google and Microsoft)
 

@@ -13,7 +13,7 @@ candidates for testing only and must not be used for a server people depend on.
 - Persistent storage for PostgreSQL and Redis.
 - An existing reverse proxy for browser access and TLS termination. Do not expose additional
   public host ports for Inboxora. The proxy must pass WebSocket upgrades for `/ws` (live
-  updates) and for the UnifiedPush paths `/up…` and `/v1/` (Android instant notifications).
+  updates) and for `/api/push/native/ws` (the Android app's built-in live push).
 - A hostname and TLS certificate. `APP_URL` must be the external HTTPS URL whenever you use
   invitations, OAuth callbacks or browser cookies.
 - Outbound network access to your mail and calendar providers. For Microsoft 365, the host must
@@ -58,20 +58,11 @@ candidates for testing only and must not be used for a server people depend on.
    curl -fsS "$APP_URL/api/health"
    ```
 
-The stack includes **ntfy**, the built-in UnifiedPush transport for Android instant
-notifications. It is published by the same frontend on the same domain — no second hostname and
-no second certificate:
-
-```text
-Inboxora:      ${APP_URL}
-UnifiedPush:   ${APP_URL}   (enter this origin in the ntfy app — no /push path)
-```
-
-Android users install the **ntfy** app and point it at `${APP_URL}` (the origin,
-no path — the ntfy app rejects a base URL with a path); see
-[Notifications and background delivery](Notifications.md). No additional configuration is
-required for the default setup. To use your own external ntfy instead, set `PUSH_BASE_URL` and
-start with `docker-compose.external-ntfy.yml` (download it alongside the compose file).
+Android instant notifications are built in: the app keeps its own WebSocket
+connection to this Inboxora server and receives new-mail, flag-change and
+mail-state events directly - no push service, no distributor app, no extra
+domain, nothing to configure. See
+[Notifications and background delivery](Notifications.md).
 
 The first account you register becomes an administrator; additional users join through
 invitations or open registration, depending on your settings.
@@ -108,11 +99,7 @@ migrations as a release, and rolling back to an older image is not supported.
 | `INBOXORA_VERSION` | Recommended | Pins the image tag. |
 | `APP_PORT` / `APP_HTTP_PORT` / `APP_HTTP_BIND` | No | HTTPS port plus the internal HTTP reverse-proxy listener. HTTP defaults to `127.0.0.1:80`; bind it only to a trusted private interface and forward `X-Forwarded-Proto: https`. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | No | Enables Web Push. Generate once with `npx web-push generate-vapid-keys`. |
-| `PUSH_BASE_URL` | No | Advanced: an external ntfy origin (path-less). Defaults to `${APP_URL}`. |
-| `PUSH_ALLOW_PRIVATE_ENDPOINTS` | No | Allow a private/LAN (http) UnifiedPush endpoint. Off by default (SSRF guard). |
-| `NTFY_CACHE_DURATION` | No | How long the bundled ntfy keeps an undelivered event (default `12h`). |
-| `NTFY_DATA` | No | Host path for the bundled ntfy data (a Docker named volume by default). |
-| `FCM_SERVICE_ACCOUNT_JSON` | No | Optional/experimental FCM transport for custom Android builds. Not required. |
+| `FCM_SERVICE_ACCOUNT_JSON` | No | Optional FCM transport for Android builds with their own Firebase project. Not required. |
 | `DOMAIN` / `ACME_EMAIL` | No | Only for the bundled Caddy profile that terminates TLS itself. |
 | `IMAP_MAX_PERSISTENT_PER_HOST` | No | Caps always-on IMAP connections per host when one mail server limits them. |
 | `MAIL_MAX_MESSAGE_BYTES` | No | The **fallback** ceiling on one composed message, in bytes, used for a transport that declares none of its own (SMTP). Default 25 MiB. It does not raise a provider's own limit and does not cap a provider that declares a larger one. |
@@ -146,8 +133,8 @@ Point the proxy at the frontend container's internal HTTP port and forward the o
 
 - `X-Forwarded-Proto: https`
 - `X-Forwarded-For` and `Host` as usual
-- WebSocket upgrade for `/ws` and the UnifiedPush paths, plus a long idle timeout so the
-  UnifiedPush connection is not dropped
+- WebSocket upgrade for `/ws` and `/api/push/native/ws`, plus a long idle timeout
+  so the live push connection is not dropped
 
 MCP and its OAuth endpoints reject the internal HTTP hop unless `X-Forwarded-Proto` is exactly `https`, so bearer tokens and OAuth client secrets are never intentionally accepted over direct cleartext HTTP. Leave the Caddy profile off in this setup.
 
@@ -164,10 +151,10 @@ All three are configured inside the application after startup:
   administrator enables `MCP_ENABLED=true`. See [External AI applications (MCP)](MCP.md).
 - **Web Push** — Settings → Notifications, once the VAPID key pair is present in the
   environment.
-- **Android instant notifications** — install the **ntfy** app on the phone and set its server
-  to `${APP_URL}` (the origin, no path). Inboxora detects the app and registers automatically; the status
-  appears under Settings → Notifications. See
-  [Notifications and background delivery](Notifications.md). No Firebase project is involved.
+- **Android instant notifications** — built into the app: it keeps its own live WebSocket to
+  this server and registers automatically; the status appears under Settings → Notifications.
+  See [Notifications and background delivery](Notifications.md). No Firebase project is
+  involved.
 
 Never paste deployment secrets, app passwords or OAuth credentials into issue reports, Wiki
 pages or source control.

@@ -11,43 +11,42 @@ function serverBlocks(source) {
   return source.split(/\nserver \{/).slice(1);
 }
 
-describe('UnifiedPush (/push) reverse proxy contract', () => {
-  it('proxies /push to the bundled ntfy with WebSocket upgrade and a long timeout', () => {
-    assert.match(config, /upstream mailflow_ntfy \{[\s\S]*?server ntfy:80 resolve;/);
-    assert.match(config, /map \$http_upgrade \$connection_upgrade/);
+describe('Live push (/ws) reverse proxy contract', () => {
+  it('upgrades the app socket and the Android live push socket with a long timeout', () => {
+    assert.doesNotMatch(config, /ntfy/);
+    assert.doesNotMatch(config, /\$connection_upgrade/);
+    assert.doesNotMatch(config, /location = \/push \{/);
+    assert.doesNotMatch(config, /location \^~ \/push\//);
+    assert.doesNotMatch(config, /location ~ "\^\/up/);
+    assert.doesNotMatch(config, /location \^~ \/v1\//);
     for (const server of serverBlocks(config)) {
-      assert.match(server, /location = \/push \{\s*return 301 \/push\/;/);
-      assert.match(server, /location \^~ \/push\/ \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_ntfy\/;/);
-      assert.match(server, /location \^~ \/push\/ \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
-      assert.match(server, /location \^~ \/push\/ \{[\s\S]*?Connection \$connection_upgrade;/);
-      assert.match(server, /location \^~ \/push\/ \{[\s\S]*?proxy_read_timeout\s+3600s;/);
+      assert.match(server, /location \/ws \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
+      assert.match(server, /location \/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
+      assert.match(server, /location \/ws \{[\s\S]*?Connection "upgrade";/);
+      assert.match(server, /location \/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
+      // The Android live push socket rides under /api/, where the standard
+      // API proxy has neither upgrade headers nor a long-enough read timeout,
+      // so it needs an exact-match location of its own.
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?Connection "upgrade";/);
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
     }
   });
 
-  it('serves UnifiedPush at the domain origin for the path-less ntfy base URL', () => {
-    // The ntfy Android distributor rejects a base URL that contains a path, so
-    // the "up" + 12 base62 topic namespace and ntfy's /v1 API must be reachable
-    // at the origin while every other path stays with the SPA.
-    const originLocation = 'location ~ "^/up[A-Za-z0-9]{12}(/|$)"';
-    for (const server of serverBlocks(config)) {
-      assert.ok(server.includes(originLocation), 'origin UnifiedPush location missing');
-      const start = server.indexOf(originLocation);
-      assert.ok(
-        server.indexOf('proxy_pass             http://mailflow_ntfy;', start) > start,
-        'origin UnifiedPush location does not proxy to ntfy',
-      );
-      assert.ok(server.includes('location ^~ /v1/'), 'ntfy /v1 API location missing');
+  it('documents the same WebSocket routing for native nginx installations', () => {
+    for (const source of [nativeConfig, nativeConfig.replace(/^#\s?/gm, '')]) {
+      assert.match(source, /location \/ws \{[\s\S]*?proxy_pass\s+http:\/\/127\.0\.0\.1:3000;/);
+      assert.match(source, /location \/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
+      assert.match(source, /location \/ws \{[\s\S]*?Connection "upgrade";/);
+      assert.match(source, /location \/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_pass\s+http:\/\/127\.0\.0\.1:3000;/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?Connection "upgrade";/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
+      assert.doesNotMatch(source, /ntfy/);
+      assert.doesNotMatch(source, /location \^~ \/push\//);
     }
-    const uncommented = nativeConfig.replace(/^#\s?/gm, '');
-    assert.ok(uncommented.includes(originLocation), 'native origin UnifiedPush location missing');
-    assert.ok(uncommented.includes('location ^~ /v1/'), 'native ntfy /v1 location missing');
-  });
-
-  it('documents the same /push routing for native nginx installations', () => {
-    const uncommented = nativeConfig.replace(/^#\s?/gm, '');
-    assert.match(uncommented, /location \^~ \/push\/ \{[\s\S]*?proxy_pass\s+http:\/\/127\.0\.0\.1:2586\/;/);
-    assert.match(uncommented, /location \^~ \/push\/ \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
-    assert.match(uncommented, /location \^~ \/push\/ \{[\s\S]*?proxy_read_timeout\s+3600s;/);
   });
 });
 

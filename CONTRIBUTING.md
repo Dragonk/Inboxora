@@ -33,7 +33,7 @@ cover the modified area:
 - frontend unit-test-only changes run the frontend checks, without full Playwright;
 - production UI changes add browser, real-app and screenshot validation;
 - database/conversation changes add PostgreSQL validation;
-- push/ntfy/nginx/compose changes add the push-stack validation;
+- nginx/compose changes add the frontend and browser e2e validation;
 - CI/build inputs that cannot be classified safely fall back to full validation.
 
 Heavy PR jobs are capped at 15 minutes. A hanging test must fail within that bound rather than

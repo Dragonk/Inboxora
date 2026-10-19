@@ -5,7 +5,7 @@
 //        -> buildMailNotificationEvent()   (mailNotificationEvent.js)
 //        -> dispatchMailNotification()     (this file)
 //              |-> Web Push  -> push_subscriptions (PWA)
-//              |-> Android   -> push_devices      (FCM / UnifiedPush)
+//              |-> Android   -> push_devices      (live socket / FCM)
 //
 // Every leg is isolated: a failing provider, a malformed endpoint or a database
 // hiccup in one transport can never block the others. Permanent provider
@@ -13,7 +13,7 @@
 // retried by the next event. No endpoint/token is ever logged.
 import { pushConfigured, sendPushToUser } from './pushNotifications.js';
 import { disablePushDevice, listActivePushDevices, markPushDeviceFailure } from './pushDevices.js';
-import { TRANSPORT_INVALID, TRANSPORT_RETRY, sendNativePush } from './pushTransports.js';
+import { TRANSPORT_INVALID, TRANSPORT_LIVE, TRANSPORT_RETRY, sendNativePush } from './pushTransports.js';
 import { toAppError } from '../utils/errors.js';
 import type { buildMailNotificationEvent } from './mailNotificationEvent.js';
 
@@ -45,7 +45,7 @@ type ActivePushDevice = {
 interface DispatchSummary {
   dispatched: boolean;
   webPush: string;
-  native: { delivered: number; invalid: number; retry: number; disabled: number; skipped: string | null };
+  native: { delivered: number; live: number; invalid: number; retry: number; disabled: number; skipped: string | null };
   skipped?: string;
 }
 
@@ -128,6 +128,9 @@ async function dispatchNative(userId: string, event: MailNotificationEvent, summ
         await markPushDeviceFailure(device.id).catch(() => {});
       } else if (verdict === 'delivered') {
         summary.native.delivered += 1;
+      } else if (verdict === TRANSPORT_LIVE) {
+        // The device's own socket already carried the event; no provider send.
+        summary.native.live += 1;
       } else {
         summary.native.disabled += 1;
       }
@@ -141,7 +144,7 @@ export async function dispatchMailNotification(event: MailNotificationEvent) {
   const summary: DispatchSummary = {
     dispatched: false,
     webPush: 'skipped',
-    native: { delivered: 0, invalid: 0, retry: 0, disabled: 0, skipped: null },
+    native: { delivered: 0, live: 0, invalid: 0, retry: 0, disabled: 0, skipped: null },
   };
   if (!event?.userId || !event?.eventId) return summary;
   if (alreadyDispatched(event.userId, event.eventId)) {

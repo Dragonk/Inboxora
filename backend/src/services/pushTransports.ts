@@ -7,25 +7,21 @@
 // mail sync or the routes.
 //
 // Supported:
-//   - unifiedpush: an HTTP POST to the endpoint a UnifiedPush distributor gave
-//     the app. Fully self-hosted: the user chooses (or runs) the distributor and
-//     the Inboxora server is the only sender. Preferred transport.
+//   - live: the app's own always-on WebSocket to this server, authenticated
+//     with the push device token. Nothing is sent from the dispatcher: the
+//     WebSocket server already streams the event to the device socket, so this
+//     transport only reports that no provider send is needed.
 //   - fcm: Google Firebase Cloud Messaging HTTP v1, for Android builds that were
 //     compiled with their own google-services.json and a server Firebase project.
 //     Optional; the server must be given its own service-account credentials.
 import { SignJWT, importPKCS8 } from 'jose';
-import { safeFetch } from './safeFetch.js';
-import { allowPrivatePushEndpoints } from './pushConfig.js';
 import { toAppError } from '../utils/errors.js';
 
 export const TRANSPORT_INVALID = 'invalid';     // permanent: drop the registration
 export const TRANSPORT_RETRY = 'retry';         // transient: keep it, count the failure
 export const TRANSPORT_DELIVERED = 'delivered';
 export const TRANSPORT_DISABLED = 'disabled';   // transport not configured
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// ── UnifiedPush ──────────────────────────────────────────────────────────────
+export const TRANSPORT_LIVE = 'live';           // delivered over the device's own socket
 
 /** A push target as the database stores it. */
 interface PushDevice { id?: string; endpoint?: string | null; p256dh?: string | null; auth?: string | null; fcm_token?: string | null; [key: string]: unknown }
@@ -35,34 +31,6 @@ interface PushEvent { title?: string; body?: string; url?: string; tag?: string;
 
 /** A Firebase service account (the fields the FCM transport reads). */
 interface ServiceAccount { clientEmail: string; privateKey: string; projectId: string; tokenUri?: string; [key: string]: unknown }
-
-
-export async function sendUnifiedPush(device: PushDevice, event: PushEvent): Promise<unknown> {
-  if (!device?.endpoint || !event) return TRANSPORT_DISABLED;
-
-  let response;
-  try {
-    response = await safeFetch(device.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(event),
-      signal: AbortSignal.timeout(10000),
-    }, { allowPrivate: allowPrivatePushEndpoints(), requireHttps: !allowPrivatePushEndpoints() });
-  } catch (caught) {
-    // A blocked/private endpoint is a permanent rejection (SSRF guard); every
-    // other network error is transient and worth retrying later.
-    const code = caught && typeof caught === 'object' && 'code' in caught ? caught.code : undefined;
-    if (code === 'ERR_BLOCKED_PRIVATE_IP' || code === 'ERR_INSECURE_TRANSPORT' || code === 'ERR_UNSUPPORTED_SCHEME') {
-      return TRANSPORT_INVALID;
-    }
-    return TRANSPORT_RETRY;
-  }
-
-  if (response.status === 404 || response.status === 410) return TRANSPORT_INVALID;
-  if (response.status === 429 || response.status >= 500) return TRANSPORT_RETRY;
-  if (!response.ok) return TRANSPORT_RETRY;
-  return TRANSPORT_DELIVERED;
-}
 
 // ── FCM HTTP v1 ──────────────────────────────────────────────────────────────
 
@@ -131,7 +99,7 @@ async function fcmAccessToken(account: ServiceAccount): Promise<string> {
   });
   if (!response.ok) throw new Error(`FCM OAuth token request failed (HTTP ${response.status})`);
   const data = (await response.json()) as { access_token?: string; expires_in?: number };
-  if (!data.access_token) throw new Error('FCM OAuth response did not contain an access token');
+  if (!data.access_token) throw new Error('FCM OAuth response did not contain an access_token');
   cachedAccessToken = data.access_token;
   cachedAccessTokenExpiry = Date.now() + Math.max(60, Number(data.expires_in) || 3600) * 1000 - 60000;
   return cachedAccessToken;
@@ -201,13 +169,11 @@ function errorCodeOf(body: unknown): string | undefined {
 }
 
 export async function sendNativePush(device: PushDevice, event: PushEvent): Promise<unknown> {
-  if (device?.transport === 'unifiedpush') return sendUnifiedPush(device, event);
+  if (device?.transport === 'live') return TRANSPORT_LIVE;
   if (device?.transport === 'fcm') return sendFcmPush(device, event);
   return TRANSPORT_DISABLED;
 }
 
 export function transportStatus() {
-  return { unifiedpush: true, fcm: fcmConfigured() };
+  return { live: true, fcm: fcmConfigured() };
 }
-
-export const _internal = { delay };

@@ -4,7 +4,7 @@ import { dispatchMailNotification, resetDispatchDedup } from './pushDispatcher.j
 type DispatchEvent = Parameters<typeof dispatchMailNotification>[0];
 type PushDevice = Parameters<typeof import('./pushTransports.js').sendNativePush>[0];
 type NativeEvent = NonNullable<DispatchEvent['native']>;
-type NativeVerdict = 'delivered' | 'invalid' | 'retry' | 'disabled';
+type NativeVerdict = 'delivered' | 'live' | 'invalid' | 'retry' | 'disabled';
 
 const { sendPushToUser, listActivePushDevices, disablePushDevice, markPushDeviceFailure, sendNativePush } = vi.hoisted(() => ({
   sendPushToUser: vi.fn<(userId: string, payload: unknown) => Promise<void>>(),
@@ -19,6 +19,7 @@ vi.mock('./pushDevices.js', () => ({ listActivePushDevices, disablePushDevice, m
 vi.mock('./pushTransports.js', () => ({
   sendNativePush,
   TRANSPORT_INVALID: 'invalid',
+  TRANSPORT_LIVE: 'live',
   TRANSPORT_RETRY: 'retry',
 }));
 
@@ -52,8 +53,9 @@ describe('dispatchMailNotification', () => {
   it('fans one event out to Web Push and every native device', async () => {
     listActivePushDevices.mockResolvedValue([
       { id: 'row-1', transport: 'fcm', endpoint: 'token-1' },
-      { id: 'row-2', transport: 'unifiedpush', endpoint: 'https://up.example/1' },
+      { id: 'row-2', transport: 'live', endpoint: '' },
     ]);
+    sendNativePush.mockImplementation(async (device) => (device.id === 'row-2' ? 'live' : 'delivered'));
 
     const summary = await dispatchMailNotification(event());
 
@@ -62,7 +64,7 @@ describe('dispatchMailNotification', () => {
     const firstNativeCall = sendNativePush.mock.calls.at(0);
     if (!firstNativeCall) throw new Error('Expected a native push call');
     expect(firstNativeCall[1]).toEqual({ type: 'mail.changed', eventId: 'msg-1' });
-    expect(summary).toEqual({ dispatched: true, webPush: 'delivered', native: { delivered: 2, invalid: 0, retry: 0, disabled: 0, skipped: null } });
+    expect(summary).toEqual({ dispatched: true, webPush: 'delivered', native: { delivered: 1, live: 1, invalid: 0, retry: 0, disabled: 0, skipped: null } });
   });
 
   it('disables only the permanently rejected device and keeps the rest', async () => {
@@ -77,11 +79,11 @@ describe('dispatchMailNotification', () => {
     expect(disablePushDevice).toHaveBeenCalledWith('row-old');
     expect(disablePushDevice).not.toHaveBeenCalledWith('row-new');
     expect(markPushDeviceFailure).not.toHaveBeenCalled();
-    expect(summary.native).toEqual({ delivered: 1, invalid: 1, retry: 0, disabled: 0, skipped: null });
+    expect(summary.native).toEqual({ delivered: 1, live: 0, invalid: 1, retry: 0, disabled: 0, skipped: null });
   });
 
   it('counts a transient failure without deleting the registration', async () => {
-    listActivePushDevices.mockResolvedValue([{ id: 'row-1', transport: 'unifiedpush', endpoint: 'https://up.example/1' }]);
+    listActivePushDevices.mockResolvedValue([{ id: 'row-1', transport: 'fcm', endpoint: 'token-1' }]);
     sendNativePush.mockResolvedValue('retry');
 
     const summary = await dispatchMailNotification(event());
@@ -132,7 +134,7 @@ describe('dispatchMailNotification', () => {
   it('delivers native push to other devices even when one leg throws a bug', async () => {
     listActivePushDevices.mockResolvedValue([
       { id: 'row-1', transport: 'fcm', endpoint: 'token-1' },
-      { id: 'row-2', transport: 'unifiedpush', endpoint: 'https://up.example/1' },
+      { id: 'row-2', transport: 'live', endpoint: '' },
       { id: 'row-3', transport: 'fcm', endpoint: 'token-3' },
     ]);
 
@@ -153,7 +155,7 @@ describe('dispatchMailNotification', () => {
   it('survives unexpected throws from native push side-effects without dropping other devices', async () => {
     listActivePushDevices.mockResolvedValue([
       { id: 'row-1', transport: 'fcm', endpoint: 'token-1' },
-      { id: 'row-2', transport: 'unifiedpush', endpoint: 'https://up.example/1' },
+      { id: 'row-2', transport: 'live', endpoint: '' },
     ]);
 
     // Simulate disablePushDevice throwing

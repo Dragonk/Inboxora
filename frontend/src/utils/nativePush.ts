@@ -3,12 +3,12 @@ import { installCapacitorNativeBridge } from './capacitorNativeBridge.ts';
 
 // Native (Android) push lifecycle, driven from JS but executed natively.
 //
-// The provider registration (UnifiedPush endpoint or FCM token) and the server
-// POST /api/push/devices are owned by the native layer, because a new endpoint
-// can arrive while the WebView process does not exist. JS is the coordinator:
-// it triggers a refresh after login/host change and clears the device
-// registration on logout, so the server never keeps a subscription for a session
-// the user has left.
+// The transport registration (the built-in live socket, or FCM in builds with
+// google-services.json) and the server POST /api/push/devices are owned by the
+// native layer, because the connection can come up while the WebView process
+// does not exist. JS is the coordinator: it triggers a refresh after login/host
+// change and clears the device registration on logout, so the server never
+// keeps a subscription for a session the user has left.
 
 type NativeStatus = {
   status?: string;
@@ -20,9 +20,7 @@ type NativeNotifications = {
   getStatus?: () => Promise<NativeStatus>;
   register?: () => Promise<NativeStatus>;
   clear?: () => Promise<NativeStatus>;
-  openDistributor?: () => Promise<NativeStatus>;
-  openInstallPage?: () => Promise<NativeStatus>;
-  openHelp?: () => Promise<NativeStatus>;
+  openLiveChannelSettings?: () => Promise<NativeStatus>;
   cancelMessageNotifications?: (messageIds: string[]) => Promise<NativeStatus>;
   syncReminders?: () => Promise<NativeStatus>;
   getReminderStatus?: () => Promise<NativeStatus>;
@@ -43,28 +41,19 @@ type InstantPushState = {
   status: string;
   transport: string | null;
   deviceId: string | null;
-  distributor: string | null;
-  distributorLabel: string | null;
-  distributors: string[];
+  hasDeviceToken: boolean;
   hasEndpoint: boolean;
-  pushBaseUrl: string | null;
-  nativeTransports: string[] | null;
+  live: string | null;
+  exactAlarmsGranted: boolean | null;
+  batteryOptimized: boolean | null;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function readString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
-function readBoolean(value: unknown): boolean {
-  return value === true;
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) && value.every((item): item is string => typeof item === 'string') ? value : [];
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
 }
 
 function unavailable(reason: string): NativePushResult {
@@ -111,6 +100,16 @@ async function registerNativeStatus(): Promise<NativeStatus | null> {
   }
 }
 
+async function getNativeReminderStatus(): Promise<NativeStatus | null> {
+  const notifications = getNotifications();
+  if (notifications === null || notifications.getReminderStatus === undefined) return null;
+  try {
+    return await notifications.getReminderStatus();
+  } catch {
+    return null;
+  }
+}
+
 export function isNativePlatform(): boolean {
   if (typeof window === 'undefined') return false;
   const capacitor = window.Capacitor;
@@ -130,7 +129,7 @@ export async function registerNativePush(): Promise<NativePushResult> {
 }
 
 // Idempotent launch-time check: only re-register when the native side does not
-// already hold a confirmed endpoint + device token.
+// already hold a confirmed device token.
 export async function ensureNativePushRegistered(): Promise<NativePushResult> {
   if (!isNativePlatform()) return unavailable('not-native');
   const status = await getNativePushStatus();
@@ -157,10 +156,9 @@ export async function clearNativePush(): Promise<void> {
   }
 }
 
-// Combined state for the settings card: native distributor/permission info plus
-// the server's advertised UnifiedPush base URL (the value to type into ntfy).
-// The server value wins; when the server has no APP_URL configured, the current
-// origin is the best local guess for a single-domain install.
+// Combined state for the settings card: the transport/registration status plus
+// the device-side delivery facts (alarm permission, battery optimization, live
+// socket state) the UI turns into actionable warnings.
 export async function getInstantPushState(): Promise<InstantPushState> {
   if (!isNativePlatform()) {
     return {
@@ -168,68 +166,45 @@ export async function getInstantPushState(): Promise<InstantPushState> {
       status: 'unavailable',
       transport: null,
       deviceId: null,
-      distributor: null,
-      distributorLabel: null,
-      distributors: [],
+      hasDeviceToken: false,
       hasEndpoint: false,
-      pushBaseUrl: null,
-      nativeTransports: null,
+      live: null,
+      exactAlarmsGranted: null,
+      batteryOptimized: null,
     };
   }
 
   await installCapacitorNativeBridge();
-  const [native, serverResult] = await Promise.all([
+  const [native, reminders] = await Promise.all([
     getNativeStatus(),
-    api.getPushStatus().catch((): null => null),
+    getNativeReminderStatus(),
   ]);
-  const server: unknown = serverResult;
-  const serverStatus = isRecord(server) ? server : null;
   const nativeResult = normalizeNativeStatus(native);
-  const nativeRecord: Record<string, unknown> | null = native;
-  const serverPushBaseUrl = serverStatus === null ? null : readString(serverStatus.pushBaseUrl);
-  const origin = window.location.origin;
 
   return {
     platformSupported: true,
     status: nativeResult.status,
     transport: nativeResult.transport,
     deviceId: nativeResult.deviceId,
-    distributor: nativeRecord === null ? null : readString(nativeRecord.distributor),
-    distributorLabel: nativeRecord === null ? null : readString(nativeRecord.distributorLabel),
-    distributors: nativeRecord === null ? [] : readStringArray(nativeRecord.distributors),
-    hasEndpoint: nativeRecord !== null && readBoolean(nativeRecord.hasEndpoint),
-    pushBaseUrl: serverPushBaseUrl === null ? origin : serverPushBaseUrl,
-    nativeTransports: serverStatus === null ? null : readStringArray(serverStatus.nativeTransports),
+    hasDeviceToken: native !== null && native.hasDeviceToken === true,
+    hasEndpoint: native !== null && native.hasEndpoint === true,
+    live: reminders === null ? null : readString(reminders.live),
+    exactAlarmsGranted: reminders === null ? null : readBoolean(reminders.exactAlarmsGranted),
+    batteryOptimized: reminders === null ? null : readBoolean(reminders.batteryOptimized),
   };
 }
 
-export async function openPushDistributor(): Promise<boolean> {
+// Opens the live-push channel settings, where the low-priority foreground card
+// Android requires can be hidden without stopping the live socket.
+export async function openLiveChannelSettings(): Promise<boolean> {
   if (!isNativePlatform()) return false;
   await installCapacitorNativeBridge();
   const notifications = getNotifications();
-  if (notifications === null || notifications.openDistributor === undefined) return false;
+  if (notifications === null || notifications.openLiveChannelSettings === undefined) return false;
   try {
-    const result = await notifications.openDistributor();
-    return readBoolean(result.opened);
+    await notifications.openLiveChannelSettings();
+    return true;
   } catch {
     return false;
   }
-}
-
-async function openNativePushPage(action: 'install' | 'help'): Promise<void> {
-  if (!isNativePlatform()) return;
-  await installCapacitorNativeBridge();
-  const notifications = getNotifications();
-  if (notifications === null) return;
-  const open = action === 'install' ? notifications.openInstallPage : notifications.openHelp;
-  if (open === undefined) return;
-  await open().catch(() => undefined);
-}
-
-export async function openPushInstallPage(): Promise<void> {
-  await openNativePushPage('install');
-}
-
-export async function openPushHelp(): Promise<void> {
-  await openNativePushPage('help');
 }
