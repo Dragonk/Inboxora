@@ -59,6 +59,20 @@ docker compose logs --tail=100 backend
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
 
+## Upgrading to 4.3.6
+
+From 4.3.5, use the standard upgrade steps and deploy matching backend and frontend **4.3.6**
+images or install the updated desktop/Android apps. Normal startup automatically applies **0171**:
+
+- `0171_calendar_reminder_settings.sql` adds reminder columns to `calendars`
+  (`notify_enabled`, `notify_minutes`) and the `calendar_event_reminder_overrides` table
+  for per-event reminder overrides; every change is additive.
+
+There is no new environment variable. Android 4.3.6 uses `versionCode 4030600`; live push
+and calendar reminders need the new APK. Desktop and Android packages are attached to the
+GitHub release after their signed build workflow completes. See
+[Release notes 4.3.6](Release-notes-4.3.6.md).
+
 ## Upgrading to 4.3.5
 
 From 4.3.4, use the standard upgrade steps and deploy matching backend and frontend **4.3.5**

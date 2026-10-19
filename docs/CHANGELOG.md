@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.5](wiki/Release-notes-4.3.5.md). Older release notes are collected in
+[Release notes 4.3.6](wiki/Release-notes-4.3.6.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -20,6 +20,10 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
+There are no unreleased changes after **4.3.6**.
+
+## [4.3.6] - 2026-10-19
+
 ### Added
 - Native live push for the Android app: an always-on WebSocket foreground service (`specialUse`) that authenticates with the push device token, receives new-mail, flag and mail-state events directly, posts notifications with the existing reply/delete/star actions, and cancels a notification as soon as its message is read on any device; UnifiedPush and FCM remain fallback transports.
 - Calendar reminders with a server-side lead-time cascade (global defaults, per-calendar enable/lead-time, per-event override; additive migration `0171_calendar_reminder_settings.sql`), a device `GET /api/push/native/reminders` schedule endpoint, and an Android AlarmManager scheduler that posts regular reminders or insistent full-screen alarms via `setAlarmClock`, with an exact-alarm permission deep-link when denied.
@@ -32,6 +36,8 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ### Fixed
 - Complete the `UpcomingReminder` fixture in the push device route test so `npm run typecheck` verifies the reminder schedule response shape.
+
+See [Release notes 4.3.6](wiki/Release-notes-4.3.6.md) for user-facing details and upgrade guidance.
 
 ## [4.3.5] - 2026-10-18
 
