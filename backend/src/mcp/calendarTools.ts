@@ -8,7 +8,7 @@ import { allowedId, McpError, requireAccount, requireCalendar, requireMessage, r
 import { id, page, queryPath, readTool, records, selectedFields, writeTool } from './registry.js';
 
 const instant = z.iso.datetime({ offset: true });
-const calendarFields = ['id','name','description','source','read_only','display_visible','dav_mode','color','account_id','source_access','user_access','updated_at'] as const;
+const calendarFields = ['id','name','description','source','read_only','display_visible','dav_mode','notify_enabled','notify_minutes','notify_mode','color','account_id','source_access','user_access','updated_at'] as const;
 const eventFields = ['id','series_id','calendar_id','uid','etag','summary','description','location','url','organizer','starts_at','ends_at','all_day','timezone','attendees','invite_account_id','invite_alias_id','recurrence_id','recurrence','recurring','read_only','source','status','transparency'] as const;
 export async function permittedCalendars(grant: Grant): Promise<Record<string, unknown>[]> {
   const result = await domainRead(grant.user_id, '/calendar/calendars');
@@ -79,6 +79,9 @@ async function authorizeExistingEvent(grant: Grant, args: { eventId: string; cal
 }
 const editRef = { eventId: id, calendarId: id, expectedEtag: z.string().min(1).max(200) };
 const occurrenceRef = { recurrenceId: z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z?)?$/), scope: z.enum(['single','following']) };
+const reminderMode = z.enum(['notification','alarm']);
+const reminderSettingsShape = { enabled: z.boolean().optional(), minutes: z.number().int().min(0).max(10080).optional(), mode: reminderMode.optional() };
+
 export const calendarTools = [
   readTool('list_calendars', 'List every permitted calendar, including hidden, local, CalDAV, subscribed ICS/webcal, imported and native provider calendars. Read-only sources remain read-only.', 'calendar.read', {}, async grant => ({ calendars: await permittedCalendars(grant) })),
   readTool('list_events', 'List calendar occurrences in a bounded time range, across all permitted calendars by default, including hidden calendars. Recurrences are expanded by Inboxora. Check truncated before treating the result as complete.', 'calendar.read', { ...rangeShape, ...page }, async (grant, args) => {
@@ -118,6 +121,21 @@ export const calendarTools = [
     (grant, args, operationId) => domainRequest(grant.user_id, 'PATCH', `/calendar/events/${args.eventId}/occurrence`, args, operationId)),
   writeTool('delete_event_occurrence', 'Cancel one recurring occurrence or that occurrence and following ones. Attendee notifications require invitation permission.', 'calendar.write', { ...editRef, ...occurrenceRef },
     authorizeExistingEvent, (grant, args, operationId) => domainRequest(grant.user_id, 'DELETE', `/calendar/events/${args.eventId}/occurrence`, args, operationId)),
+  readTool('get_reminder_settings', 'Read the global calendar reminder defaults: enabled, minutes before event start and mode (notification or alarm). Per-calendar defaults and per-event overrides take precedence over these.', 'calendar.read', {}, async grant => domainRead(grant.user_id, '/calendar/reminder-settings')),
+  readTool('list_reminders', 'Preview the reminders a device would schedule within the given hours from now, after applying global defaults, per-calendar settings and per-event overrides. Read-only: it rings nothing and changes nothing.', 'calendar.read', { hours: z.number().int().min(1).max(72).default(48) }, async (grant, args) => domainRead(grant.user_id, queryPath('/calendar/reminder-preview', { hours: args.hours }))),
+  writeTool('update_reminder_settings', 'Change the global calendar reminder defaults. Omitted fields keep their current values; supply at least one field. They apply to every calendar and event that does not override them.', 'calendar.write', reminderSettingsShape,
+    async (_grant, args) => { if (args.enabled === undefined && args.minutes === undefined && args.mode === undefined) throw new McpError('INVALID_ARGUMENTS', 'Supply at least one of enabled, minutes or mode.', 400); },
+    (grant, args, operationId) => domainRequest(grant.user_id, 'PUT', '/calendar/reminder-settings', { enabled: args.enabled, minutes: args.minutes, mode: args.mode }, operationId)),
+  readTool('get_event_reminder', 'Read the explicit reminder override of one event. A null reminder means the event inherits its calendar and the global defaults.', 'calendar.read', { eventId: id }, async (grant, args) => { await requireEvent(grant, args.eventId); return domainRead(grant.user_id, `/calendar/events/${args.eventId}/reminder`); }),
+  writeTool('update_event_reminder', 'Set or replace the explicit reminder override of one event: enabled, minutes before start, mode (notification or alarm). The override is local to Inboxora and is never written back to the provider.', 'calendar.write', { eventId: id, enabled: z.boolean().optional(), minutesBefore: z.number().int().min(0).max(10080).nullable().optional(), mode: reminderMode.nullable().optional() },
+    async (grant, args) => { await requireEvent(grant, args.eventId); },
+    (grant, args, operationId) => domainRequest(grant.user_id, 'PUT', `/calendar/events/${args.eventId}/reminder`, { enabled: args.enabled, minutesBefore: args.minutesBefore, mode: args.mode }, operationId)),
+  writeTool('delete_event_reminder', 'Remove the explicit reminder override of one event so it inherits its calendar defaults again.', 'calendar.write', { eventId: id },
+    async (grant, args) => { await requireEvent(grant, args.eventId); },
+    (grant, args, operationId) => domainRequest(grant.user_id, 'DELETE', `/calendar/events/${args.eventId}/reminder`, undefined, operationId)),
+  writeTool('update_calendar', 'Replace the editable fields of a calendar: name (provider calendars keep theirs), color, visibility and reminder defaults. Omitted notify fields keep their current values; null notifyMinutes or notifyMode inherits the global default. Read the calendar with list_calendars first and preserve unchanged fields.', 'calendar.write', { calendarId: id, name: z.string().trim().min(1).max(120), color: z.string().regex(/^#[0-9a-fA-F]{6}$/), displayVisible: z.boolean(), notifyEnabled: z.boolean().optional(), notifyMinutes: z.number().int().min(0).max(10080).nullable().optional(), notifyMode: reminderMode.nullable().optional() },
+    async (grant, args) => { await requireCalendar(grant, args.calendarId); },
+    (grant, args, operationId) => domainRequest(grant.user_id, 'PATCH', `/calendar/calendars/${args.calendarId}`, { name: args.name, color: args.color, displayVisible: args.displayVisible, notifyEnabled: args.notifyEnabled, notifyMinutes: args.notifyMinutes, notifyMode: args.notifyMode }, operationId)),
   readTool('get_email_invitation', 'Read an invitation embedded in a permitted email. Reading does not accept or send an RSVP.', 'mail.read', { messageId: id }, async (grant, args) => {
     requireScope(grant, 'calendar.read'); await requireMessage(grant, args.messageId);
     const result = await domainRead(grant.user_id, `/calendar/invitations/${args.messageId}`);
