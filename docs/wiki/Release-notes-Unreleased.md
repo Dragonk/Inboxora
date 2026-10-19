@@ -34,6 +34,12 @@ versions are listed in [Archive](Archive.md).
 - On Android the UnifiedPush connector dependency, the distributor discovery,
   install and help actions, and the `InboxoraPushService` receiver are gone: no
   ntfy app to install and configure, push works out of the box.
+- **Deployment cleanup.** The compose files no longer ship the `ntfy` service
+  or its volume, `docker-compose.external-ntfy.yml` and the `push-stack` CI
+  workflow are gone, nginx no longer routes `/push`, `/up` or `/v1`, and
+  `PUSH_BASE_URL`, `PUSH_ALLOW_PRIVATE_ENDPOINTS` and the `NTFY_*` keys left
+  `.env.example`. Deployments can remove the ntfy container, its volume and
+  any hand-written proxy routes for it.
 
 ## Changed
 
@@ -52,6 +58,9 @@ versions are listed in [Archive](Archive.md).
 - Frontend: `npm run typecheck`, `npm run lint`, full test suite (3936 tests),
   `npm run test:i18n` (2699 checks) and `npm run build` passed; native locale
   catalogs unchanged.
+- CI planner: `node --test scripts/ci-plan.test.mjs
+  scripts/release-source.test.mjs` passed, and `docker compose config` accepts
+  both compose files with the ntfy service removed.
 
 ## Upgrade requirements
 

@@ -18,10 +18,8 @@ dispatchMailNotification()            src/services/pushDispatcher.ts
         └── Native    ──▶ push_devices        (Android)
                               │
                               ▼
-                    built-in ntfy at the ${APP_URL} origin
-                              │
-                              ▼
-                    UnifiedPush distributor (ntfy Android app)
+                    built-in live push: an always-on WebSocket
+                    to this server, authenticated by device token
                               │
                               ▼
                     Inboxora Android builds the notification locally
@@ -183,55 +181,47 @@ open the composer through the existing deep-link/second-instance path.
 
 ### How it works, in one paragraph
 
-Inboxora does not use Firebase. Instead the Docker stack includes **ntfy**, an
-open-source UnifiedPush server, running on the **same domain** as Inboxora. On
-the phone you install the **ntfy** app and point it at the origin,
-`https://your-domain` — **without any path**. Inboxora proxies only the
-UnifiedPush topic namespace ("up" + 12 random characters) and ntfy's `/v1` API
-at that origin; `https://your-domain/push` is kept as a compatibility alias.
+Inboxora does not use Firebase. The Android app keeps its own WebSocket
+connection to your Inboxora server - an always-on `specialUse` foreground
+service authenticated with the device's push token - and receives new-mail,
+flag-change and mail-state events directly from it. Push is built into
+Inboxora: no push service, no distributor app, no extra domain, no extra
+certificate. When a message is read on any device, its notification is
+dismissed everywhere.
 
-Why no `/push` in the app: the ntfy Android app rejects a base URL that
-contains a path (`validBaseUrl`), and the ntfy server itself also refuses a
-`base-url` with a path. Keeping ntfy on the same domain therefore means serving
-it at the origin for those paths, not under a prefix. Inboxora registers a
-random endpoint with your own Inboxora server. When mail arrives, Inboxora sends only an anonymous
-`{"type":"mail.changed","eventId":"..."}` event through ntfy; the app wakes and
-fetches the real notification details from your own Inboxora server.
+FCM remains an optional transport for builds compiled with their own
+`google-services.json`; those builds never run the live socket.
 
-No central Inboxora server, no extra domain, no extra certificate. One domain.
+### Why a foreground service
 
-### Why a separate app is required
+Android only lets a killed app be woken by a push channel. Inboxora's live-push
+service keeps that channel itself: the WebSocket runs in a foreground service,
+so Android shows a low-priority system notification for it. The settings card
+links straight to the channel settings where that card can be hidden from the
+shade - the socket keeps running.
 
-Android only lets a killed app be woken by a push channel. Inboxora supports the
-open **UnifiedPush** standard, whose on-device half is a *distributor* app. The
-recommended distributor is [ntfy](https://f-droid.org/packages/io.heckel.ntfy/),
-which talks to the ntfy server that ships with Inboxora. Any other compatible
-UnifiedPush distributor works too.
-
-Without a distributor, Inboxora still works normally and the periodic
-WorkManager reconciler keeps unread state in sync — you simply do not get
-notifications while the app is closed.
+Keep Inboxora exempt from battery optimization (the settings card offers the
+exemption with one tap), or Android will suspend the socket and delay
+notifications.
 
 ### Step by step
 
 ```text
-1. Install the Inboxora Android app.
-2. Install ntfy (F-Droid, or the link shown in Inboxora).
-3. In ntfy, set the server to:  https://your-domain        (no /push!)
-4. Open Inboxora.
-5. Go to Settings -> Notifications.
-6. Turn on Instant notifications.
-7. Check that the status reads "Active" with the push server shown.
+1. Install the Inboxora Android app and log in.
+2. Go to Settings -> Notifications.
+3. Allow notifications if asked (the card deep-links to the setting when denied).
+4. Check that the status reads "Active"; fix any warning the card shows
+   (battery optimization, exact-alarm permission for reminders, dropped socket).
+5. Optionally hide the low-priority live-push card via the card's link.
 ```
 
-Inboxora detects the distributor automatically, registers the endpoint
-automatically, and never asks you to copy an endpoint or token. In the settings
-card you can tap *Open ntfy* to jump straight to the app and *Check again* to
+Inboxora registers the device automatically and never asks you to copy an
+endpoint or token. In the settings card you can tap *Check again* to
 re-register.
 
-### What the push provider sees
+### What the live connection carries
 
-ntfy carries **only** an opaque wake-up:
+The device WebSocket carries **only** an opaque wake-up:
 
 ```json
 { "type": "mail.changed", "eventId": "<message uuid>" }
@@ -253,8 +243,8 @@ install:
 | `user_id` | owner, taken from the session — never from the request body |
 | `device_id` | app-generated stable id (UUID kept in app storage) |
 | `platform` | `android` |
-| `transport` | `unifiedpush` (or the optional experimental `fcm`) |
-| `endpoint` | distributor endpoint, **encrypted at rest** |
+| `transport` | `live` (or the optional `fcm` for google-services builds) |
+| `endpoint` | empty for `live`; legacy distributor endpoints, **encrypted at rest** |
 | `token_prefix`, `token_hash` | the Inboxora device token, hashed (bcrypt) |
 | `app_version`, `created_at`, `updated_at`, `last_seen`, `failure_count`, `disabled_at` | bookkeeping |
 
@@ -281,7 +271,7 @@ WebView session cookie (with the required `X-Requested-With` CSRF header).
 
 ### Deduplication
 
-The same message can reach the device over the WebSocket, native push and the
+The same message can reach the device over the WebView WebSocket, native push and the
 reconciler. All three key on the immutable message UUID:
 
 - the server suppresses a repeated dispatch for the same `userId:eventId` within
@@ -321,55 +311,29 @@ devices.
   old account/host.
 - `POST /api/push/devices` re-registers after a fresh login.
 
-## Using an external ntfy
-
-If you already run your own ntfy, point Inboxora at it and drop the bundled one:
-
-```env
-PUSH_BASE_URL=https://push.example.com
-PUSH_ALLOW_PRIVATE_ENDPOINTS=false
-```
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.external-ntfy.yml up -d
-```
-
-The override moves the bundled `ntfy` service into an unused profile, so it is
-not started. Point the ntfy Android app at `PUSH_BASE_URL` (again the origin of
-that ntfy, with no path); the origin routing on the Inboxora domain is then
-unused. The endpoint must be HTTPS (or, for a LAN install with
-`PUSH_ALLOW_PRIVATE_ENDPOINTS=true`, HTTP on a private address).
-
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `APP_URL` | — | Public origin. It is also the UnifiedPush base shown to the ntfy app (path-less). |
-| `PUSH_BASE_URL` | unset | Advanced: an external ntfy origin (path-less). Overrides `${APP_URL}`. |
-| `PUSH_ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow a private/LAN (and http) UnifiedPush endpoint. Off by default (SSRF guard). |
-| `NTFY_CACHE_DURATION` | `12h` | How long the bundled ntfy keeps an undelivered event. |
-| `NTFY_DATA` | `ntfy_data` volume | Where the bundled ntfy stores its cache/auth database. |
+| `APP_URL` | — | Public origin; the Android app's live push WebSocket connects to it. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | off | Browser Web Push (unchanged). |
-| `FCM_SERVICE_ACCOUNT_JSON` | unset | Optional/experimental FCM transport for builds with their own Firebase project. Not required. |
+| `FCM_SERVICE_ACCOUNT_JSON` | unset | Optional FCM transport for builds with their own Firebase project. Not required. |
 
 Nothing above is required: with no configuration the web app and PWA Web Push
-work exactly as before, the bundled ntfy is ready at the origin (and under the
-`/push` alias), and the Android app uses it as soon as a distributor is
-installed.
+work exactly as before, and the Android app opens its live push socket to the
+same origin as soon as you log in — no extra service, endpoint or app.
 
 ## Reverse proxy requirements
 
-The bundled nginx (`frontend/nginx.conf`) already routes the UnifiedPush
-surface to ntfy: `/up` + 12 base62 characters and `/v1/*` at the origin, plus
-the compatibility `/push/*` prefix. If you put your own proxy (Zoraxy, Nginx,
-Traefik, Caddy, Cloudflare, …) in front of Inboxora, it must:
+The bundled nginx (`frontend/nginx.conf`) already upgrades the `/ws` WebSocket
+and hands it to the backend. If you put your own proxy (Zoraxy, Nginx, Traefik,
+Caddy, Cloudflare, ...) in front of Inboxora, it must:
 
-- **preserve the paths** and forward them to the Inboxora frontend — do not strip
-  or rewrite `/up…` or `/v1/`; the bundled nginx does the ntfy hop;
-- support **WebSocket upgrade** (`Upgrade` / `Connection`) for `/up…/ws`
-  (and `/push/…/ws`);
+- **preserve the `/ws` path** — do not strip or rewrite it; the bundled
+  nginx performs the WebSocket hop to the backend;
+- support **WebSocket upgrade** (`Upgrade` / `Connection`) for `/ws`;
 - pass `X-Forwarded-For` and `X-Forwarded-Proto`;
-- not impose a short idle timeout — the UnifiedPush socket is long-lived. A
+- not impose a short idle timeout — the live push socket is long-lived. A
   read timeout of at least a few minutes (the bundled nginx uses 3600 s) is
   recommended;
 - terminate TLS with a valid certificate (Android refuses cleartext push).
@@ -377,8 +341,8 @@ Traefik, Caddy, Cloudflare, …) in front of Inboxora, it must:
 Example for an external nginx fronting the Inboxora container:
 
 ```nginx
-# Forward everything to the Inboxora frontend; it performs the /up… and /v1
-# routing to ntfy itself. Preserve the original path and scheme.
+# Forward everything to the Inboxora frontend; it performs the /ws upgrade
+# itself. Preserve the original path and scheme.
 location / {
     proxy_pass         http://127.0.0.1:8080;   # Inboxora frontend nginx
     proxy_http_version 1.1;
@@ -395,27 +359,28 @@ Cloudflare and other CDNs must have WebSockets enabled for the zone.
 
 ## Troubleshooting
 
-- **"Additional app required"** — no UnifiedPush distributor is installed.
-  Install ntfy (the card links to it).
-- **"ntfy is installed but not connected"** — the distributor's server is not set
-  to this Inboxora's origin URL (`https://your-domain`, with **no path**), or
-  registration has not completed. Set the server in ntfy and tap *Check again*.
-  See [Troubleshooting](Troubleshooting.md).
-- **`/v1/health` returns 502** — the bundled ntfy container is not running
-  (`docker compose ps ntfy`), or an external ntfy with the override is expected.
-  (`/push/v1/health` is the same endpoint under the alias.)
+- The settings card shows a **battery optimization** warning — Android will
+  suspend the live socket. Use the card action and set Inboxora to
+  *Unrestricted*. Detailed steps are in [Troubleshooting](Troubleshooting.md).
+- The settings card shows an **exact alarm** warning — reminders need
+  `SCHEDULE_EXACT_ALARM` on Android 14+. Grant *Alarms & reminders* via the
+  card action, then *Check again*.
+- The settings card shows a **dropped socket** warning — the live WebSocket
+  is not connected. Tap *Check again*; if it persists, check the reverse proxy
+  requirements above (WebSocket upgrade and idle timeout for `/ws`).
 - **Notifications delayed after the app is closed** — Android battery
-  optimization is often the cause; exempt ntfy and Inboxora. Detailed steps are
-  in [Troubleshooting](Troubleshooting.md).
+  optimization is often the cause; set Inboxora to *Unrestricted*. Detailed
+  steps are in [Troubleshooting](Troubleshooting.md).
 
 ## Privacy implications
 
-- ntfy (your own server) learns only that *some* device received *some* opaque
-  event. It cannot read the mailbox.
-- Anonymous access to ntfy is restricted to UnifiedPush topics (`up` + 12 random
-  base62 characters generated on-device, ~71 bits, never derived from a user id
-  or address). Everything else is denied: the instance is not a public topic
-  server.
+- There is no third-party push hop: the live socket connects the device
+  straight to the user's own Inboxora server, authenticated with a device
+  token that never leaves the account. No push payload ever transits an
+  external topic server.
+- Optional FCM builds (compiled with their own `google-services.json`) route
+  notifications through the operator's own Firebase project; the default
+  build never talks to Firebase at all.
 - The Inboxora server remains the only party that sees mail content, and it is
   the user's own server. Device endpoints/tokens are encrypted at rest and are
   never written to normal logs.
@@ -423,16 +388,16 @@ Cloudflare and other CDNs must have WebSockets enabled for the zone.
 
 ## Manual device test (not automated in CI)
 
-CI verifies the server, ntfy and the `/push` proxy; it cannot verify a physical
+CI verifies the server and the `/ws` proxy route; it cannot verify a physical
 Android device. Run this once on a real phone before declaring the Android build
 release-ready:
 
 ```text
 Setup
-  1. Install the Inboxora APK and the ntfy app.
-  2. In ntfy, set the server to https://<your-domain>   (no path).
-  3. Open Inboxora -> Settings -> Notifications. Wait for "Active".
-  4. Keep a stopwatch ready; the target is a few seconds from arrival.
+  1. Install the Inboxora APK and log in to https://<your-domain>.
+  2. Open Inboxora -> Settings -> Notifications. Wait for "Active" and
+     resolve any delivery warning the card shows.
+  3. Keep a stopwatch ready; the target is a few seconds from arrival.
 
 For each state, send yourself a mail from another account and time the
 notification:
@@ -453,7 +418,7 @@ without opening the app.
 
 If a state fails, see the Android section in
 [Troubleshooting](Troubleshooting.md) — most failures are battery optimization
-suspending ntfy, or a reverse proxy closing the UnifiedPush (/up…) WebSocket.
+suspending the app, or a reverse proxy closing the live (/ws) WebSocket.
 ```
 
 ## Manual desktop test (not automated in CI)

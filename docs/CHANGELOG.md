@@ -34,6 +34,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 ### Removed
 - UnifiedPush support on the server: the `pushConfig` service (`PUSH_BASE_URL`, `PUSH_ALLOW_PRIVATE_ENDPOINTS`), the distributor-endpoint registration guard and its SSRF host validation on `/api/push/devices` are gone - the server never POSTs to a user-supplied push endpoint anymore.
 - UnifiedPush on Android: the connector dependency, the distributor discovery/install/help actions and the `InboxoraPushService` receiver are gone - push is built into Inboxora, not installed next to it.
+- The ntfy side of the deployment: the compose `ntfy` service and its volume, the nginx `/push`, `/up…` and `/v1/` routes, `PUSH_BASE_URL`, `PUSH_ALLOW_PRIVATE_ENDPOINTS`, `NTFY_*`, the `docker-compose.external-ntfy.yml` override and the push-stack CI workflow (planner contract updated accordingly).
 
 ## [4.3.6] - 2026-10-19
 

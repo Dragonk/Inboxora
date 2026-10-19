@@ -42,8 +42,8 @@ work after the latest release.
 ## Platforms and integrations
 
 Use the web app or install it as a PWA, connect a Windows/Linux desktop app, or use the Android
-app. Native apps connect to your existing server. Android notifications while the app is closed
-require a UnifiedPush distributor; synchronization and device notifications are separate.
+app. Native apps connect to your existing server. Android notifications are built into the app (a live
+connection to your server); synchronization and device notifications are separate.
 
 Mail accounts keep their configured IMAP/SMTP or native Gmail/Graph transport. Switching a
 mailbox is explicit and in place. Calendar/contact authorization and per-collection write-back
