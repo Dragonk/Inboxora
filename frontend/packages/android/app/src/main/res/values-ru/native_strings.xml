@@ -46,6 +46,13 @@
     <string name="native_open_link" formatted="false">Открыть ссылку</string>
     <string name="native_copy_link" formatted="false">Копировать ссылку</string>
     <string name="native_copy_image_address" formatted="false">Копировать адрес изображения</string>
+    <string name="native_live_push_title" formatted="false">Оповещения Inboxora в реальном времени</string>
+    <string name="native_live_push_body" formatted="false">Подключено к вашему серверу Inboxora.</string>
+    <string name="native_calendar_reminder_title" formatted="false">Напоминание календаря</string>
+    <string name="native_calendar_reminders_channel" formatted="false">Напоминания календаря</string>
+    <string name="native_calendar_alarm_title" formatted="false">Сигнал календаря</string>
+    <string name="native_calendar_alarms_channel" formatted="false">Сигналы календаря</string>
+    <string name="native_calendar_alarm_stop" formatted="false">Остановить сигнал</string>
     <string name="native_compose" formatted="false">Написать</string>
     <string name="native_calendar" formatted="false">Календарь</string>
     <string name="native_contacts" formatted="false">Контакты</string>

@@ -75,6 +75,8 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation "androidx.work:work-runtime:$androidxWorkVersion"
+    // Live push foreground service WebSocket client (same major line as Capacitor).
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
     // Native push transports, both optional at runtime:
     //  - UnifiedPush (self-hosted-first): needs the user to have a distributor
     //    app; no central service and no server-side credentials.
@@ -85,6 +87,7 @@ dependencies {
     implementation 'org.unifiedpush.android:connector:3.3.5'
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.json:json:20250517"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
