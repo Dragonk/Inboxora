@@ -272,6 +272,7 @@ export async function upcomingCalendarReminders(
   // expanded on the fly by the same projection the events route uses.
   const fallback = await query<ReminderSourceRow>(
     `SELECT ${EVENT_COLUMNS},
+            e.id AS event_id,
             c.id AS calendar_id, c.name AS calendar_name,
             c.notify_minutes AS calendar_minutes, c.notify_enabled AS calendar_enabled, c.notify_mode AS calendar_mode,
             r.enabled AS override_enabled, r.minutes_before AS override_minutes, r.mode AS override_mode

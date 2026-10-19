@@ -9,7 +9,7 @@ import searchRoutes from '../routes/search.js';
 import { setTrustedRequestUser } from '../services/trustedRequestUser.js';
 import { McpError } from './policy.js';
 
-export type BridgeMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+export type BridgeMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export interface DomainResult { status: number; body: Record<string, unknown>; }
 /** Ordinary provider-backed routes, without a listener or a browser session. */
 const domain = express();

@@ -20,7 +20,11 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
+### Added
+- MCP calendar reminder tools: read and change the global reminder defaults, read and change per-calendar reminder defaults (update_calendar; list_calendars now exposes them), read, set and clear per-event reminder overrides, and preview the reminders a device would schedule (list_reminders).
+
 ### Fixed
+- Reminder fallback for not-yet-materialised events: the on-the-fly projection keyed rows by a column the fallback query never selected, so reminders for freshly created or edited events were missed until the occurrence worker built them.
 - Phone-width notification and reminder settings: the calendar reminder lead-time chips wrap instead of shrinking, the lead/mode pair stacks, upcoming reminder rows wrap with a compact date, and delivery-warning rows let their fix buttons flow to the next line.
 - Android notification channels exist from boot: the boot receiver creates them before starting the live push service and the reminder sync, so notifications raised before the app is first opened after a reboot post to real channels instead of silently dropping.
 
