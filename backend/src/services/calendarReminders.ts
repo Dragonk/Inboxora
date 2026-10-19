@@ -3,14 +3,14 @@
 // A reminder is resolved by a three-level cascade, mirroring the columns added
 // in migration 0171:
 //
-//   1. users.preferences.calendarReminders* (global): disabled means NO event
-//      notification or alarm is ever produced - neither on this device nor
-//      anywhere else;
-//   2. calendars.notify_enabled / calendars.notify_minutes: off silences the
-//      whole calendar; a NULL notify_minutes inherits the global default;
+//   1. users.preferences.calendarReminders* (global): the default for every
+//      event without a per-event override;
+//   2. calendars.notify_enabled / notify_minutes / notify_mode: off silences
+//      the whole calendar; NULL minutes/mode inherit the global default;
 //   3. calendar_event_reminder_overrides: NULL fields inherit from the calendar,
-//      enabled = false silences one event, minutes_before overrides the lead
-//      time, mode picks between a regular notification and a full alarm.
+//      enabled = false silences one event, enabled = true keeps it ringing even
+//      when the calendar (or the global default) is muted, minutes_before
+//      overrides the lead time, mode picks between a notification and an alarm.
 //
 // The overrides are Inboxora-local presentation state. They are deliberately
 // NOT written back to CalDAV/Google/Microsoft VALARM data: providers disagree
@@ -187,6 +187,8 @@ interface ReminderSourceRow {
   override_minutes: number | null;
   override_mode: string | null;
   calendar_minutes: number | null;
+  calendar_enabled: boolean | null;
+  calendar_mode: string | null;
 }
 
 function reminderKey(eventId: string, recurrenceId: string): string {
@@ -195,12 +197,13 @@ function reminderKey(eventId: string, recurrenceId: string): string {
 
 /** Resolve the cascade for one occurrence and return it, or null when muted. */
 function resolveReminder(row: ReminderSourceRow, settings: CalendarReminderSettings): UpcomingReminder | null {
-  // Global off means no reminder anywhere - the caller already checked, but a
-  // reminder that would slip through an old settings snapshot must not survive.
-  if (!settings.enabled) return null;
+  // An explicit per-event override wins over both the calendar and the global
+  // default: enabled = true keeps this one event ringing even when everything
+  // else is muted, enabled = false silences just this event.
   if (row.override_enabled === false) return null;
+  if (row.override_enabled !== true && !(settings.enabled && row.calendar_enabled !== false)) return null;
   const minutes = row.override_minutes ?? row.calendar_minutes ?? settings.minutes;
-  const mode = sanitizeReminderMode(row.override_mode) ?? settings.mode;
+  const mode = sanitizeReminderMode(row.override_mode) ?? sanitizeReminderMode(row.calendar_mode) ?? settings.mode;
   const startsAt = new Date(row.starts_at);
   const remindAt = new Date(startsAt.getTime() - minutes * 60_000);
   return {
@@ -229,7 +232,6 @@ export async function upcomingCalendarReminders(
   window: { from: Date; to: Date },
 ): Promise<UpcomingReminder[]> {
   const settings = await loadCalendarReminderSettings(userId);
-  if (!settings.enabled) return [];
   const from = new Date(Math.min(window.from.getTime(), window.to.getTime()));
   const to = new Date(Math.max(window.from.getTime(), window.to.getTime()));
   const MAX_WINDOW_MS = MAX_REMINDER_MINUTES * 60_000 * 2;
@@ -249,40 +251,42 @@ export async function upcomingCalendarReminders(
             COALESCE(o.location, e.location) AS location,
             c.name AS calendar_name,
             r.enabled AS override_enabled, r.minutes_before AS override_minutes, r.mode AS override_mode,
-            c.notify_minutes AS calendar_minutes
+            c.notify_minutes AS calendar_minutes,
+            c.notify_enabled AS calendar_enabled, c.notify_mode AS calendar_mode
        FROM calendar_occurrences o
        JOIN calendar_events e ON e.id = o.event_id
        JOIN calendars c ON c.id = o.calendar_id
        LEFT JOIN calendar_event_reminder_overrides r ON r.event_id = e.id AND r.user_id = $1
        LEFT JOIN calendar_occurrence_state s ON s.event_id = e.id
       WHERE o.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1
-        AND c.notify_enabled = true
-        AND COALESCE(r.enabled, true) = true
+        AND (r.enabled = true
+             OR (r.enabled IS NULL AND c.notify_enabled = true AND $4::boolean))
         AND o.starts_at >= $2 AND o.starts_at <= $3
         AND NOT ${coveragePredicate('s')}
       ORDER BY o.starts_at ASC
       LIMIT 400`,
-    [userId, from, rangeTo],
+    [userId, from, rangeTo, settings.enabled],
   );
 
   // Slow path: series the materialisation worker has not covered yet are
   // expanded on the fly by the same projection the events route uses.
   const fallback = await query<ReminderSourceRow>(
     `SELECT ${EVENT_COLUMNS},
-            c.id AS calendar_id, c.name AS calendar_name, c.notify_minutes AS calendar_minutes,
+            c.id AS calendar_id, c.name AS calendar_name,
+            c.notify_minutes AS calendar_minutes, c.notify_enabled AS calendar_enabled, c.notify_mode AS calendar_mode,
             r.enabled AS override_enabled, r.minutes_before AS override_minutes, r.mode AS override_mode
        FROM calendar_events e
        JOIN calendars c ON c.id = e.calendar_id
        LEFT JOIN calendar_event_reminder_overrides r ON r.event_id = e.id AND r.user_id = $1
        LEFT JOIN calendar_occurrence_state s ON s.event_id = e.id
       WHERE e.user_id = $1 AND c.user_id = $1 AND c.owner_user_id = $1
-        AND c.notify_enabled = true
-        AND COALESCE(r.enabled, true) = true
+        AND (r.enabled = true
+             OR (r.enabled IS NULL AND c.notify_enabled = true AND $4::boolean))
         AND ((e.starts_at >= $2 AND e.starts_at <= $3) OR e.recurring)
         AND ${coveragePredicate('s')}
       ORDER BY e.starts_at ASC
       LIMIT 200`,
-    [userId, from, rangeTo],
+    [userId, from, rangeTo, settings.enabled],
   );
 
   const reminders = materialized.rows.map(row => resolveReminder(row, settings)).filter((reminder): reminder is UpcomingReminder => reminder !== null);

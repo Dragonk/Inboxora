@@ -736,7 +736,7 @@ router.get('/calendars', async (req, res) => {
   const result = await query<{ id: string; color: string | null; source?: string | null; [key: string]: unknown }>(
     // `collection_id` is what the write-back opt-in is addressed by: a pulled calendar is written through
     // its collection, and the interface needs the id to offer the switch.
-    `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible, c.notify_enabled, c.notify_minutes,
+    `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible, c.notify_enabled, c.notify_minutes, c.notify_mode,
             c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id, ic.source_access, ic.user_access,
             ic.connection_id, ic.remote_id, pc.provider_user_id, account.id AS account_id
        FROM calendars c
@@ -821,6 +821,7 @@ router.patch('/calendars/:calendarId', async (req, res) => {
   // an absent field inherits instead of silently resetting.
   const notifyEnabled = req.body?.notifyEnabled;
   const notifyMinutes = req.body?.notifyMinutes === undefined || req.body?.notifyMinutes === null ? null : sanitizeReminderMinutes(req.body?.notifyMinutes);
+  const notifyMode = req.body?.notifyMode === undefined || req.body?.notifyMode === null ? null : sanitizeReminderMode(req.body?.notifyMode);
   if (!name || color === undefined || typeof displayVisible !== 'boolean') {
     return res.status(400).json({ error: 'name, a hex color, and displayVisible are required' });
   }
@@ -829,6 +830,9 @@ router.patch('/calendars/:calendarId', async (req, res) => {
   }
   if (notifyMinutes === null && req.body?.notifyMinutes != null) {
     return res.status(400).json({ error: 'notifyMinutes must be an integer from 0 to 10080' });
+  }
+  if (notifyMode === null && req.body?.notifyMode != null) {
+    return res.status(400).json({ error: 'notifyMode must be notification or alarm' });
   }
   if (davMode !== undefined && davMode !== null && davMode !== 'off' && davMode !== 'read_only' && davMode !== 'read_write') {
     return res.status(400).json({ error: 'davMode must be off, read_only or read_write' });
@@ -861,10 +865,11 @@ router.patch('/calendars/:calendarId', async (req, res) => {
          SET color = $1, display_visible = $2, dav_mode = COALESCE($3, dav_mode),
              notify_enabled = COALESCE($4, notify_enabled),
              notify_minutes = CASE WHEN $5::int IS NULL AND $6::boolean THEN NULL ELSE COALESCE($5::int, notify_minutes) END,
+             notify_mode = CASE WHEN $7::text IS NULL AND $8::boolean THEN NULL ELSE COALESCE($7::text, notify_mode) END,
              updated_at = NOW()
-         WHERE id = $7 AND owner_user_id = $8 AND user_id = $8
-         RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, notify_enabled, notify_minutes, sync_token, created_at, updated_at, dav_mode`,
-        [color, displayVisible, davMode ?? null, notifyEnabled ?? null, notifyMinutes, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMinutes'), req.params.calendarId, sessionUserId(req)],
+         WHERE id = $9 AND owner_user_id = $10 AND user_id = $10
+         RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, notify_enabled, notify_minutes, notify_mode, sync_token, created_at, updated_at, dav_mode`,
+        [color, displayVisible, davMode ?? null, notifyEnabled ?? null, notifyMinutes, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMinutes'), notifyMode, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMode'), req.params.calendarId, sessionUserId(req)],
       );
       if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
       if (davMode) {
@@ -880,10 +885,11 @@ router.patch('/calendars/:calendarId', async (req, res) => {
        SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode),
            notify_enabled = COALESCE($5, notify_enabled),
            notify_minutes = CASE WHEN $6::int IS NULL AND $7::boolean THEN NULL ELSE COALESCE($6::int, notify_minutes) END,
+           notify_mode = CASE WHEN $8::text IS NULL AND $9::boolean THEN NULL ELSE COALESCE($8::text, notify_mode) END,
            updated_at = NOW()
-       WHERE id = $8 AND owner_user_id = $9 AND user_id = $9 AND source = 'local'
-       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, notify_enabled, notify_minutes, sync_token, created_at, updated_at, dav_mode`,
-      [name, color, displayVisible, davMode ?? null, notifyEnabled ?? null, notifyMinutes, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMinutes'), req.params.calendarId, sessionUserId(req)],
+       WHERE id = $10 AND owner_user_id = $11 AND user_id = $11 AND source = 'local'
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, notify_enabled, notify_minutes, notify_mode, sync_token, created_at, updated_at, dav_mode`,
+      [name, color, displayVisible, davMode ?? null, notifyEnabled ?? null, notifyMinutes, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMinutes'), notifyMode, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMode'), req.params.calendarId, sessionUserId(req)],
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
     if (davMode) {

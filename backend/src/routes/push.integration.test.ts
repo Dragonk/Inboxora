@@ -1,5 +1,6 @@
 // Real PostgreSQL, real push device registry + real native (device-token) auth.
-// No external push provider is contacted: registration only stores the endpoint.
+// No external push provider is contacted: the live transport carries no
+// endpoint at all, registration only stores the encrypted device token hash.
 //
 // Run against a migrated scratch database:
 //   DB_HOST=127.0.0.1 DB_PORT=5432 DB_NAME=inboxora_test \
@@ -9,14 +10,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Server } from 'node:http';
 import type { JsonBody } from '../test/json.js';
 import { randomUUID } from 'crypto';
-import { createServer } from 'http';
 import express from 'express';
 import 'express-async-errors';
 import { pool, query } from '../services/db.js';
 import pushRouter from './push.js';
 import { buildMailNotificationEvent } from '../services/mailNotificationEvent.js';
 import { dispatchMailNotification, resetDispatchDedup } from '../services/pushDispatcher.js';
-import { listeningPort } from '../test/net.js';
 import { mockSession } from '../test/http.js';
 import type { AddressInfo } from 'node:net';
 
@@ -52,11 +51,11 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     await pool.end();
   });
 
-  async function register(deviceId: string, endpoint = 'https://distributor.example/up/topic') {
+  async function register(deviceId: string) {
     const response = await fetch(`${base}/api/push/devices`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId, platform: 'android', transport: 'unifiedpush', endpoint, appVersion: '4.0.0' }),
+      body: JSON.stringify({ deviceId, platform: 'android', transport: 'live', appVersion: '4.0.0' }),
     });
     return { response, body: (await response.json()) as JsonBody };
   }
@@ -68,8 +67,9 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     expect(body.deviceToken).toMatch(/^mf_push_[0-9a-f-]{36}\./);
 
     const stored = (await query<{ endpoint: string; token_hash: string }>('SELECT endpoint, token_hash FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'device-1'])).rows[0];
+    // The live transport has no endpoint: only an empty encrypted blob + the
+    // bcrypt hash of the device token are stored.
     expect(stored.endpoint.startsWith('enc:v1:')).toBe(true);
-    expect(stored.endpoint).not.toContain('distributor.example');
     expect(stored.token_hash).not.toContain(body.deviceToken);
 
     // The device token authenticates the native background API.
@@ -142,67 +142,34 @@ describe.skipIf(!enabled)('push device registry with PostgreSQL', () => {
     expect((await query('SELECT COUNT(*)::int AS n FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'restart-device'])).rows[0].n).toBe(1);
   });
 
-  it('delivers only the opaque event to a UnifiedPush endpoint (mock distributor)', async () => {
+  it('counts a live device as delivered over its own socket (no provider send)', async () => {
     sessions.userId = ownerId;
-    const received: Array<{ url: string; method: string; body: string }> = [];
-    const mock = createServer((req, res) => {
-      const { method, url } = req;
-      if (method === undefined || url === undefined) {
-        res.writeHead(400, { 'content-type': 'text/plain' });
-        res.end('Request method and URL are required');
-        return;
-      }
+    const { response, body } = await register('live-device');
+    expect(response.status).toBe(201);
+    expect(body.deviceToken).toMatch(/^mf_push_/);
 
-      let body = '';
-      req.on('data', (chunk) => { body += chunk; });
-      req.on('end', () => {
-        received.push({ url, method, body });
-        res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end('ok');
-      });
+    resetDispatchDedup();
+    const event = buildMailNotificationEvent({
+      userId: ownerId,
+      message: {
+        id: randomUUID(),
+        account_id: randomUUID(),
+        folder: 'INBOX',
+        fromName: 'Ada Lovelace',
+        fromEmail: 'ada@example.com',
+        subject: 'Top secret subject',
+      },
+      alertCount: 1,
     });
-    await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
-    const port = listeningPort(mock);
 
-    const previous = process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS;
-    process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS = 'true';
-    try {
-      const { response, body } = await register('opaque-device', `http://127.0.0.1:${port}/upMOCKTOPIC123?up=1`);
-      expect(response.status).toBe(201);
-      expect(body.deviceToken).toMatch(/^mf_push_/);
+    // No external provider is configured: the whole native leg is the live
+    // socket, reported as delivered without any network send.
+    const summary = await dispatchMailNotification(event);
+    expect(summary.dispatched).toBe(true);
+    expect(summary.native.live).toBe(1);
+    expect(summary.native.delivered).toBe(0);
 
-      resetDispatchDedup();
-      const event = buildMailNotificationEvent({
-        userId: ownerId,
-        message: {
-          id: randomUUID(),
-          account_id: randomUUID(),
-          folder: 'INBOX',
-          fromName: 'Ada Lovelace',
-          fromEmail: 'ada@example.com',
-          subject: 'Top secret subject',
-        },
-        alertCount: 1,
-      });
-
-      const summary = await dispatchMailNotification(event);
-      expect(summary.native.delivered).toBe(1);
-
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(received).toHaveLength(1);
-      expect(received[0].method).toBe('POST');
-      expect(received[0].url).toBe('/upMOCKTOPIC123?up=1');
-      // Exactly the opaque event — no sender, subject, address or body.
-      expect(JSON.parse(received[0].body)).toEqual({ type: 'mail.changed', eventId: event.eventId });
-      expect(received[0].body).not.toContain('Ada');
-      expect(received[0].body).not.toContain('Top secret');
-      expect(received[0].body).not.toContain('ada@example.com');
-    } finally {
-      if (previous === undefined) delete process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS;
-      else process.env.PUSH_ALLOW_PRIVATE_ENDPOINTS = previous;
-      await new Promise((resolve) => mock.close(resolve));
-      await query('DELETE FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'opaque-device']);
-    }
+    await query('DELETE FROM push_devices WHERE user_id=$1 AND device_id=$2', [ownerId, 'live-device']);
   });
 });
 

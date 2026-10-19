@@ -11,9 +11,7 @@ import {
 import { transportStatus } from '../services/pushTransports.js';
 import { pushConfigured } from '../services/pushNotifications.js';
 import { upcomingCalendarReminders } from '../services/calendarReminders.js';
-import { allowPrivatePushEndpoints, pushBaseUrl } from '../services/pushConfig.js';
 import { query } from '../services/db.js';
-import { validateHost } from '../services/hostValidation.js';
 import { routeParam, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
 import type { Request, Response } from 'express';
@@ -65,24 +63,6 @@ router.post('/devices', requireAuth, async (req: Request, res: Response) => {
   try {
     const input = req.body || {};
 
-    // SSRF guard at registration time as well as at send time: a logged-in user
-    // must not be able to store an internal callback URL and have the server POST
-    // new-mail events to it. Self-hosted LAN distributors can opt in explicitly.
-    if (String(input.transport || '').toLowerCase() === 'unifiedpush') {
-      let endpointUrl;
-      try { endpointUrl = new URL(String(input.endpoint || '')); } catch {
-        return res.status(400).json({ error: 'UnifiedPush endpoint must be a valid URL' });
-      }
-      const allowPrivate = allowPrivatePushEndpoints();
-      // HTTPS is required unless an operator explicitly opted into a private/LAN
-      // install, where the whole server (and therefore its /push URL) is http.
-      if (endpointUrl.protocol !== 'https:' && !(allowPrivate && endpointUrl.protocol === 'http:')) {
-        return res.status(400).json({ error: 'UnifiedPush endpoint must use HTTPS' });
-      }
-      const hostErr = await validateHost(endpointUrl.hostname, { allowPrivate });
-      if (hostErr) return res.status(400).json({ error: 'UnifiedPush endpoint host is not allowed' });
-    }
-
     const { device, deviceToken } = await registerPushDevice(sessionUserId(req), input);
     // Opportunistic, bounded cleanup so expired registrations cannot accumulate.
     pruneStalePushDevices().catch(() => {});
@@ -133,18 +113,16 @@ router.get('/status', requireAuth, async (req: Request, res: Response) => {
   res.json({
     webPushConfigured: pushConfigured,
     nativeTransports: transportStatus(),
-    // What the Android settings screen shows next to the ntfy instructions and
-    // what the user types into the ntfy app. Null when APP_URL is not set.
-    pushBaseUrl: pushBaseUrl(),
     devices: result.rows[0] || { total: 0, active: 0 },
   });
 });
 
 // ── Native background API (/api/push/native/*) — device-token auth ───────────
 //
-// The external push provider only ever carries { type, eventId }. The app wakes
-// on that, then fetches the actual notification data straight from its own
-// Inboxora server over this mount. Nothing else is reachable with a device token.
+// The push event only ever carries { type, eventId } — over FCM for provider
+// builds, or on the live WebSocket otherwise. The app wakes on that, then fetches
+// the actual notification data straight from its own Inboxora server over this
+// mount. Nothing else is reachable with a device token.
 
 function unreadTotalSql() {
   return `SELECT COUNT(*)::int AS total FROM messages m
