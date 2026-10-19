@@ -40,16 +40,18 @@ public class InboxoraPushRegistrationWorker extends Worker {
         String host = InboxoraNativePlugin.getSavedHost(context);
         if (host == null || host.isEmpty()) return Result.success();
 
-        // Not logged in yet, or no distributor/endpoint available: nothing to do
-        // now. Returning success (instead of retry) avoids an endless background
-        // retry loop on devices that never install a distributor — the next
-        // launch, login or onNewEndpoint callback enqueues registration again.
+        // Not logged in yet, or no transport chosen: nothing to do now.
+        // Returning success (instead of retry) avoids an endless background retry
+        // loop — the next launch, login or provider callback enqueues the
+        // registration again.
         String cookie = CookieManager.getInstance().getCookie(host);
         if (cookie == null || cookie.trim().isEmpty()) return Result.success();
 
         String transport = InboxoraNativePush.transport(context);
         String endpoint = InboxoraNativePush.endpoint(context);
-        if (transport == null || endpoint == null || endpoint.isEmpty()) {
+        // The live transport has no endpoint: the device token is the credential.
+        boolean needsEndpoint = !InboxoraNativePush.TRANSPORT_LIVE.equals(transport);
+        if (transport == null || (needsEndpoint && (endpoint == null || endpoint.isEmpty()))) {
             InboxoraPushManager.ensureRegistered(context);
             return Result.success();
         }
@@ -59,7 +61,7 @@ public class InboxoraPushRegistrationWorker extends Worker {
             payload.put("deviceId", InboxoraNativePush.deviceId(context));
             payload.put("platform", "android");
             payload.put("transport", transport);
-            payload.put("endpoint", endpoint);
+            if (endpoint != null && !endpoint.isEmpty()) payload.put("endpoint", endpoint);
             String appVersion = appVersion(context);
             if (appVersion != null) payload.put("appVersion", appVersion);
 
@@ -71,8 +73,8 @@ public class InboxoraPushRegistrationWorker extends Worker {
                 return Result.success();
             }
             if (response.status == HTTP_BAD_REQUEST) {
-                // The server rejected this endpoint (e.g. a blocked private
-                // distributor URL). Retrying cannot help; surface it in settings.
+                // The server rejected this registration. Retrying cannot
+                // help; surface it in settings.
                 InboxoraNativePush.setStatus(context, InboxoraNativePush.STATUS_UNAVAILABLE);
                 return Result.failure();
             }
@@ -85,6 +87,9 @@ public class InboxoraPushRegistrationWorker extends Worker {
             InboxoraNativePush.setDeviceToken(context, deviceToken);
             InboxoraNativePush.setRegisteredHost(context, host);
             InboxoraNativePush.setStatus(context, InboxoraNativePush.STATUS_CONNECTED);
+            // The device token just arrived: the live socket can connect now
+            // (a no-op for FCM builds, which need no socket of their own).
+            InboxoraLivePushService.ensureStarted(context);
             return Result.success();
         } catch (Exception ignored) {
             return Result.retry();

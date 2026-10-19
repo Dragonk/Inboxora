@@ -15,6 +15,8 @@ public class InboxoraFirebaseMessagingService extends FirebaseMessagingService {
     public void onNewToken(@NonNull String token) {
         if (token == null || token.isEmpty()) return;
         InboxoraNativePush.setRegistration(this, InboxoraNativePush.TRANSPORT_FCM, token);
+        // The provider wakes the app now: no socket of our own is needed.
+        InboxoraLivePushService.stop(this);
         InboxoraNativePush.enqueueRegistration(this);
     }
 

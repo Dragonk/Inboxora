@@ -111,7 +111,7 @@ public class InboxoraNativePlugin extends Plugin {
         createNotificationChannel(getContext());
         restoreDownloadedUpdateState();
         // Re-assert the native push registration every launch: this recovers from a
-        // rotated provider token, a reinstalled distributor or a stale server row.
+        // rotated FCM token or a stale server row.
         InboxoraPushManager.ensureRegistered(getContext());
         InboxoraNativePush.enqueueRegistration(getContext());
         // The live push service and the AlarmManager reminder set both need a
@@ -375,13 +375,7 @@ public class InboxoraNativePlugin extends Plugin {
         result.put("status", InboxoraPushManager.status(context));
         result.put("transport", InboxoraNativePush.transport(context));
         result.put("deviceId", InboxoraNativePush.deviceId(context));
-        // UnifiedPush distributor discovery for the settings screen. No secrets.
-        String preferred = InboxoraPushManager.preferredDistributor(context);
-        result.put("distributor", preferred);
-        result.put("distributorLabel", InboxoraPushManager.distributorLabel(context, preferred));
-        JSArray installed = new JSArray();
-        for (String packageName : InboxoraPushManager.distributors(context)) installed.put(packageName);
-        result.put("distributors", installed);
+        result.put("hasDeviceToken", InboxoraNativePush.deviceToken(context) != null);
         result.put("hasEndpoint", InboxoraNativePush.endpoint(context) != null);
         result.put("live", InboxoraNativePush.liveStatus(context));
         call.resolve(result);
@@ -410,26 +404,11 @@ public class InboxoraNativePlugin extends Plugin {
         call.resolve(result);
     }
 
-    // Bring the installed UnifiedPush distributor (e.g. ntfy) to the front so the
-    // user can point it at this Inboxora server. No endpoint copying involved.
+    // Open the live-push channel settings so the persistent foreground card can
+    // be hidden without stopping the socket.
     @PluginMethod
-    public void openPushDistributor(PluginCall call) {
-        JSObject result = new JSObject();
-        result.put("opened", InboxoraPushManager.openDistributorApp(getContext()));
-        call.resolve(result);
-    }
-
-    // Store page for the recommended distributor (market://, F-Droid fallback).
-    @PluginMethod
-    public void openPushInstallPage(PluginCall call) {
-        InboxoraPushManager.openDistributorInstallPage(getContext());
-        call.resolve();
-    }
-
-    // Fixed Inboxora help page; never takes a caller-supplied URL.
-    @PluginMethod
-    public void openPushHelp(PluginCall call) {
-        InboxoraPushManager.openHelpPage(getContext());
+    public void openLiveChannelSettings(PluginCall call) {
+        InboxoraLivePushService.openChannelSettings(getContext());
         call.resolve();
     }
 
@@ -796,9 +775,7 @@ public class InboxoraNativePlugin extends Plugin {
             + "window.inboxoraNative.notifications.getStatus=function(){return call('getPushStatus',{},{});};"
             + "window.inboxoraNative.notifications.register=function(){return call('registerPush',{},{});};"
             + "window.inboxoraNative.notifications.clear=function(){return call('clearPush',{},{});};"
-            + "window.inboxoraNative.notifications.openDistributor=function(){return call('openPushDistributor',{},{});};"
-            + "window.inboxoraNative.notifications.openInstallPage=function(){return call('openPushInstallPage',{},{});};"
-            + "window.inboxoraNative.notifications.openHelp=function(){return call('openPushHelp',{},{});};"
+            + "window.inboxoraNative.notifications.openLiveChannelSettings=function(){return call('openLiveChannelSettings',{},{});};"
             + "window.inboxoraNative.notifications.cancelMessageNotifications=function(ids){return call('cancelMessageNotifications',{messageIds:ids||[]},{});};"
             + "window.inboxoraNative.notifications.syncReminders=function(){return call('syncReminders',{},{});};"
             + "window.inboxoraNative.notifications.getReminderStatus=function(){return call('getReminderStatus',{},{});};"

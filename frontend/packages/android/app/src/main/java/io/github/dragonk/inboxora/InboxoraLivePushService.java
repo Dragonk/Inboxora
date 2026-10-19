@@ -53,6 +53,9 @@ public class InboxoraLivePushService extends android.app.Service {
     /** Idempotent start: safe on every app launch and on boot. */
     public static void ensureStarted(Context context) {
         if (context == null) return;
+        // FCM builds are woken by the provider: a socket of our own would only
+        // add a foreground notification with no benefit.
+        if (InboxoraNativePush.TRANSPORT_FCM.equals(InboxoraNativePush.transport(context))) return;
         String host = InboxoraNativePlugin.getSavedHost(context);
         String token = InboxoraNativePush.deviceToken(context);
         // No configured server or not-yet-registered device token: nothing to
@@ -67,6 +70,23 @@ public class InboxoraLivePushService extends android.app.Service {
         if (context == null) return;
         try { context.stopService(new Intent(context, InboxoraLivePushService.class)); } catch (Exception ignored) {}
         InboxoraNativePush.setLiveStatus(context, InboxoraNativePush.STATUS_UNAVAILABLE);
+    }
+
+    /**
+     * Deep-link to the live-push notification channel settings. Android requires
+     * a foreground service to show a notification, but the channel can be turned
+     * off there — the socket keeps running, only the persistent card disappears
+     * from the shade.
+     */
+    public static void openChannelSettings(Context context) {
+        if (context == null) return;
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, InboxoraNativePlugin.CHANNEL_LIVE_PUSH)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.getPackageName())
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+        } catch (Throwable ignored) {}
     }
 
     @Nullable

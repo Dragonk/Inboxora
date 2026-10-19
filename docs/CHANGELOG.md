@@ -20,12 +20,17 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
+### Added
+- An in-app action that opens the live-push notification channel settings, so the persistent foreground card Android requires can be hidden from the shade while the live socket keeps running.
+
 ### Changed
 - Native push without a distributor: device registrations now use the built-in `live` transport (no endpoint - the app authenticates with its push device token over the WebSocket it keeps open anyway), existing `unifiedpush` registrations are moved by `0172_live_push_transport.sql`, and FCM remains the optional provider transport. The dispatcher reports live deliveries as their own summary counter.
+- Android registers with the built-in live transport by default; FCM stays only for builds compiled with their own `google-services.json`, and those builds no longer run the live socket (or its foreground notification) at all.
 - Calendar reminder cascade: an explicit per-event override with `enabled = true` now rings even when its calendar - or the global default - is muted, and the delivery mode (notification vs alarm) inherits through the whole cascade (event override, new per-calendar `notify_mode`, global preference; `0173_calendar_notify_mode.sql`); `PATCH /api/calendar/calendars/:id` accepts `notifyMode`.
 
 ### Removed
 - UnifiedPush support on the server: the `pushConfig` service (`PUSH_BASE_URL`, `PUSH_ALLOW_PRIVATE_ENDPOINTS`), the distributor-endpoint registration guard and its SSRF host validation on `/api/push/devices` are gone - the server never POSTs to a user-supplied push endpoint anymore.
+- UnifiedPush on Android: the connector dependency, the distributor discovery/install/help actions and the `InboxoraPushService` receiver are gone - push is built into Inboxora, not installed next to it.
 
 ## [4.3.6] - 2026-10-19
 
