@@ -1,4 +1,4 @@
-- [Home — documentation for 4.3.5](Home.md)
+- [Home — documentation for 4.3.6](Home.md)
 - [Installation](Installation.md)
 - [Getting started](Getting-started.md)
 - **Email**
@@ -21,7 +21,7 @@
 - **Reference**
   - [V3 interface](V3-interface.md)
 - **Releases**
-  - [4.3.5 — latest](Release-notes-4.3.5.md)
+  - [4.3.6 — latest](Release-notes-4.3.6.md)
   - [Development changes](Release-notes-Unreleased.md)
 
 <details>
@@ -29,6 +29,7 @@
 
 [All previous release notes](Archive.md)
 
+- [4.3.5](Release-notes-4.3.5.md)
 - [4.3.4](Release-notes-4.3.4.md)
 - [4.3.3](Release-notes-4.3.3.md)
 - [4.3.2](Release-notes-4.3.2.md)
