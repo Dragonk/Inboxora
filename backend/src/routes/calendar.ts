@@ -54,6 +54,16 @@ import { projectCalendarResources } from '../services/calendarProjectionPool.js'
 import { EVENT_COLUMNS, coveragePredicate } from '../services/calendarOccurrences.js';
 import { queryString, sessionUserId } from '../utils/query.js';
 import { toAppError } from '../utils/errors.js';
+import {
+  REMINDER_MODES,
+  clearEventReminderOverride,
+  getEventReminderOverride,
+  loadCalendarReminderSettings,
+  sanitizeReminderMinutes,
+  sanitizeReminderMode,
+  setEventReminderOverride,
+  upcomingCalendarReminders,
+} from '../services/calendarReminders.js';
 
 function invitationAliasClientError(caught: unknown): { status: 400 | 409; message: string } | null {
   if (!(caught instanceof Error)) return null;
@@ -726,7 +736,7 @@ router.get('/calendars', async (req, res) => {
   const result = await query<{ id: string; color: string | null; source?: string | null; [key: string]: unknown }>(
     // `collection_id` is what the write-back opt-in is addressed by: a pulled calendar is written through
     // its collection, and the interface needs the id to offer the switch.
-    `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible,
+    `SELECT c.id, c.name, c.description, c.color, c.source, c.external_url, c.read_only, c.display_visible, c.notify_enabled, c.notify_minutes,
             c.owner_user_id, c.sync_token, c.created_at, c.updated_at, c.dav_mode, ic.id AS collection_id, ic.source_access, ic.user_access,
             ic.connection_id, ic.remote_id, pc.provider_user_id, account.id AS account_id
        FROM calendars c
@@ -807,8 +817,18 @@ router.patch('/calendars/:calendarId', async (req, res) => {
   const color = calendarColor(req.body?.color);
   const displayVisible = req.body?.displayVisible;
   const davMode = req.body?.davMode;
+  // Reminder defaults are optional so the existing edit form keeps working;
+  // an absent field inherits instead of silently resetting.
+  const notifyEnabled = req.body?.notifyEnabled;
+  const notifyMinutes = req.body?.notifyMinutes === undefined || req.body?.notifyMinutes === null ? null : sanitizeReminderMinutes(req.body?.notifyMinutes);
   if (!name || color === undefined || typeof displayVisible !== 'boolean') {
     return res.status(400).json({ error: 'name, a hex color, and displayVisible are required' });
+  }
+  if (notifyEnabled !== undefined && typeof notifyEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'notifyEnabled must be a boolean' });
+  }
+  if (notifyMinutes === null && req.body?.notifyMinutes != null) {
+    return res.status(400).json({ error: 'notifyMinutes must be an integer from 0 to 10080' });
   }
   if (davMode !== undefined && davMode !== null && davMode !== 'off' && davMode !== 'read_only' && davMode !== 'read_write') {
     return res.status(400).json({ error: 'davMode must be off, read_only or read_write' });
@@ -838,10 +858,13 @@ router.patch('/calendars/:calendarId', async (req, res) => {
       }
       const result = await query(
         `UPDATE calendars
-         SET color = $1, display_visible = $2, dav_mode = COALESCE($3, dav_mode), updated_at = NOW()
-         WHERE id = $4 AND owner_user_id = $5 AND user_id = $5
-         RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
-        [color, displayVisible, davMode ?? null, req.params.calendarId, sessionUserId(req)],
+         SET color = $1, display_visible = $2, dav_mode = COALESCE($3, dav_mode),
+             notify_enabled = COALESCE($4, notify_enabled),
+             notify_minutes = CASE WHEN $5::int IS NULL AND $6::boolean THEN NULL ELSE COALESCE($5::int, notify_minutes) END,
+             updated_at = NOW()
+         WHERE id = $7 AND owner_user_id = $8 AND user_id = $8
+         RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, notify_enabled, notify_minutes, sync_token, created_at, updated_at, dav_mode`,
+        [color, displayVisible, davMode ?? null, notifyEnabled ?? null, notifyMinutes, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMinutes'), req.params.calendarId, sessionUserId(req)],
       );
       if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
       if (davMode) {
@@ -854,10 +877,13 @@ router.patch('/calendars/:calendarId', async (req, res) => {
     }
     const result = await query(
       `UPDATE calendars
-       SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode), updated_at = NOW()
-       WHERE id = $5 AND owner_user_id = $6 AND user_id = $6 AND source = 'local'
-       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, sync_token, created_at, updated_at, dav_mode`,
-      [name, color, displayVisible, davMode ?? null, req.params.calendarId, sessionUserId(req)],
+       SET name = $1, color = $2, display_visible = $3, dav_mode = COALESCE($4, dav_mode),
+           notify_enabled = COALESCE($5, notify_enabled),
+           notify_minutes = CASE WHEN $6::int IS NULL AND $7::boolean THEN NULL ELSE COALESCE($6::int, notify_minutes) END,
+           updated_at = NOW()
+       WHERE id = $8 AND owner_user_id = $9 AND user_id = $9 AND source = 'local'
+       RETURNING id, user_id, owner_user_id, name, description, color, source, external_url, read_only, display_visible, notify_enabled, notify_minutes, sync_token, created_at, updated_at, dav_mode`,
+      [name, color, displayVisible, davMode ?? null, notifyEnabled ?? null, notifyMinutes, Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notifyMinutes'), req.params.calendarId, sessionUserId(req)],
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
     if (davMode) {
@@ -902,6 +928,79 @@ router.delete('/calendars/:calendarId', async (req, res) => {
   );
   if (!result.rows[0]) return res.status(404).json({ error: 'Calendar not found' });
   res.status(204).end();
+});
+
+// Event reminders (native notifications / alarms). The cascade lives in
+// calendarReminders.ts; these routes expose the two levels the UI edits: the
+// global defaults and the per-event override. Per-calendar defaults ride on
+// the calendar routes above.
+
+router.get('/reminder-settings', async (req, res) => {
+  const settings = await loadCalendarReminderSettings(sessionUserId(req));
+  res.json(settings);
+});
+
+router.put('/reminder-settings', async (req, res) => {
+  const enabled = req.body?.enabled;
+  const minutes = req.body?.minutes;
+  const mode = req.body?.mode;
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+  if (minutes !== undefined && minutes !== null && sanitizeReminderMinutes(minutes) === null) {
+    return res.status(400).json({ error: 'minutes must be an integer from 0 to 10080' });
+  }
+  if (mode !== undefined && mode !== null && !REMINDER_MODES.includes(mode)) {
+    return res.status(400).json({ error: 'mode must be notification or alarm' });
+  }
+  await query(
+    "UPDATE users SET preferences = COALESCE(preferences, '{}'::jsonb) || $2::jsonb WHERE id = $1",
+    [sessionUserId(req), JSON.stringify({
+      ...(enabled !== undefined ? { calendarRemindersEnabled: enabled } : {}),
+      ...(minutes !== undefined ? { calendarRemindersMinutes: sanitizeReminderMinutes(minutes) ?? 30 } : {}),
+      ...(mode !== undefined && mode !== null ? { calendarRemindersMode: sanitizeReminderMode(mode) } : {}),
+    })],
+  );
+  res.json(await loadCalendarReminderSettings(sessionUserId(req)));
+});
+
+// A preview of what a device would currently schedule, so the settings screen
+// can show the next few reminders without waiting for one to ring.
+router.get('/reminder-preview', async (req, res) => {
+  const hours = Math.min(72, Math.max(1, Number(req.query.hours) || 48));
+  const from = new Date();
+  const to = new Date(from.getTime() + hours * 3_600_000);
+  res.json({ reminders: await upcomingCalendarReminders(sessionUserId(req), { from, to }) });
+});
+
+router.get('/events/:eventId/reminder', async (req, res) => {
+  if (!UUID_PATTERN.test(req.params.eventId)) return res.status(400).json({ error: 'Invalid event id' });
+  const override = await getEventReminderOverride(sessionUserId(req), req.params.eventId);
+  if (!override) return res.json({ reminder: null });
+  res.json({ reminder: override });
+});
+
+router.put('/events/:eventId/reminder', async (req, res) => {
+  if (!UUID_PATTERN.test(req.params.eventId)) return res.status(400).json({ error: 'Invalid event id' });
+  try {
+    const reminder = await setEventReminderOverride(sessionUserId(req), req.params.eventId, {
+      enabled: req.body?.enabled,
+      minutesBefore: req.body?.minutesBefore,
+      mode: req.body?.mode,
+    });
+    res.json({ reminder });
+  } catch (caught) {
+    const error = toAppError(caught);
+    if (error.statusCode === 400 || error.statusCode === 404) return res.status(error.statusCode).json({ error: error.message });
+    throw caught;
+  }
+});
+
+// Removing the override returns the event to the calendar's default.
+router.delete('/events/:eventId/reminder', async (req, res) => {
+  if (!UUID_PATTERN.test(req.params.eventId)) return res.status(400).json({ error: 'Invalid event id' });
+  const removed = await clearEventReminderOverride(sessionUserId(req), req.params.eventId);
+  res.json({ removed });
 });
 
 router.get('/events', async (req, res) => {

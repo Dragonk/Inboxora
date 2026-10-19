@@ -1,4 +1,5 @@
 import { subscribeMailStateChanges } from './mailStateEvents.js';
+import { authenticatePushDevice, bearerTokenFromHeader } from './pushDevices.js';
 import { recordWsConnect, recordWsDisconnect } from './diagnosticsRing.js';
 
 // Derive the expected origin from APP_URL once at startup.
@@ -31,14 +32,14 @@ interface WebSocketServerLike {
     event: 'connection',
     listener: (
       ws: WebSocketLike,
-      req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null },
+      req: { headers: { origin?: string; authorization?: string }; session?: { userId?: string; locked?: boolean } | null },
     ) => void,
   ): unknown;
 }
 
 interface SessionMiddlewareLike {
   (
-    req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null },
+    req: { headers: { origin?: string; authorization?: string }; session?: { userId?: string; locked?: boolean } | null },
     res: { getHeader(name: string): unknown; setHeader(name: string, value: string): void; end(): void },
     next: (err?: unknown) => void,
   ): void;
@@ -49,7 +50,7 @@ interface ImapManagerLike {
 }
 
 export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: SessionMiddlewareLike, imapManager: ImapManagerLike) {
-  wss.on('connection', (ws: WebSocketLike, req: { headers: { origin?: string }; session?: { userId?: string; locked?: boolean } | null }) => {
+  wss.on('connection', (ws: WebSocketLike, req: { headers: { origin?: string; authorization?: string }; session?: { userId?: string; locked?: boolean } | null }) => {
     let unsubscribeMailState: (() => void) | undefined;
     // Transport errors can arrive during session lookup, before authentication.
     ws.on('error', (err: unknown) => {
@@ -76,7 +77,7 @@ export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: Sess
       end: () => {}
     };
 
-    sessionMiddleware(req, fakeRes, (err: unknown) => {
+    sessionMiddleware(req, fakeRes, async (err: unknown) => {
       if (ws.readyState !== 1) return;
       if (err) {
         // A temporary session-store outage should be retried, not treated as
@@ -85,12 +86,23 @@ export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: Sess
         return;
       }
       const session = req.session;
-      if (!session || !session.userId) {
-        ws.close(1008, 'Unauthorized');
-        return;
-      }
-      const userId = session.userId;
-      if (session.locked) {
+      const sessionUserId = session?.userId;
+      let userId = sessionUserId;
+      if (!userId) {
+        // Native background clients (the Inboxora app's own live push service)
+        // have no browser session: they authenticate exactly like the
+        // /api/push/native mount, with a revocable device token. A device
+        // socket is not subject to the screen lock — the lock guards the
+        // WebView UI, while the native layer only shows a notification the
+        // user can already see on the lock screen anyway.
+        const token = bearerTokenFromHeader(req.headers.authorization);
+        const device = token ? await authenticatePushDevice(token).catch(() => null) : null;
+        if (!device) {
+          ws.close(1008, 'Unauthorized');
+          return;
+        }
+        userId = device.userId;
+      } else if (session?.locked) {
         // Screen lock (#235) is server-enforced: don't stream live mail to a locked
         // session. The client closes its own socket on lock; this blocks a new one.
         ws.close(1008, 'Locked');
@@ -98,7 +110,8 @@ export function setupWebSocket(wss: WebSocketServerLike, sessionMiddleware: Sess
       }
       ws.userId = userId;
       unsubscribeMailState = subscribeMailStateChanges(userId, event => {
-        if (ws.readyState !== 1 || req.session?.userId !== userId || req.session?.locked) return;
+        if (ws.readyState !== 1) return;
+        if (req.session && (req.session.userId !== userId || req.session.locked)) return;
         try { ws.send(JSON.stringify(event)); }
         catch { ws.terminate(); }
       });
