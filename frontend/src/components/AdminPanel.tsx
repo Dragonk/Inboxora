@@ -5843,7 +5843,7 @@ function NativePushSection() {
   });
   const muted: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 480, lineHeight: 1.5 };
   const warnBox: CSSProperties = {
-    display: 'flex', gap: 8, alignItems: 'flex-start',
+    display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap',
     padding: '10px 12px', borderRadius: 8, marginBottom: 8,
     background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
   };
@@ -6098,6 +6098,7 @@ function CalendarRemindersSection() {
   const [native, setNative] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
   const isAndroidApp = Boolean(window.Capacitor?.isNativePlatform?.());
+  const isMobile = useMobile();
 
   const refresh = useCallback(async () => {
     try {
@@ -6161,10 +6162,10 @@ function CalendarRemindersSection() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14, opacity: settings.enabled ? 1 : 0.55 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12, marginBottom: 14, opacity: settings.enabled ? 1 : 0.55 }}>
         <div>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('admin.reminders.lead')}</div>
-          <SegmentedChoices label={t('admin.reminders.lead')} choices={leadChoices} value={settings.minutes} disabled={busy || !settings.enabled} onChange={minutes => persist({ minutes })} />
+          <SegmentedChoices label={t('admin.reminders.lead')} choices={leadChoices} value={settings.minutes} disabled={busy || !settings.enabled} onChange={minutes => persist({ minutes })} wrap />
         </div>
         <div>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('admin.reminders.mode')}</div>
@@ -6180,9 +6181,9 @@ function CalendarRemindersSection() {
           {upcoming && upcoming.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {upcoming.map(item => (
-                <div key={item.key || `${item.startsAt ?? ''}-${item.summary ?? ''}`} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, color: 'var(--text-secondary)', minWidth: 0 }}>
+                <div key={item.key || `${item.startsAt ?? ''}-${item.summary ?? ''}`} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, color: 'var(--text-secondary)', minWidth: 0, flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)', flexShrink: 0 }}>
-                    {item.remindAt ? new Date(item.remindAt).toLocaleString() : '–'}
+                    {item.remindAt ? new Date(item.remindAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–'}
                   </span>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.summary || t('calendar.untitled')}</span>
                   <span style={{ color: 'var(--text-tertiary)', fontSize: 11, flexShrink: 0 }}>{item.calendarName || ''} · {t('admin.reminders.before', { minutes: item.minutes ?? 0 })}</span>
@@ -6198,7 +6199,7 @@ function CalendarRemindersSection() {
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('admin.reminders.deviceTitle')}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', alignItems: 'baseline', marginBottom: 10 }}>
             <span style={muted}>{t('admin.reminders.exactAlarms')}</span>
-            <span style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--text-primary)' }}>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--text-primary)', flexWrap: 'wrap' }}>
               {native.exactAlarmsGranted === false ? t('admin.reminders.missing') : t('admin.reminders.granted')}
               {native.exactAlarmsGranted === false && (
                 <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => window.inboxoraNative?.notifications?.requestExactAlarmPermission?.())}>
@@ -6207,7 +6208,7 @@ function CalendarRemindersSection() {
               )}
             </span>
             <span style={muted}>{t('admin.reminders.battery')}</span>
-            <span style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--text-primary)' }}>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--text-primary)', flexWrap: 'wrap' }}>
               {native.batteryOptimized ? t('admin.reminders.batteryRestricted') : t('admin.reminders.batteryExempt')}
               {native.batteryOptimized === true && (
                 <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => window.inboxoraNative?.notifications?.requestIgnoreBatteryOptimizations?.())}>

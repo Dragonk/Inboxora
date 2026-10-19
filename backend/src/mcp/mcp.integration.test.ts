@@ -227,7 +227,40 @@ describe.skipIf(!enabled)('native MCP over HTTP and PostgreSQL', () => {
     await invoke('delete_contact',{contactId:contact.id,expectedEtag:fresh.etag});
     expect((await query('SELECT id FROM contacts WHERE id=$1',[contact.id])).rows).toEqual([]);
   });
-  it('reads cached mail and a singleton thread without marking the message read', async () => {
+
+  it('manages calendar reminders through MCP tools', async () => {
+    const calendarId = randomUUID();
+    await query("INSERT INTO calendars(id,user_id,owner_user_id,name,source,color) VALUES($1,$2,$2,'Reminder calendar','local','#3366ff')",[calendarId,userId]);
+    const grant = await token('Reminder tools',{scopes:['calendar.read','calendar.write'],requireConfirmation:false,
+      restrictions:{calendars:[calendarId],addressBooks:[],accounts:[]}});
+    const client = await connect(grant.token);
+    const invoke = async (name:string,args:Record<string,unknown>) => {
+      const response = await client.callTool({name,arguments:{...args,requestId:randomUUID()}});
+      const result = record(response.structuredContent);
+      expect(result, JSON.stringify(response)).toMatchObject({state:'succeeded'});
+      return record(record(result.result).body);
+    };
+    const iso = (date: Date) => date.toISOString().replace(/\.[0-9]{3}Z$/, 'Z');
+    const startsAt = new Date(Date.now() + 6 * 3_600_000);
+    await invoke('create_event',{calendarId,summary:'Reminder fixture',startsAt:iso(startsAt),endsAt:iso(new Date(startsAt.getTime() + 3_600_000)),
+      description:null,location:null,url:null,organizer:null,allDay:false,timezone:'UTC',attendees:[],sendInvites:false});
+    const stored = (await query<{id:string}>("SELECT id FROM calendar_events WHERE calendar_id=$1 AND summary='Reminder fixture'",[calendarId])).rows[0];
+    expect(stored).toBeDefined();
+    expect(await invoke('update_reminder_settings',{enabled:true,minutes:15,mode:'notification'})).toMatchObject({enabled:true,minutes:15,mode:'notification'});
+    expect(record((await client.callTool({name:'get_reminder_settings',arguments:{}})).structuredContent)).toMatchObject({enabled:true,minutes:15,mode:'notification'});
+    expect(await invoke('update_calendar',{calendarId,name:'Reminder calendar',color:'#3366ff',displayVisible:true,notifyEnabled:true,notifyMinutes:20,notifyMode:'alarm'}))
+      .toMatchObject({calendar:expect.objectContaining({id:calendarId,notify_enabled:true,notify_minutes:20,notify_mode:'alarm'})});
+    const listed = await client.callTool({name:'list_calendars',arguments:{}});
+    expect(record(listed.structuredContent).calendars).toEqual(expect.arrayContaining([expect.objectContaining({id:calendarId,notify_enabled:true,notify_minutes:20,notify_mode:'alarm'})]));
+    expect(await invoke('update_event_reminder',{eventId:stored.id,enabled:true,minutesBefore:10,mode:'notification'}))
+      .toMatchObject({reminder:expect.objectContaining({eventId:stored.id,enabled:true,minutesBefore:10,mode:'notification'})});
+    expect(record((await client.callTool({name:'get_event_reminder',arguments:{eventId:stored.id}})).structuredContent))
+      .toMatchObject({reminder:expect.objectContaining({eventId:stored.id,minutesBefore:10})});
+    const preview = record((await client.callTool({name:'list_reminders',arguments:{hours:72}})).structuredContent);
+    expect(preview.reminders).toEqual(expect.arrayContaining([expect.objectContaining({eventId:stored.id,minutes:10,mode:'notification'})]));
+    expect(await invoke('delete_event_reminder',{eventId:stored.id})).toEqual({removed:true});
+    expect(record((await client.callTool({name:'get_event_reminder',arguments:{eventId:stored.id}})).structuredContent)).toEqual({reminder:null});
+  });  it('reads cached mail and a singleton thread without marking the message read', async () => {
     const messageId = randomUUID();
     await query(`INSERT INTO messages(id,account_id,uid,folder,message_id,subject,body_text,is_read)
       VALUES($1,$2,9001,'INBOX','<mcp-read@example.test>','Read test','Private synthetic body',false)`,[messageId,accountId]);

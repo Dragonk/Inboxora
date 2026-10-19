@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.7](wiki/Release-notes-4.3.7.md). Older release notes are collected in
+[Release notes 4.3.8](wiki/Release-notes-4.3.8.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -18,9 +18,15 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
-## [Unreleased]
+## [4.3.8] - 2026-10-19
 
-There are no unreleased changes after **4.3.7**.
+### Added
+- MCP calendar reminder tools: read and change the global reminder defaults, read and change per-calendar reminder defaults (update_calendar; list_calendars now exposes them), read, set and clear per-event reminder overrides, and preview the reminders a device would schedule (list_reminders).
+
+### Fixed
+- Reminder fallback for not-yet-materialised events: the on-the-fly projection keyed rows by a column the fallback query never selected, so reminders for freshly created or edited events were missed until the occurrence worker built them.
+- Phone-width notification and reminder settings: the calendar reminder lead-time chips wrap instead of shrinking, the lead/mode pair stacks, upcoming reminder rows wrap with a compact date, and delivery-warning rows let their fix buttons flow to the next line.
+- Android notification channels exist from boot: the boot receiver creates them before starting the live push service and the reminder sync, so notifications raised before the app is first opened after a reboot post to real channels instead of silently dropping.
 
 ## [4.3.7] - 2026-10-19
 
