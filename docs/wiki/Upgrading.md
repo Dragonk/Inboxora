@@ -45,7 +45,7 @@ cp .env .env.backup
 
 A readable archive is a basic check, not a substitute for testing a restore. Keep the
 backup and matching `.env` securely outside the database volume. Then set
-`INBOXORA_VERSION=4.3.4` in the existing `.env` when using the supplied GHCR Compose file.
+`INBOXORA_VERSION` in the existing `.env` to the version you are deploying when using the supplied GHCR Compose file.
 A custom Compose may instead use `VERSION_TAG`; change the variable it actually references.
 Do not overwrite secrets, rename the database or recreate its volume.
 
@@ -58,6 +58,14 @@ docker compose logs --tail=100 backend
 
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
+
+## Upgrading to 4.4.0
+
+From 4.3.8, use the standard upgrade steps and deploy matching backend and frontend
+**4.4.0** images or install the updated desktop/Android apps. There is no database
+migration, no new environment variable and no compose change. Android 4.4.0 uses
+`versionCode 4040000`; update the APK so its bundled web build includes the
+mail-reading improvements. See [Release notes 4.4.0](Release-notes-4.4.0.md).
 
 ## Upgrading to 4.3.8
 

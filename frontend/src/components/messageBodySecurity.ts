@@ -1,6 +1,7 @@
 import DOMPurifyModule from 'dompurify';
 import postcss from 'postcss';
 import {
+  adaptBackgroundForDarkCanvas,
   adaptTextForCanvas,
   findColorToken,
   isLightBackground,
@@ -8,7 +9,6 @@ import {
   needsLifting,
   parseColor,
   rgbToHex,
-  textForLightBackground,
 } from '../utils/emailCanvas.ts';
 
 function purifier() {
@@ -41,18 +41,21 @@ function preserveCid(html: string) {
 
 // ── Adapting a message to the app's dark canvas ───────────────────────────────
 //
-// Applied only in the dark appearance. The canvas stays dark — the message is not
-// repainted — and the individual declarations that would become unreadable are adjusted:
+
+// Applied only in the dark appearance, Gmail-style: a message authored for a light page
+// is re-themed to the dark canvas rather than kept glaring white. The walk rewrites the
+// declarations that carry the light scheme:
 //
-//   * an element painting its own light background keeps it, and gains a dark text colour
-//     when it declares none, so the app's light default cannot land on the message's card;
-//   * text that is dark, and not inside any light region the message painted, is lifted to
-//     a light colour, so it stays readable on the dark canvas;
-//   * the mirror case — light text inside a light region — is darkened.
+//   * a light background a message paints - inline background-color, the background
+//     shorthand or the legacy bgcolor attribute - is mirrored into the dark band;
+//   * dark text on the now-dark canvas is lifted to a readable light colour; light text
+//     is already correct on it and is left alone;
+//   * parents are rewritten before their children are visited, so a child judges its
+//     region by the repainted card above it, not by the white one the author chose.
 //
-// Only inline styles are adapted. A <style> block cannot be reasoned about element by
-// element, and rewriting its colours blind would break the rules targeting content inside
-// a message's own light cards. Real messages carry the colours that matter inline.
+// <style> rules carry the same light scheme, so their colour declarations are re-themed
+// by the same helpers in adaptEmailCssForDarkCanvas - except rules a message wrote for a
+// dark scheme of its own (prefers-color-scheme: dark), which already suit this canvas.
 
 function readDeclarations(styleText: string | null | undefined): Map<string, string> {
   const found = new Map();
@@ -104,35 +107,84 @@ function setColorDeclaration(declarations: Map<string, string>, color: [number, 
 }
 
 /**
- * Adapts an already-sanitised message to a dark canvas. Mutates the nodes in place.
- * Exported so the contract can be exercised directly in a browser test.
+ * Re-themes an already-sanitised message to the app's dark canvas, the way Gmail does:
+ * light backgrounds become their dark mirrors and dark text is lifted to stay readable.
+ * Mutates the nodes in place. Exported so the contract can be exercised directly in a
+ * browser test.
  */
 export function adaptMessageForDarkCanvas(root: ParentNode | null) {
   if (!root) return;
   for (const element of root.querySelectorAll('[style], [bgcolor]')) {
     const declarations = readDeclarations(element.getAttribute('style'));
     const ownBackground = elementBackground(element, declarations);
-    const foreground = elementForeground(declarations);
-    // The region the text is read in is decided by the nearest painted background, falling
-    // back to the app's canvas when the message paints none above it.
-    const region = ownBackground || nearestPaintedBackground(element.parentElement);
-    const lightRegion = Boolean(region && isLightBackground(region));
-    const paintsLight = Boolean(ownBackground && isLightBackground(ownBackground));
-    // Tracked explicitly rather than by comparing the attribute before and after: only the
-    // parsed map is mutated here, so the attribute is still unchanged at the comparison.
     let changed = false;
+    let region = ownBackground;
 
+    if (ownBackground && isLightBackground(ownBackground)) {
+      // The author's light card becomes its dark mirror - the single change that keeps a
+      // light-designed newsletter from glaring white on the dark canvas.
+      const adapted = adaptBackgroundForDarkCanvas(ownBackground);
+      const source = declarations.get('background-color') ? 'background-color' : declarations.get('background') ? 'background' : '';
+      const token = source ? findColorToken(declarations.get(source) || '') : element.getAttribute('bgcolor');
+      if (source && token) repaintBackgroundDeclaration(declarations, source, token, adapted);
+      else element.setAttribute('bgcolor', rgbToHex(adapted));
+      region = adapted;
+      changed = true;
+    }
+
+    // The region the text is read in: the element's own (possibly repainted) background,
+    // else the nearest painted ancestor - already repainted, because the walk visits
+    // parents before their children. Text without a region falls back to the dark canvas.
+    const effective = region || nearestPaintedBackground(element.parentElement);
+    const lightRegion = Boolean(effective && isLightBackground(effective));
+    const foreground = elementForeground(declarations);
     if (foreground) {
       if (needsDarkening(foreground, lightRegion)) { setColorDeclaration(declarations, adaptTextForCanvas(foreground, true)); changed = true; }
       else if (needsLifting(foreground, lightRegion)) { setColorDeclaration(declarations, adaptTextForCanvas(foreground, false)); changed = true; }
-    } else if (paintsLight) {
-      // The message's own light card carries content with no colour of its own.
-      setColorDeclaration(declarations, textForLightBackground(ownBackground));
-      changed = true;
     }
 
     if (changed) writeDeclarations(element, declarations);
   }
+}
+
+// Replaces the colour token that painted an element's background with its dark mirror,
+// in the property the region was read from - including the background shorthand, so a
+// url() keeps its place next to the repainted colour.
+function repaintBackgroundDeclaration(declarations: Map<string, string>, property: string, token: string, adapted: [number, number, number]) {
+  const value = declarations.get(property);
+  if (value === undefined || !value.includes(token)) return;
+  declarations.set(property, value.split(token).join(rgbToHex(adapted)));
+}
+
+// Rules a message wrote for a dark scheme of its own already suit this canvas; re-theming
+// them would invert a design that is already dark.
+function inAuthoredDarkScheme(node: { parent?: unknown }): boolean {
+  let parent = node.parent as { type?: string; params?: unknown; parent?: unknown } | undefined;
+  while (parent) {
+    if (parent.type === 'atrule' && /prefers-color-scheme:\s*dark/i.test(String(parent.params || ''))) return true;
+    parent = parent.parent as { type?: string; params?: unknown; parent?: unknown } | undefined;
+  }
+  return false;
+}
+
+/** Re-themes the colour declarations of a message's own <style> rules for the dark canvas. */
+export function adaptEmailCssForDarkCanvas(css = ''): string {
+  let root;
+  try { root = postcss.parse(String(css)); } catch { return String(css); }
+  root.walkDecls(declaration => {
+    if (inAuthoredDarkScheme(declaration)) return;
+    const property = declaration.prop.toLowerCase();
+    if (property !== 'color' && property !== 'background' && property !== 'background-color') return;
+    const token = findColorToken(declaration.value);
+    const parsed = token ? parseColor(token) : null;
+    if (!token || !parsed) return;
+    if (property === 'color') {
+      if (needsLifting(parsed, false)) declaration.value = declaration.value.split(token).join(rgbToHex(adaptTextForCanvas(parsed, false)));
+    } else if (isLightBackground(parsed)) {
+      declaration.value = declaration.value.split(token).join(rgbToHex(adaptBackgroundForDarkCanvas(parsed)));
+    }
+  });
+  return root.toString();
 }
 
 export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, tone = null, blockAllNetwork = false, documentLayout = false }: { remoteImages?: boolean; tone?: string | null; blockAllNetwork?: boolean; documentLayout?: boolean } = {}): string {
@@ -152,7 +204,9 @@ export function sanitizeMessageHtml(html: unknown = '', { remoteImages = false, 
   if (tone === 'dark') adaptMessageForDarkCanvas(template.content);
   for (const style of template.content.querySelectorAll('style')) {
     const safe = sanitizeEmailCss(style.textContent || '', documentLayout);
-    if (safe) style.textContent = safe; else style.remove();
+    // After sanitising, so adaptation can never reintroduce a property the sanitizer
+    // stripped: the dark tone re-themes the colour rules to the dark canvas.
+    if (safe) style.textContent = tone === 'dark' ? adaptEmailCssForDarkCanvas(safe) : safe; else style.remove();
   }
   for (const image of template.content.querySelectorAll('img')) {
     const currentSrc = image.getAttribute('src') || '';
@@ -283,8 +337,10 @@ export function buildSrcDoc(html: unknown, { remoteImages = false, surface = nul
 ${colorSchemeMeta}<meta http-equiv="Content-Security-Policy" content="${csp}">
 ${EMAIL_BASE_TAG}
 <style>
-  /* Shared MessagePane/ConversationReader mobile fit contract. Never hide overflow:
-     an oversized legacy newsletter must reflow or remain horizontally accessible. */
+  /* Shared mobile fit contract: first let the email reflow (fluid widths,
+     wrapping, narrow-viewport table normalisation); whatever still overflows
+     is scaled down to the frame width by the renderer fit-to-width pass, so
+     nothing is clipped and no horizontal scrolling is needed. */
   html { margin: 0; padding: 0; max-width: 100%; overflow-x: auto; box-sizing: border-box; }
   body { margin: 0; padding: 8px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
   ${documentLayout ? '' : '@media (max-width: 767px) { table { width: 100% !important; max-width: 100% !important; } }'}

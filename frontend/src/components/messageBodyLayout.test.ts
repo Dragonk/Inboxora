@@ -119,3 +119,87 @@ describe('non-collapsing iframe measurement', () => {
     assert.equal(props.has('min-height'), false);
   });
 });
+
+describe('scale-to-width fit for wide email bodies', () => {
+  const fitFrame = (viewportWidth: () => number, contentWidth: () => number) => {
+    const props = new Map<string, [string, string]>();
+    const attributes = new Map<string, string>();
+    const body = {
+      style: {
+        getPropertyValue: (key: string) => props.get(key)?.[0] ?? '',
+        getPropertyPriority: (key: string) => props.get(key)?.[1] ?? '',
+        setProperty: (key: string, value: string, priority: string) => { props.set(key, [value, priority]); },
+        removeProperty: (key: string) => { props.delete(key); },
+      },
+      get scrollWidth() { return contentWidth(); },
+      getAttribute: (name: string) => attributes.get(name) ?? null,
+      setAttribute: (name: string, value: string) => { attributes.set(name, value); },
+      removeAttribute: (name: string) => { attributes.delete(name); },
+    };
+    return {
+      frame: {
+        clientWidth: 0,
+        contentDocument: {
+          body,
+          documentElement: {
+            get clientWidth() { return viewportWidth(); },
+            get scrollWidth() { return contentWidth(); },
+          },
+        },
+      },
+      props,
+      attributes,
+    };
+  };
+
+  it('scales a body laid out wider than the frame down to the frame width', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    const { frame, props, attributes } = fitFrame(() => 350, () => 700);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    assert.deepEqual(props.get('transform'), ['scale(0.5)', 'important']);
+    assert.deepEqual(props.get('transform-origin'), ['top left', 'important']);
+    const saved = JSON.parse(attributes.get('data-mailflow-fit-scale') ?? '{}') as { scale?: number };
+    assert.equal(saved.scale, 0.5);
+  });
+
+  it('leaves a body that already fits at its natural size', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    const { frame, props, attributes } = fitFrame(() => 350, () => 350);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 1);
+    assert.equal(props.has('transform'), false);
+    assert.equal(attributes.size, 0);
+  });
+
+  it('restores the email own inline transform once the body fits again', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    let contentWidth = 700;
+    const { frame, props, attributes } = fitFrame(() => 350, () => contentWidth);
+    props.set('transform', ['rotate(1deg)', '']);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    contentWidth = 350;
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 1);
+    assert.deepEqual(props.get('transform'), ['rotate(1deg)', '']);
+    assert.equal(attributes.size, 0);
+  });
+
+  it('does not touch the frame when the fit is disabled', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    const { frame, props, attributes } = fitFrame(() => 350, () => 700);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement, false), 1);
+    assert.equal(props.has('transform'), false);
+    assert.equal(attributes.size, 0);
+  });
+
+  it('measures the frame height in the scaled coordinate space', async () => {
+    const { measureMessageFrameHeight } = await import('./messageBodyLayout.ts');
+    const frame = {
+      parentElement: { style: { getPropertyValue: () => '', getPropertyPriority: () => '', setProperty: () => {}, removeProperty: () => {} }, getBoundingClientRect: () => ({ height: 1500 }) },
+      style: { height: '1474px' },
+      contentDocument: { body: { get scrollHeight() { return 510; } } },
+    };
+    assert.equal(measureMessageFrameHeight(frame as unknown as HTMLIFrameElement, 0.5), 255);
+    assert.equal(frame.style.height, '255px');
+    assert.equal(measureMessageFrameHeight(frame as unknown as HTMLIFrameElement), 510);
+    assert.equal(frame.style.height, '510px');
+  });
+});
