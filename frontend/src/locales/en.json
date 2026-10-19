@@ -1076,6 +1076,36 @@
       "loadError": "Could not load retention settings.",
       "saveError": "Could not save retention settings.",
       "saved": "Retention settings saved."
+    },
+    "reminders": {
+      "title": "Calendar reminders",
+      "description": "Lead times are computed on the server (global → calendar → event); the Android app rings them as notifications or insistent alarms.",
+      "enabled": "Event reminders",
+      "enabledHint": "Applies to all your calendars unless a calendar or event overrides it.",
+      "on": "On",
+      "off": "Off",
+      "lead": "Remind before",
+      "mode": "Delivery",
+      "modeNotification": "Notification",
+      "modeAlarm": "Alarm",
+      "upcoming": "Upcoming reminders (next 48 h)",
+      "upcomingEmpty": "No reminders in the next 48 hours.",
+      "previewUnavailable": "Preview unavailable.",
+      "before": "{{minutes}} min before",
+      "deviceTitle": "Android device",
+      "exactAlarms": "Exact alarms",
+      "granted": "Allowed",
+      "missing": "Not allowed",
+      "grantExact": "Allow",
+      "battery": "Battery optimization",
+      "batteryRestricted": "Restricted",
+      "batteryExempt": "Unrestricted",
+      "batteryFix": "Remove restriction",
+      "live": "Live connection",
+      "liveConnected": "Connected",
+      "liveDisconnected": "Disconnected",
+      "scheduled": "Scheduled on device",
+      "syncNow": "Sync reminders now"
     }
   },
   "blockList": {
@@ -2271,7 +2301,17 @@
     "importIcs": "Import .ics file",
     "importDone": "Imported {{count}} event(s).",
     "importProtected": "{{count}} event(s) were left unchanged because Inboxora sent their invitations.",
-    "showAgendaDescription": "Show the selected day’s agenda to the right of the calendar on desktop."
+    "showAgendaDescription": "Show the selected day’s agenda to the right of the calendar on desktop.",
+    "reminder": "Reminder",
+    "reminderInherit": "Calendar default",
+    "reminderOn": "On",
+    "reminderOff": "Off",
+    "reminderMinutes": "Minutes before",
+    "reminderMode": "Type",
+    "reminderModeNotification": "Notification",
+    "reminderModeAlarm": "Alarm",
+    "reminderError": "The reminder could not be saved.",
+    "reminderHours": "{{count}} h"
   },
   "mailFolders": {
     "inbox": "Inbox",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "Reminders",
+    "reminderOn": "Enabled",
+    "reminderOff": "Disabled",
+    "reminderLeadTime": "Remind minutes before",
+    "reminderInherit": "Global default",
+    "reminderAtStart": "At start"
   },
   "undoSendSetting": {
     "legacyValue": "Current delay: {{count}} s. Choose one of the four options to change it.",

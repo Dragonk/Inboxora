@@ -20,7 +20,18 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ## [Unreleased]
 
-There are no unreleased changes after **4.3.5**.
+### Added
+- Native live push for the Android app: an always-on WebSocket foreground service (`specialUse`) that authenticates with the push device token, receives new-mail, flag and mail-state events directly, posts notifications with the existing reply/delete/star actions, and cancels a notification as soon as its message is read on any device; UnifiedPush and FCM remain fallback transports.
+- Calendar reminders with a server-side lead-time cascade (global defaults, per-calendar enable/lead-time, per-event override; additive migration `0171_calendar_reminder_settings.sql`), a device `GET /api/push/native/reminders` schedule endpoint, and an Android AlarmManager scheduler that posts regular reminders or insistent full-screen alarms via `setAlarmClock`, with an exact-alarm permission deep-link when denied.
+- Reminder settings in the UI: global defaults with a 48-hour upcoming preview in the notifications panel, per-calendar reminder switches in the calendar resource editor, and per-event overrides in the event dialog, translated in all nine languages.
+- `POST /api/push/native/read-check` so the live service reconciles posted notifications against the server and cancels the ones no longer unread.
+
+### Changed
+- The WebSocket server accepts device-token authentication (`Authorization: Bearer mf_push_…`); device sockets bypass the WebView screen-lock rule because native notifications are safe on the lock screen.
+- Reading a message on any device now also dismisses its native Android notification through the JS bridge.
+
+### Fixed
+- Complete the `UpcomingReminder` fixture in the push device route test so `npm run typecheck` verifies the reminder schedule response shape.
 
 ## [4.3.5] - 2026-10-18
 

@@ -1076,6 +1076,36 @@
       "loadError": "Не удалось загрузить настройки хранения.",
       "saveError": "Не удалось сохранить настройки хранения.",
       "saved": "Настройки хранения сохранены."
+    },
+    "reminders": {
+      "title": "Напоминания календаря",
+      "description": "Время предупреждения рассчитывает сервер (глобально → календарь → событие); приложение Android воспроизводит их как уведомления или настойчивые сигналы.",
+      "enabled": "Напоминания о событиях",
+      "enabledHint": "Применяется ко всем календарям, если календарь или событие не переопределяет настройку.",
+      "on": "Вкл.",
+      "off": "Выкл.",
+      "lead": "Напомнить за",
+      "mode": "Доставка",
+      "modeNotification": "Уведомление",
+      "modeAlarm": "Сигнал",
+      "upcoming": "Предстоящие напоминания (48 ч)",
+      "upcomingEmpty": "Нет напоминаний в ближайшие 48 часов.",
+      "previewUnavailable": "Предпросмотр недоступен.",
+      "before": "за {{minutes}} мин",
+      "deviceTitle": "Устройство Android",
+      "exactAlarms": "Точные сигналы",
+      "granted": "Разрешено",
+      "missing": "Запрещено",
+      "grantExact": "Разрешить",
+      "battery": "Оптимизация батареи",
+      "batteryRestricted": "Ограничена",
+      "batteryExempt": "Без ограничений",
+      "batteryFix": "Снять ограничение",
+      "live": "Постоянное соединение",
+      "liveConnected": "Подключено",
+      "liveDisconnected": "Отключено",
+      "scheduled": "Запланировано на устройстве",
+      "syncNow": "Синхронизировать напоминания"
     }
   },
   "blockList": {
@@ -2271,7 +2301,17 @@
     "importIcs": "Импорт файла .ics",
     "importDone": "Импортировано событий: {{count}}.",
     "importProtected": "{{count}} событий остались без изменений, так как Inboxora отправила их приглашения.",
-    "showAgendaDescription": "Показывать повестку выбранного дня справа от календаря на компьютере."
+    "showAgendaDescription": "Показывать повестку выбранного дня справа от календаря на компьютере.",
+    "reminder": "Напоминание",
+    "reminderInherit": "Как в календаре",
+    "reminderOn": "Включено",
+    "reminderOff": "Отключено",
+    "reminderMinutes": "Минут до",
+    "reminderMode": "Тип",
+    "reminderModeNotification": "Уведомление",
+    "reminderModeAlarm": "Сигнал",
+    "reminderError": "Не удалось сохранить напоминание.",
+    "reminderHours": "{{count}} ч"
   },
   "mailFolders": {
     "inbox": "Входящие",
@@ -2557,7 +2597,13 @@
     "formatOutlookCsv": "Outlook CSV",
     "transportGoogleContacts": "Google People API",
     "transportGoogleCalendar": "Google Calendar API",
-    "transportMicrosoft": "Microsoft Graph"
+    "transportMicrosoft": "Microsoft Graph",
+    "calendarReminders": "Напоминания",
+    "reminderOn": "Включено",
+    "reminderOff": "Отключено",
+    "reminderLeadTime": "Напоминать за (минут)",
+    "reminderInherit": "Глобальное значение",
+    "reminderAtStart": "При начале"
   },
   "undoSendSetting": {
     "legacyValue": "Текущая задержка: {{count}} с. Выберите один из четырёх вариантов, чтобы изменить её.",

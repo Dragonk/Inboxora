@@ -706,6 +706,84 @@ function TimeGrid({ days, dayEventsFor, view, isMobile, locale, openCreate, open
   </div>;
 }
 
+/** Per-event reminder override. The override lives beside the event on the server
+ * (not in the dialog's save payload), so it loads and saves through its own
+ * endpoints and read-only events can still customize reminders. */
+function EventReminderField({ eventId }: { eventId: string }) {
+  const { t } = useTranslation();
+  const [choice, setChoice] = useState<'inherit' | 'on' | 'off' | null>(null);
+  const [minutes, setMinutes] = useState(30);
+  const [mode, setMode] = useState<'notification' | 'alarm'>('notification');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.calendar.getEventReminder(eventId)
+      .then((response: { reminder?: { enabled?: boolean; minutesBefore?: number; mode?: string } | null }) => {
+        if (cancelled) return;
+        const reminder = response?.reminder;
+        if (!reminder) { setChoice('inherit'); return; }
+        setChoice(reminder.enabled === false ? 'off' : 'on');
+        if (typeof reminder.minutesBefore === 'number') setMinutes(reminder.minutesBefore);
+        setMode(reminder.mode === 'alarm' ? 'alarm' : 'notification');
+      })
+      .catch(() => { if (!cancelled) setChoice('inherit'); });
+    return () => { cancelled = true; };
+  }, [eventId]);
+
+  const apply = async (nextChoice: 'inherit' | 'on' | 'off', nextMinutes: number, nextMode: 'notification' | 'alarm') => {
+    setBusy(true);
+    setError(false);
+    try {
+      if (nextChoice === 'inherit') {
+        await api.calendar.clearEventReminder(eventId);
+      } else {
+        await api.calendar.setEventReminder(eventId, { enabled: nextChoice === 'on', minutesBefore: nextMinutes, mode: nextMode });
+      }
+      setChoice(nextChoice);
+      setMinutes(nextMinutes);
+      setMode(nextMode);
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (choice === null) return null;
+  return (
+    <div data-testid="calendar-event-reminder">
+      {error && <div role="alert" className="ui-alert">{t('calendar.reminderError')}</div>}
+      <div className="ui-form-columns">
+        <label>{t('calendar.reminder')}
+          <select value={choice} disabled={busy} aria-label={t('calendar.reminder')} onChange={e => { const value = e.target.value === 'on' ? 'on' as const : e.target.value === 'off' ? 'off' as const : 'inherit' as const; void apply(value, minutes, mode); }}>
+            <option value="inherit">{t('calendar.reminderInherit')}</option>
+            <option value="on">{t('calendar.reminderOn')}</option>
+            <option value="off">{t('calendar.reminderOff')}</option>
+          </select>
+        </label>
+        {choice !== 'inherit' && (
+          <>
+            <label>{t('calendar.reminderMinutes')}
+              <select value={String(minutes)} disabled={busy} onChange={e => { const value = Number(e.target.value); void apply(choice, value, mode); }}>
+                {![0, 5, 10, 15, 30, 60, 120, 1440].includes(minutes) ? <option value={String(minutes)}>{minutes}</option> : null}
+                {[0, 5, 10, 15, 30, 60, 120, 1440].map(value => <option key={value} value={String(value)}>{value === 0 ? t('accountUi.reminderAtStart') : value >= 60 ? t('calendar.reminderHours', { count: value / 60 }) : String(value)}</option>)}
+              </select>
+            </label>
+            <label>{t('calendar.reminderMode')}
+              <select value={mode} disabled={busy} onChange={e => { const value = e.target.value === 'alarm' ? 'alarm' as const : 'notification' as const; void apply(choice, minutes, value); }}>
+                <option value="notification">{t('calendar.reminderModeNotification')}</option>
+                <option value="alarm">{t('calendar.reminderModeAlarm')}</option>
+              </select>
+            </label>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EventDialog({ form, error, calendars, accounts, saving, seriesReady, onChange, onEditScopeChange, onAllDayChange, onSave, onRetryCancellation, onDelete, onClose, t, fullScreen = false }: EventDialogProps) {
   const { i18n } = useTranslation();
   const attendeeValue = form.attendees.join(', ');
@@ -742,6 +820,7 @@ function EventDialog({ form, error, calendars, accounts, saving, seriesReady, on
       <label className="ui-check"><input type="checkbox" checked={form.allDay} onChange={e => onAllDayChange(e.target.checked)} />{t('calendar.allDay')}</label>
       <div className="ui-form-columns"><label>{t('calendar.starts')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.startsAt} onChange={e => onChange('startsAt', e.target.value)} /></label><label>{t('calendar.ends')}<input type={form.allDay ? 'date' : 'datetime-local'} value={form.endsAt} onChange={e => onChange('endsAt', e.target.value)} /></label></div>
       <label>{t('calendar.calendar')}<select value={form.calendarId} onChange={e => onChange('calendarId', e.target.value)}>{calendars.map(calendar => <option key={calendar.id} value={calendar.id}>{calendar.name}</option>)}</select></label>
+      {form.mode === 'edit' && form.id && <EventReminderField eventId={form.id} />}
       <label>{t('calendar.location')}<input value={form.location} onChange={e => onChange('location', e.target.value)} /></label>
       {recurrenceMode && (
         <div className="calendar-recurrence" data-testid="calendar-recurrence">

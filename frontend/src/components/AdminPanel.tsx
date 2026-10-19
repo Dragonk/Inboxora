@@ -6087,6 +6087,176 @@ function PushNotificationsSection() {
 }
 
 // ─── Notifications Tab ────────────────────────────────────────────────────────
+// ─── Calendar reminders (server cascade, Android delivery) ────────────────────
+// The reminder lead time and mode cascade lives on the server (global defaults →
+// per-calendar → per-event override); the Android app fetches the resolved list
+// and schedules AlarmManager alarms. This card edits the global defaults, shows
+// what is coming up, and surfaces the device-side alarm permissions.
+interface CalendarReminderSettingsState {
+  enabled: boolean;
+  minutes: number;
+  mode: 'notification' | 'alarm';
+}
+
+interface UpcomingCalendarReminder {
+  key?: string | null;
+  summary?: string | null;
+  calendarName?: string | null;
+  startsAt?: string | null;
+  remindAt?: string | null;
+  minutes?: number | null;
+  mode?: string | null;
+}
+
+const REMINDER_LEAD_MINUTES = [0, 5, 10, 15, 30, 60, 120, 1440];
+
+function reminderLeadLabel(minutes: number): string {
+  if (minutes <= 0) return '0';
+  if (minutes >= 60) return `${minutes / 60} h`;
+  return String(minutes);
+}
+
+function CalendarRemindersSection() {
+  const { t } = useTranslation();
+  const [settings, setSettings] = useState<CalendarReminderSettingsState | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingCalendarReminder[] | null>(null);
+  const [native, setNative] = useState<Record<string, unknown> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const isAndroidApp = Boolean(window.Capacitor?.isNativePlatform?.());
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await api.calendar.getReminderSettings() as Partial<CalendarReminderSettingsState> | null;
+      setSettings({
+        enabled: Boolean(s?.enabled),
+        minutes: typeof s?.minutes === 'number' ? s.minutes : 30,
+        mode: s?.mode === 'alarm' ? 'alarm' : 'notification',
+      });
+    } catch { setSettings(null); }
+    try {
+      const p = await api.calendar.getReminderPreview(48) as { reminders?: UpcomingCalendarReminder[] } | null;
+      setUpcoming(Array.isArray(p?.reminders) ? p.reminders.slice(0, 8) : []);
+    } catch { setUpcoming(null); }
+    if (isAndroidApp) {
+      try { setNative(await window.inboxoraNative?.notifications?.getReminderStatus?.() ?? null); } catch { setNative(null); }
+    }
+  }, [isAndroidApp]);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const run = async (action: () => unknown) => {
+    setBusy(true);
+    try { await action(); await refresh(); } finally { setBusy(false); }
+  };
+
+  const persist = (patch: Partial<CalendarReminderSettingsState>) => {
+    if (!settings) return;
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    void run(() => api.calendar.updateReminderSettings({ enabled: next.enabled, minutes: next.minutes, mode: next.mode }));
+  };
+
+  if (settings === null) return null;
+
+  const buttonStyle = (primary: boolean) => ({
+    padding: '7px 14px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+    cursor: busy ? 'wait' : 'pointer',
+    background: primary ? 'var(--accent)' : 'transparent',
+    color: primary ? 'white' : 'var(--text-secondary)',
+    border: primary ? '1px solid transparent' : '1px solid var(--border)',
+    opacity: busy ? 0.6 : 1, transition: 'all 0.15s',
+  });
+  const muted: CSSProperties = { fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 480, lineHeight: 1.5 };
+  const leadValues = REMINDER_LEAD_MINUTES.includes(settings.minutes) ? REMINDER_LEAD_MINUTES : [...REMINDER_LEAD_MINUTES, settings.minutes].sort((a, b) => a - b);
+  const leadChoices = leadValues.map(value => ({ value, label: reminderLeadLabel(value) }));
+
+  return (
+    <div style={{ marginTop: 20, padding: '16px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {t('admin.reminders.title')}
+      </div>
+      <div style={{ ...muted, marginBottom: 14 }}>{t('admin.reminders.description')}</div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t('admin.reminders.enabled')}</div>
+          <div style={muted}>{t('admin.reminders.enabledHint')}</div>
+        </div>
+        <button style={buttonStyle(settings.enabled)} disabled={busy} onClick={() => persist({ enabled: !settings.enabled })}>
+          {settings.enabled ? t('admin.reminders.on') : t('admin.reminders.off')}
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14, opacity: settings.enabled ? 1 : 0.55 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('admin.reminders.lead')}</div>
+          <SegmentedChoices label={t('admin.reminders.lead')} choices={leadChoices} value={settings.minutes} disabled={busy || !settings.enabled} onChange={minutes => persist({ minutes })} />
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('admin.reminders.mode')}</div>
+          <SegmentedChoices label={t('admin.reminders.mode')} choices={[{ value: 0, label: t('admin.reminders.modeNotification') }, { value: 1, label: t('admin.reminders.modeAlarm') }]} value={settings.mode === 'alarm' ? 1 : 0} disabled={busy || !settings.enabled} onChange={value => persist({ mode: value === 1 ? 'alarm' as const : 'notification' as const })} />
+        </div>
+      </div>
+
+      {settings.enabled && (
+        <div style={{ marginBottom: isAndroidApp ? 14 : 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('admin.reminders.upcoming')}</div>
+          {upcoming === null && <div style={muted}>{t('admin.reminders.previewUnavailable')}</div>}
+          {upcoming?.length === 0 && <div style={muted}>{t('admin.reminders.upcomingEmpty')}</div>}
+          {upcoming && upcoming.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {upcoming.map(item => (
+                <div key={item.key || `${item.startsAt ?? ''}-${item.summary ?? ''}`} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, color: 'var(--text-secondary)', minWidth: 0 }}>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)', flexShrink: 0 }}>
+                    {item.remindAt ? new Date(item.remindAt).toLocaleString() : '–'}
+                  </span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.summary || t('calendar.untitled')}</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 11, flexShrink: 0 }}>{item.calendarName || ''} · {t('admin.reminders.before', { minutes: item.minutes ?? 0 })}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isAndroidApp && native && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>{t('admin.reminders.deviceTitle')}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', alignItems: 'baseline', marginBottom: 10 }}>
+            <span style={muted}>{t('admin.reminders.exactAlarms')}</span>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--text-primary)' }}>
+              {native.exactAlarmsGranted === false ? t('admin.reminders.missing') : t('admin.reminders.granted')}
+              {native.exactAlarmsGranted === false && (
+                <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => window.inboxoraNative?.notifications?.requestExactAlarmPermission?.())}>
+                  {t('admin.reminders.grantExact')}
+                </button>
+              )}
+            </span>
+            <span style={muted}>{t('admin.reminders.battery')}</span>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--text-primary)' }}>
+              {native.batteryOptimized ? t('admin.reminders.batteryRestricted') : t('admin.reminders.batteryExempt')}
+              {native.batteryOptimized === true && (
+                <button style={buttonStyle(true)} disabled={busy} onClick={() => run(() => window.inboxoraNative?.notifications?.requestIgnoreBatteryOptimizations?.())}>
+                  {t('admin.reminders.batteryFix')}
+                </button>
+              )}
+            </span>
+            <span style={muted}>{t('admin.reminders.live')}</span>
+            <span style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: 'var(--text-primary)' }}>
+              <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: native.live === 'connected' ? 'var(--green, #22c55e)' : 'var(--amber, #f59e0b)', flexShrink: 0 }} />
+              {native.live === 'connected' ? t('admin.reminders.liveConnected') : t('admin.reminders.liveDisconnected')}
+            </span>
+            <span style={muted}>{t('admin.reminders.scheduled')}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-primary)' }}>{String(native.remindersScheduled ?? 0)}</span>
+          </div>
+          <button style={buttonStyle(false)} disabled={busy} onClick={() => run(() => window.inboxoraNative?.notifications?.syncReminders?.())}>
+            {t('admin.reminders.syncNow')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NotificationsTab() {
   const { t } = useTranslation();
   const { notificationSound, setNotificationSound, customSoundDataUrl, setCustomSoundDataUrl,
@@ -6322,6 +6492,7 @@ function NotificationsTab() {
           <NativePushSection />
         </>
       )}
+      <CalendarRemindersSection />
     </div>
   );
 }
