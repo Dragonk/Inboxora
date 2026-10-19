@@ -238,7 +238,7 @@ describe('native background API', () => {
   });
 
   it('exposes the reminder schedule for the device, bounded to 72 hours', async () => {
-    upcomingCalendarReminders.mockResolvedValue([{ key: 'e1', eventId: 'e1', minutes: 30, remindAt: '2026-10-19T09:30:00Z', mode: 'notification' }]);
+    upcomingCalendarReminders.mockResolvedValue([{ key: 'e1', eventId: 'e1', calendarId: 'cal-1', calendarName: 'Work', summary: 'Standup', location: null, startsAt: '2026-10-19T10:00:00Z', endsAt: '2026-10-19T10:30:00Z', allDay: false, minutes: 30, remindAt: '2026-10-19T09:30:00Z', mode: 'notification' }]);
     const response = await fetch(`${base}/api/push/native/reminders?windowHours=999`);
     const body = (await response.json()) as JsonBody;
     expect(body.windowHours).toBe(72);
