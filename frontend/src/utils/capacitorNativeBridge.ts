@@ -134,9 +134,7 @@ export async function installCapacitorNativeBridge(): Promise<boolean> {
         getStatus: async () => callNativeWithFallback('getPushStatus', undefined, { status: 'unavailable' }),
         register: async () => callNativeWithFallback('registerPush', undefined, { status: 'unavailable' }),
         clear: async () => callNativeWithFallback('clearPush', undefined, { status: 'unavailable' }),
-        openDistributor: async () => callNativeWithFallback('openPushDistributor', undefined, { opened: false }),
-        openInstallPage: async () => callNativeWithFallback('openPushInstallPage', undefined, { status: 'unavailable' }),
-        openHelp: async () => callNativeWithFallback('openPushHelp', undefined, { status: 'unavailable' }),
+        openLiveChannelSettings: async () => callNativeWithFallback('openLiveChannelSettings', undefined, { opened: false }),
         // Live-push dismissal + calendar reminders. Fire-and-forget from JS: the
         // native layer owns dedup/cancel semantics and ignores ids it never posted.
         cancelMessageNotifications: async (messageIds: string[]) => callNativeWithFallback('cancelMessageNotifications', { messageIds: messageIds || [] }, {}),

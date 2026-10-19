@@ -24,7 +24,7 @@ import { calendarSourceRemoval, confirmCalendarSourceRemoval, type CalendarSourc
 type DavMode = 'off' | 'read_only' | 'read_write';
 interface Source { id: string; displayName?: string; kind?: string; url?: string; serverOrigin?: string; username?: string; intervalMin?: number; enabled?: boolean; lastError?: string | null; lastSyncAt?: string | null }
 interface NativeIntent { accountId: string; action: 'create' | 'delete'; idempotencyKey: string; name?: string; collectionId?: string; response: NativeCalendarOperationResponse }
-interface ResourceDraft { calendar: CalendarRow; name: string; color: string; reset: boolean; colorDirty: boolean; writeBack: boolean; davMode: DavMode; notifyEnabled: boolean; notifyMinutes: string }
+interface ResourceDraft { calendar: CalendarRow; name: string; color: string; reset: boolean; colorDirty: boolean; writeBack: boolean; davMode: DavMode; notifyEnabled: boolean; notifyMinutes: string; notifyMode: 'inherit' | 'notification' | 'alarm' }
 
 /** Accounts, collections and imports are separate screens sharing one controller. */
 export default function CalendarSettingsManager({ locale, view = 'accounts' }: { locale?: string; view?: 'accounts' | 'resources' | 'import' }) {
@@ -129,11 +129,13 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
     color: calendar.color, visible: !row.sidebarHidden, readOnly: calendar.read_only === true })));
   const sourceForCalendar = (id: string) => groups.find(group => group.rows.some(row => row.calendar.id === id));
   const openResources = (sourceId?: string) => openSettings({ module: 'calendar', section: 'resources', sourceId });
+  // Delivery-mode cascade: 'inherit' falls back to the global preference.
+  const initialNotifyMode = (calendar: CalendarRow): 'inherit' | 'notification' | 'alarm' => calendar.notify_mode === 'alarm' || calendar.notify_mode === 'notification' ? calendar.notify_mode : 'inherit';
   const edit = (id: string) => {
     const calendar = calendars.find(item => item.id === id); if (!calendar) return;
     setEditing({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', reset: false, colorDirty: false, writeBack: calendar.read_only === false,
       davMode: calendar.dav_mode === 'off' || calendar.dav_mode === 'read_only' ? calendar.dav_mode : 'read_write',
-      notifyEnabled: calendar.notify_enabled !== false, notifyMinutes: calendar.notify_minutes == null ? 'inherit' : String(calendar.notify_minutes) });
+      notifyEnabled: calendar.notify_enabled !== false, notifyMinutes: calendar.notify_minutes == null ? 'inherit' : String(calendar.notify_minutes), notifyMode: initialNotifyMode(calendar) });
   };
   useSettingsTarget('calendar', setTarget);
   useEffect(() => {
@@ -144,7 +146,7 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
       if (calendar) {
         setEditing({ calendar, name: calendar.name ?? '', color: calendar.color || '#35558a', reset: false, colorDirty: false, writeBack: calendar.read_only === false,
           davMode: calendar.dav_mode === 'off' || calendar.dav_mode === 'read_only' ? calendar.dav_mode : 'read_write',
-      notifyEnabled: calendar.notify_enabled !== false, notifyMinutes: calendar.notify_minutes == null ? 'inherit' : String(calendar.notify_minutes) });
+      notifyEnabled: calendar.notify_enabled !== false, notifyMinutes: calendar.notify_minutes == null ? 'inherit' : String(calendar.notify_minutes), notifyMode: initialNotifyMode(calendar) });
         setFilter(groups.find(group => group.rows.some(row => row.calendar.id === target.resourceId))?.id ?? 'all');
       } else setMissing(true);
     }
@@ -221,8 +223,8 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
     // an optional lead-time override; 'inherit' falls back to the global default.
     const initialNotifyEnabled = calendar.notify_enabled !== false;
     const initialNotifyMinutes = calendar.notify_minutes == null ? 'inherit' : String(calendar.notify_minutes);
-    const notifyChanged = editing.notifyEnabled !== initialNotifyEnabled || editing.notifyMinutes !== initialNotifyMinutes;
-    const notifyFields = calendar.id === 'contacts-birthdays' ? {} : { notifyEnabled: editing.notifyEnabled, notifyMinutes: editing.notifyMinutes === 'inherit' ? null : Number(editing.notifyMinutes) };
+    const notifyChanged = editing.notifyEnabled !== initialNotifyEnabled || editing.notifyMinutes !== initialNotifyMinutes || editing.notifyMode !== initialNotifyMode(calendar);
+    const notifyFields = calendar.id === 'contacts-birthdays' ? {} : { notifyEnabled: editing.notifyEnabled, notifyMinutes: editing.notifyMinutes === 'inherit' ? null : Number(editing.notifyMinutes), notifyMode: editing.notifyMode === 'inherit' ? null : editing.notifyMode };
     if (calendar.source === 'local' || calendar.id === 'contacts-birthdays') {
       await api.calendar.updateCalendar(calendar.id, { name: editing.name.trim(), color: Object.prototype.hasOwnProperty.call(calendar, 'source_color') ? colorValue(calendar.source_color) : colorValue(calendar.color),
         displayVisible: calendar.display_visible !== false, customName: calendar.custom_name === true || editing.name.trim() !== calendar.name, ...(calendar.source === 'local' ? { davMode: editing.davMode } : {}), ...notifyFields });
@@ -303,6 +305,7 @@ export default function CalendarSettingsManager({ locale, view = 'accounts' }: {
       {editing.calendar.id !== 'contacts-birthdays' && <label>{t('accountUi.davSharing')}<select value={editing.davMode} disabled={operation.busy} onChange={event => setEditing({ ...editing, davMode: event.target.value === 'off' || event.target.value === 'read_only' ? event.target.value : 'read_write' })}><option value="off">{t('accountUi.statusOff')}</option><option value="read_only">{t('accountUi.readOnly')}</option><option value="read_write">{t('accountUi.readWrite')}</option></select></label>}
       {editing.calendar.id !== 'contacts-birthdays' && <label>{t('accountUi.calendarReminders')}<select value={editing.notifyEnabled ? 'on' : 'off'} disabled={operation.busy} onChange={event => setEditing({ ...editing, notifyEnabled: event.target.value === 'on' })}><option value="on">{t('accountUi.reminderOn')}</option><option value="off">{t('accountUi.reminderOff')}</option></select></label>}
       {editing.calendar.id !== 'contacts-birthdays' && editing.notifyEnabled && <label>{t('accountUi.reminderLeadTime')}<select value={editing.notifyMinutes} disabled={operation.busy} onChange={event => setEditing({ ...editing, notifyMinutes: event.target.value })}><option value="inherit">{t('accountUi.reminderInherit')}</option>{editing.notifyMinutes !== 'inherit' && ![0, 5, 10, 15, 30, 60, 120, 1440].includes(Number(editing.notifyMinutes)) ? <option value={editing.notifyMinutes}>{editing.notifyMinutes}</option> : null}{[0, 5, 10, 15, 30, 60, 120, 1440].map(value => <option key={value} value={String(value)}>{value === 0 ? t('accountUi.reminderAtStart') : value >= 60 ? t('calendar.reminderHours', { count: value / 60 }) : String(value)}</option>)}</select></label>}
+      {editing.calendar.id !== 'contacts-birthdays' && editing.notifyEnabled && <label style={{ marginLeft: 18 }}>{t('accountUi.reminderMode')}<select value={editing.notifyMode} disabled={operation.busy} onChange={event => setEditing({ ...editing, notifyMode: event.target.value === 'notification' || event.target.value === 'alarm' ? event.target.value : 'inherit' })}><option value="inherit">{t('accountUi.reminderInherit')}</option><option value="notification">{t('calendar.reminderModeNotification')}</option><option value="alarm">{t('calendar.reminderModeAlarm')}</option></select></label>}
     </div></InlineEditor>}
     {deleting && <DeleteResourceDialog key={deleting.id} name={deleting.name ?? ''} remote={deleting.source !== 'local'} identity={sourceForCalendar(deleting.id)?.identityLabel ?? undefined} busy={operation.busy} failed={operation.failed} error={nativeError ?? undefined} blocked={Boolean(pending[sourceForCalendar(deleting.id)?.accountId ?? ''] || pendingDavDeletes[deleting.id] || (deleting.source === 'caldav' && davDeleteStorageFailed))} onClose={() => setDeleting(null)} onConfirm={deleteCalendar}/>}
     {removing && <Dialog title={t('accountUi.disconnect')} closeLabel={t('common.close')} busy={operation.busy} onClose={() => setRemoving(null)} footer={<><Button disabled={operation.busy} onClick={() => setRemoving(null)}>{t('common.cancel')}</Button><Button variant="danger" disabled={operation.busy} onClick={() => void operation.run(async current => { await confirmCalendarSourceRemoval(api.calendar, removing); if (current()) { await refresh(); if (current()) { setRemoving(null); setSelected(null); } } })}>{t('accountUi.disconnect')}</Button></>}><Notice danger>{t('accountUi.disconnectHint')}</Notice>{operation.failed && <Notice danger>{t('accountUi.operationFailed')}</Notice>}</Dialog>}

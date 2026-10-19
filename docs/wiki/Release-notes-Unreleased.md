@@ -10,6 +10,14 @@ versions are listed in [Archive](Archive.md).
   notification, but it is `IMPORTANCE_MIN` and the settings screen has an action
   that opens the channel settings where the card can be turned off entirely —
   the socket keeps running, only the persistent card disappears from the shade.
+- **Delivery warnings.** The notifications card in the Android app warns - with
+  a one-tap fix - when battery optimization, a missing exact-alarm permission or
+  a dropped live socket would silently break delivery, and the persistent-card
+  row links straight to the channel settings where the card can be hidden.
+- **Delivery mode per calendar and per event.** The reminder delivery mode
+  (regular notification vs insistent alarm) can now be chosen per calendar and
+  per event in the UI, with an inherit default; it sits as a sub-option under
+  the lead time.
 
 ## Removed: ntfy / UnifiedPush
 
@@ -41,6 +49,9 @@ versions are listed in [Archive](Archive.md).
 - Backend: `npm run typecheck`, `npm run lint`, full vitest suite (340 files, 4333
   tests passed).
 - Android: `:app:compileDebugJavaWithJavac`, `:app:testDebugUnitTest` passed.
+- Frontend: `npm run typecheck`, `npm run lint`, full test suite (3936 tests),
+  `npm run test:i18n` (2699 checks) and `npm run build` passed; native locale
+  catalogs unchanged.
 
 ## Upgrade requirements
 
