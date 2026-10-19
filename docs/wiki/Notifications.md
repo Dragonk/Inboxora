@@ -334,7 +334,7 @@ Caddy, Cloudflare, ...) in front of Inboxora, it must:
 - support **WebSocket upgrade** (`Upgrade` / `Connection`) for `/ws`;
 - pass `X-Forwarded-For` and `X-Forwarded-Proto`;
 - not impose a short idle timeout — the live push socket is long-lived. A
-  read timeout of at least a few minutes (the bundled nginx uses 3600 s) is
+  read timeout of a few hours (the bundled nginx uses 86400 s, i.e. 24 h) is
   recommended;
 - terminate TLS with a valid certificate (Android refuses cleartext push).
 
@@ -351,7 +351,7 @@ location / {
     proxy_set_header   Host $host;
     proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header   X-Forwarded-Proto $scheme;
-    proxy_read_timeout 3600s;
+    proxy_read_timeout 86400s;
 }
 ```
 
