@@ -12,7 +12,7 @@ function serverBlocks(source) {
 }
 
 describe('Live push (/ws) reverse proxy contract', () => {
-  it('proxies the live push WebSocket to the API with an upgrade and a long timeout', () => {
+  it('upgrades the app socket and the Android live push socket with a long timeout', () => {
     assert.doesNotMatch(config, /ntfy/);
     assert.doesNotMatch(config, /\$connection_upgrade/);
     assert.doesNotMatch(config, /location = \/push \{/);
@@ -24,15 +24,26 @@ describe('Live push (/ws) reverse proxy contract', () => {
       assert.match(server, /location \/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
       assert.match(server, /location \/ws \{[\s\S]*?Connection "upgrade";/);
       assert.match(server, /location \/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
+      // The Android live push socket rides under /api/, where the standard
+      // API proxy has neither upgrade headers nor a long-enough read timeout,
+      // so it needs an exact-match location of its own.
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_pass\s+http:\/\/mailflow_api;/);
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?Connection "upgrade";/);
+      assert.match(server, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
     }
   });
 
-  it('documents the same /ws routing for native nginx installations', () => {
+  it('documents the same WebSocket routing for native nginx installations', () => {
     for (const source of [nativeConfig, nativeConfig.replace(/^#\s?/gm, '')]) {
       assert.match(source, /location \/ws \{[\s\S]*?proxy_pass\s+http:\/\/127\.0\.0\.1:3000;/);
       assert.match(source, /location \/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
       assert.match(source, /location \/ws \{[\s\S]*?Connection "upgrade";/);
       assert.match(source, /location \/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_pass\s+http:\/\/127\.0\.0\.1:3000;/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_set_header\s+Upgrade \$http_upgrade;/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?Connection "upgrade";/);
+      assert.match(source, /location = \/api\/push\/native\/ws \{[\s\S]*?proxy_read_timeout\s+86400s;/);
       assert.doesNotMatch(source, /ntfy/);
       assert.doesNotMatch(source, /location \^~ \/push\//);
     }

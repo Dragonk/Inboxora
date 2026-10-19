@@ -122,7 +122,7 @@ These cover the built-in live push path. See
 | --- | --- |
 | Settings card shows a **battery optimization** warning | Android will suspend the live socket. Use the card's battery action and set Inboxora to *Unrestricted*. On aggressive OEM skins (Xiaomi, Huawei, Samsung) also enable autostart. |
 | Settings card shows an **exact alarm** warning | Reminders need `SCHEDULE_EXACT_ALARM` on Android 14+. Use the card's action, grant *Alarms & reminders* for Inboxora, then *Sync now*. |
-| Settings card shows a **dropped socket** warning | The live WebSocket is not connected. Tap *Check again*; if it persists, check the reverse proxy's WebSocket upgrade and idle timeout for `/ws` (use at least a few minutes), and make sure the app is not battery-restricted (first row). |
+| Settings card shows a **dropped socket** warning | The live WebSocket is not connected. Tap *Check again*; if it persists, check the reverse proxy's WebSocket upgrade and idle timeout for `/ws` and `/api/push/native/ws` (use at least a few hours), and make sure the app is not battery-restricted (first row). |
 | No notification at all, while the app is open | Android notification permission is off. Settings → Notifications in Inboxora shows *Permission denied* and links to the Android notification settings. |
 | Notifications still arrive after switching servers | The old registration was not cleared. Sign out of Inboxora or re-save the host in the app (both unregister the device), or delete the `push_devices` row for that user on the old server. |
 | Need to re-register a device | Inboxora → Settings → Notifications → *Check again*. The device token is rotated automatically on the next registration. |

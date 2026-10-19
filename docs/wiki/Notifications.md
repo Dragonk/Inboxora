@@ -325,13 +325,15 @@ same origin as soon as you log in — no extra service, endpoint or app.
 
 ## Reverse proxy requirements
 
-The bundled nginx (`frontend/nginx.conf`) already upgrades the `/ws` WebSocket
-and hands it to the backend. If you put your own proxy (Zoraxy, Nginx, Traefik,
+The bundled nginx (`frontend/nginx.conf`) already upgrades both WebSockets
+(the app's `/ws` and the Android app's live push `/api/push/native/ws`) and
+hands them to the backend. If you put your own proxy (Zoraxy, Nginx, Traefik,
 Caddy, Cloudflare, ...) in front of Inboxora, it must:
 
-- **preserve the `/ws` path** — do not strip or rewrite it; the bundled
-  nginx performs the WebSocket hop to the backend;
-- support **WebSocket upgrade** (`Upgrade` / `Connection`) for `/ws`;
+- **preserve both WebSocket paths** — do not strip or rewrite `/ws` or
+  `/api/push/native/ws`; the bundled nginx performs the WebSocket hop to the
+  backend;
+- support **WebSocket upgrade** (`Upgrade` / `Connection`) for those paths;
 - pass `X-Forwarded-For` and `X-Forwarded-Proto`;
 - not impose a short idle timeout — the live push socket is long-lived. A
   read timeout of a few hours (the bundled nginx uses 86400 s, i.e. 24 h) is
@@ -341,8 +343,8 @@ Caddy, Cloudflare, ...) in front of Inboxora, it must:
 Example for an external nginx fronting the Inboxora container:
 
 ```nginx
-# Forward everything to the Inboxora frontend; it performs the /ws upgrade
-# itself. Preserve the original path and scheme.
+# Forward everything to the Inboxora frontend; it performs the /ws and
+# /api/push/native/ws upgrades itself. Preserve the original path and scheme.
 location / {
     proxy_pass         http://127.0.0.1:8080;   # Inboxora frontend nginx
     proxy_http_version 1.1;
@@ -367,7 +369,8 @@ Cloudflare and other CDNs must have WebSockets enabled for the zone.
   card action, then *Check again*.
 - The settings card shows a **dropped socket** warning — the live WebSocket
   is not connected. Tap *Check again*; if it persists, check the reverse proxy
-  requirements above (WebSocket upgrade and idle timeout for `/ws`).
+  requirements above (WebSocket upgrade and idle timeout for
+  `/api/push/native/ws`).
 - **Notifications delayed after the app is closed** — Android battery
   optimization is often the cause; set Inboxora to *Unrestricted*. Detailed
   steps are in [Troubleshooting](Troubleshooting.md).
@@ -388,7 +391,7 @@ Cloudflare and other CDNs must have WebSockets enabled for the zone.
 
 ## Manual device test (not automated in CI)
 
-CI verifies the server and the `/ws` proxy route; it cannot verify a physical
+CI verifies the server and both proxy WebSocket routes; it cannot verify a physical
 Android device. Run this once on a real phone before declaring the Android build
 release-ready:
 
@@ -418,7 +421,8 @@ without opening the app.
 
 If a state fails, see the Android section in
 [Troubleshooting](Troubleshooting.md) — most failures are battery optimization
-suspending the app, or a reverse proxy closing the live (/ws) WebSocket.
+suspending the app, or a reverse proxy closing the live push WebSocket
+(`/api/push/native/ws`).
 ```
 
 ## Manual desktop test (not automated in CI)

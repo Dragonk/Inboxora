@@ -13,7 +13,7 @@ candidates for testing only and must not be used for a server people depend on.
 - Persistent storage for PostgreSQL and Redis.
 - An existing reverse proxy for browser access and TLS termination. Do not expose additional
   public host ports for Inboxora. The proxy must pass WebSocket upgrades for `/ws` (live
-  updates) and for the Android app's built-in push connection (same WebSocket path).
+  updates) and for `/api/push/native/ws` (the Android app's built-in live push).
 - A hostname and TLS certificate. `APP_URL` must be the external HTTPS URL whenever you use
   invitations, OAuth callbacks or browser cookies.
 - Outbound network access to your mail and calendar providers. For Microsoft 365, the host must
@@ -133,8 +133,8 @@ Point the proxy at the frontend container's internal HTTP port and forward the o
 
 - `X-Forwarded-Proto: https`
 - `X-Forwarded-For` and `Host` as usual
-- WebSocket upgrade for `/ws`, plus a long idle timeout so the live push connection is
-  not dropped
+- WebSocket upgrade for `/ws` and `/api/push/native/ws`, plus a long idle timeout
+  so the live push connection is not dropped
 
 MCP and its OAuth endpoints reject the internal HTTP hop unless `X-Forwarded-Proto` is exactly `https`, so bearer tokens and OAuth client secrets are never intentionally accepted over direct cleartext HTTP. Leave the Caddy profile off in this setup.
 

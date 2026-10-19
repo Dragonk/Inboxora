@@ -50,6 +50,10 @@ versions are listed in [Archive](Archive.md).
   override → calendar `notify_mode` (new, `0173_calendar_notify_mode.sql`) → global
   preference.
 
+## Fixed
+
+- **Live push behind the bundled nginx.** The Android live push WebSocket (`/api/push/native/ws`) rode under the standard `/api/` proxy, which drops the upgrade headers and closes idle sockets after 60 s, so the live push service could never connect through the bundled reverse proxy. Both server blocks (and the native-install template) now route it as an exact-match location with WebSocket upgrade and a 24 h read timeout. If you run your own proxy in front of Inboxora, make sure it passes WebSocket upgrades for that path as well.
+
 ## Validation
 
 - Backend: `npm run typecheck`, `npm run lint`, full vitest suite (340 files, 4333
