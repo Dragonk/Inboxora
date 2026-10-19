@@ -21,8 +21,8 @@ android {
         applicationId "io.github.dragonk.inboxora"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4030600
-        versionName "4.3.6"
+        versionCode 4030700
+        versionName "4.3.7"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

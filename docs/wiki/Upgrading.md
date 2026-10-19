@@ -59,6 +59,37 @@ docker compose logs --tail=100 backend
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
 
+## Upgrading to 4.3.7
+
+From 4.3.6, use the standard upgrade steps and deploy matching backend and frontend **4.3.7**
+images or install the updated desktop/Android apps. Normal startup automatically applies
+**0172** and **0173** (both additive):
+
+- `0172_live_push_transport.sql` moves existing `unifiedpush` device registrations to the
+  built-in `live` transport - the app re-registers on its next start anyway.
+- `0173_calendar_notify_mode.sql` adds the per-calendar `notify_mode` column that the
+  reminder delivery cascade inherits through.
+
+There is no new environment variable; Android 4.3.7 uses `versionCode 4030700`, and reliable
+live push needs the new APK. See [Release notes 4.3.7](Release-notes-4.3.7.md).
+
+> **Warning: the compose deployment changes shape in 4.3.7.** The `ntfy` service, its volume
+> and the `docker-compose.external-ntfy.yml` override are gone from the compose files, so the
+> old push container survives the upgrade until you remove it yourself:
+>
+> ```bash
+> docker rm -f mailflow-ntfy
+> docker volume ls | grep -i ntfy
+> docker volume rm <project>_ntfy_data
+> ```
+>
+> The `docker volume rm` name is whatever the `docker volume ls` line shows - the prefix is
+> your compose project name. Delete `PUSH_BASE_URL`, `PUSH_ALLOW_PRIVATE_ENDPOINTS` and any
+> `NTFY_*` keys from `.env`; they are ignored from now on. If you run your own reverse proxy in
+> front of Inboxora, it must pass WebSocket upgrades for `/api/push/native/ws` (and `/ws`) with
+> a long read timeout - the bundled nginx uses 24 h - and must not strip the path: the Android
+> live push socket rides through that route.
+
 ## Upgrading to 4.3.6
 
 From 4.3.5, use the standard upgrade steps and deploy matching backend and frontend **4.3.6**

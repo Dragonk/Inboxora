@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.3.6](wiki/Release-notes-4.3.6.md). Older release notes are collected in
+[Release notes 4.3.7](wiki/Release-notes-4.3.7.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -19,6 +19,10 @@ The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and opera
 configuration requirements, the **known safe limitations**, and what was verified.
 
 ## [Unreleased]
+
+There are no unreleased changes after **4.3.7**.
+
+## [4.3.7] - 2026-10-19
 
 ### Added
 - An in-app action that opens the live-push notification channel settings, so the persistent foreground card Android requires can be hidden from the shade while the live socket keeps running.
@@ -37,6 +41,8 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ### Fixed
 - Live push behind the bundled nginx: the Android live push WebSocket (`/api/push/native/ws`) rode under the standard `/api/` proxy, which drops the upgrade headers and closes idle sockets after 60 s - the live push foreground service could never connect through the bundled reverse proxy. The bundled config and the native-install contrib template now route it as an exact-match location with WebSocket upgrade and a 24 h read timeout; a proxy in front of Inboxora must pass WebSocket upgrades for that path too.
+
+See [Release notes 4.3.7](wiki/Release-notes-4.3.7.md) for user-facing details and upgrade guidance.
 
 ## [4.3.6] - 2026-10-19
 
