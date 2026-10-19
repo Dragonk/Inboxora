@@ -8,11 +8,11 @@
 //   * the message paints its own light card, but the app's light default text lands on it
 //     — light on light.
 //
-// The fix is NOT to repaint the document. Deciding the canvas from "does this message
-// contain any colours of its own?" is far too blunt: practically every real message
-// contains at least one dark colour somewhere (a footer, a legal line), so that rule made
-// every message white in a dark theme. The canvas always follows the app theme instead,
-// and only the individual declarations that would become unreadable are adapted.
+// In the dark appearance the frame paints the app's dark canvas, so a message authored
+// for a light page is re-themed the way Gmail does it: a light background is mirrored to
+// its dark equivalent and the text that would vanish on the new canvas moves with it. A
+// message that already ships a dark design keeps it - a dark background is never
+// lightened - and the light appearance never adapts anything at all.
 //
 // Adaptation keeps hue and saturation and mirrors lightness, so a muted grey footer stays
 // muted and a near-black heading stays the most prominent text — the relationships the
@@ -71,6 +71,13 @@ function parseFunctional(value: string): Rgb | null {
   if (!match) return null;
   const parts = match[1].split(/[,\s/]+/).filter(Boolean);
   if (parts.length < 3) return null;
+  // A transparent colour paints no background at all: treating rgba(0,0,0,0) as a real
+  // dark region would adapt text for a card that was never painted.
+  if (parts.length > 3) {
+    const alphaPart = parts[3];
+    const alpha = alphaPart.endsWith('%') ? Number.parseFloat(alphaPart) / 100 : Number.parseFloat(alphaPart);
+    if (Number.isFinite(alpha) && alpha <= 0.1) return null;
+  }
   const channels: number[] = [];
   for (const part of parts.slice(0, 3)) {
     const numeric = Number.parseFloat(part);
@@ -181,12 +188,19 @@ export function adaptTextForCanvas(color: Rgb | null, onLightRegion: boolean): R
   return hslToRgb([h, s * ADAPTED_SATURATION, target]);
 }
 
-/**
- * A dark text colour for an element that paints its own light background but declares no
- * text colour — the case where the app's light default used to land on a message's white
- * card and vanish.
- */
-export function textForLightBackground(background: Rgb | null): Rgb {
-  const [h, s] = rgbToHsl(requireRgb(background));
-  return hslToRgb([h, Math.min(s, 0.25), 0.14]);
+// A repainted background never lands in the mid range: the author's lightness is mirrored
+// into the dark band, so white becomes near-black and the lighter greys keep their
+// relative depth. Only light backgrounds are repainted; anything already dark keeps the
+// scheme its author chose.
+const DARK_BACKGROUND_MAX = 0.24;
+
+/** Mirrors a light background into the dark band the app's canvas paints. */
+export function adaptBackgroundForDarkCanvas(color: Rgb | null): Rgb {
+  const [h, s, l] = rgbToHsl(requireRgb(color));
+  // Guarded so the helper is safe on its own: a background the message already
+  // painted dark keeps the scheme its author chose.
+  if (l < LIGHT_BACKGROUND) return requireRgb(color);
+  const target = Math.min(1 - l, DARK_BACKGROUND_MAX);
+  return hslToRgb([h, s * ADAPTED_SATURATION, target]);
 }
+

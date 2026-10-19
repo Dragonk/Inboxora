@@ -117,9 +117,10 @@ test.describe('mail body surface follows the app theme', () => {
 
   // The reported regression: the message paints its own light card but declares no text
   // colour. The canvas must stay dark — the app's light default text used to land on that
-  // white card. The card keeps its own background and gains an adapted dark text colour;
-  // per-element contrast is covered in depth by email-body-dark-mode.spec.js.
-  test('a message with its own light background keeps dark, readable text', async ({ page, fixtureApi }) => {
+  // white card. Gmail-style, the card itself is re-themed: its white background is mirrored
+  // to black, so the frame's light default text is correct on it; per-element contrast is
+  // covered in depth by email-body-dark-mode.spec.js.
+  test('a message with its own light background is re-themed dark and readable', async ({ page, fixtureApi }) => {
     test.skip(page.viewportSize().width < 768, 'desktop parent-row selection contract');
     await fixtureApi;
     const surface = await measureEmailSurface(page, DARK, {
@@ -130,9 +131,10 @@ test.describe('mail body surface follows the app theme', () => {
     expect(surface.colorScheme).toBe('dark');
     expect(surface.backgroundLuminance).toBeLessThan(0.2);
 
-    // ...while the message's own white card carries dark, readable text.
-    const card = await measureElement(page, 'td[style*="background-color:#FFFFFF"]');
-    expect(card.background).toBe('rgb(255, 255, 255)');
+    // ...while the message's own white card is mirrored to black, and the light default
+    // text on it is readable.
+    const card = await measureElement(page, 'div');
+    expect(card.background).toBe('rgb(0, 0, 0)');
     expect(card.contrast).toBeGreaterThanOrEqual(4.5);
   });
 

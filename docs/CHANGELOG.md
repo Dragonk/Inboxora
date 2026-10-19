@@ -21,6 +21,7 @@ configuration requirements, the **known safe limitations**, and what was verifie
 ## [Unreleased]
 
 ### Fixed
+- Reading light-designed emails in the dark appearance: a message authored for a light page is now re-themed to the dark canvas the way Gmail does - light backgrounds (inline styles, background shorthands, legacy bgcolor attributes and the message's own <style> rules) are mirrored into the dark band and the dark text that would vanish on the new canvas is lifted - instead of keeping glaring white cards. A message that already ships a dark design keeps it, and the light appearance adapts nothing.
 - Reading wide fixed-layout emails on phone-sized screens: the message body first reflows (fluid widths, wrapping, narrow-viewport table normalisation) and whatever still overflows is scaled down to the frame width — the Gmail behaviour — instead of leaving a horizontal scrollbar inside the message. Applies to every message view (reading pane, conversation reader, calendar descriptions, HTML attachment previews); document-layout previews such as docx keep their natural width.
 
 ## [4.3.8] - 2026-10-19
