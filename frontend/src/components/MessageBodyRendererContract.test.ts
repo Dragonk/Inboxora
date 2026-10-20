@@ -232,9 +232,10 @@ describe('mail body surface contract', () => {
     // The fit runs before the height measurement so the reported height is the scaled one.
     assert.match(renderer, /fitMessageFrameToWidth\(iframe, !documentLayout\)/);
     assert.match(renderer, /measureMessageFrameHeight\(iframe, fitScale\)/);
-    // The scale is clamped to 1 and only applied on real overflow.
+    // The scale is clamped to 1 and only applied on real overflow; a body that
+    // fits is still recorded so a later pass can tell a zoom from a reflow.
     assert.match(layout, /Math\.min\(1, viewportWidth \/ contentWidth\)/);
-    assert.match(layout, /contentWidth <= viewportWidth \+ 1\) return 1/);
+    assert.match(layout, /contentWidth <= viewportWidth \+ 1\) \{/);
     // documentLayout frames (docx preview) are excluded from the fit and keep
     // their own scrolling contract.
     assert.match(renderer, /iframeRef, documentLayout\]/);

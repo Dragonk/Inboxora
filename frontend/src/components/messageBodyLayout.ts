@@ -62,8 +62,11 @@ export function measureMessageFrameHeight(iframe: HTMLIFrameElement, scale = 1):
   }
 }
 
-// Marker attribute recording the applied fit-to-width scale plus the body own
+// Marker attribute recording the applied fit-to-width state plus the body own
 // inline transform declarations, so a later pass can restore the email exactly.
+// The state is recorded on every successful pass, including bodies left at their
+// natural size, because the next pass needs to know which widths the current
+// state was derived from.
 const FIT_MARKER = 'data-mailflow-fit-scale';
 
 interface SavedFitTransform {
@@ -72,6 +75,11 @@ interface SavedFitTransform {
   transformPriority: string;
   origin: string;
   originPriority: string;
+  // Content width the recorded state was derived from. Null in the first
+  // marker format, which could not tell a zoom from a genuine reflow.
+  contentWidth: number | null;
+  // Frame viewport width the recorded state was derived from.
+  fitViewportWidth: number | null;
 }
 
 function readSavedFit(body: HTMLElement): SavedFitTransform | null {
@@ -80,12 +88,15 @@ function readSavedFit(body: HTMLElement): SavedFitTransform | null {
   try {
     const parsed = JSON.parse(raw) as Partial<SavedFitTransform>;
     if (typeof parsed.scale !== 'number' || !Number.isFinite(parsed.scale) || parsed.scale <= 0 || parsed.scale > 1) return null;
+    const recordedWidth = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
     return {
       scale: parsed.scale,
       transform: typeof parsed.transform === 'string' ? parsed.transform : '',
       transformPriority: typeof parsed.transformPriority === 'string' ? parsed.transformPriority : '',
       origin: typeof parsed.origin === 'string' ? parsed.origin : '',
       originPriority: typeof parsed.originPriority === 'string' ? parsed.originPriority : '',
+      contentWidth: recordedWidth(parsed.contentWidth),
+      fitViewportWidth: recordedWidth(parsed.fitViewportWidth),
     };
   } catch {
     return null;
@@ -100,6 +111,16 @@ function restoreSavedFit(body: HTMLElement, saved: SavedFitTransform): void {
   body.removeAttribute(FIT_MARKER);
 }
 
+// Applies the recorded state: a real shrink gets the transform, a body at its
+// natural size is left untouched apart from the bookkeeping marker.
+function recordFitState(body: HTMLElement, saved: SavedFitTransform): void {
+  if (saved.scale < 1) {
+    body.style.setProperty('transform', `scale(${Math.round(saved.scale * 10000) / 10000})`, 'important');
+    body.style.setProperty('transform-origin', 'top left', 'important');
+  }
+  body.setAttribute(FIT_MARKER, JSON.stringify(saved));
+}
+
 /**
  * Gmail-style shrink-to-fit for email bodies laid out wider than the frame.
  * The frame keeps its fluid width and the srcDoc CSS first gives the email a
@@ -112,7 +133,18 @@ function restoreSavedFit(body: HTMLElement, saved: SavedFitTransform): void {
  * The transform is applied to the frame body from the parent document (the
  * frame is sandboxed without allow-scripts), and any previous fit is rolled
  * back before measuring because a scaled-down body can report the viewport as
- * its scrollable width, hiding the real overflow. Returns the applied scale.
+ * its scrollable width, hiding the real overflow. Returns the applied scale
+ * (1 means the body is at its natural size).
+ *
+ * The pass never cancels a reader's pinch zoom: pinch zooming the Android
+ * WebView reflows the layout, shrinking the CSS-pixel width of the frame while
+ * fixed-width content keeps its size, and recomputing the fit at that smaller
+ * width would scale the body right back down to the shrunk viewport — the
+ * gesture would visibly do nothing. A viewport that shrank over unchanged
+ * content therefore keeps the recorded state, so the zoomed email pans
+ * inside the frame (its html element scrolls horizontally) until the
+ * viewport grows again or the content itself changes; both re-derive the
+ * state from scratch.
  */
 export function fitMessageFrameToWidth(iframe: HTMLIFrameElement, enabled = true): number {
   const doc = iframe.contentDocument;
@@ -128,18 +160,34 @@ export function fitMessageFrameToWidth(iframe: HTMLIFrameElement, enabled = true
   if (previous) restoreSavedFit(body, previous);
 
   const contentWidth = Math.max(body.scrollWidth, root.scrollWidth);
-  if (contentWidth <= viewportWidth + 1) return 1;
 
-  const scale = Math.min(1, viewportWidth / contentWidth);
-  const saved: SavedFitTransform = {
-    scale,
+  // Zoom-in: the viewport shrank over unchanged content, so keep the recorded
+  // state (fit or natural size) and let the zoomed email pan. Re-anchoring the
+  // recorded viewport width keeps the guard tracking the current zoom level.
+  if (previous
+    && previous.contentWidth !== null
+    && previous.fitViewportWidth !== null
+    && Math.abs(previous.contentWidth - contentWidth) <= 1
+    && viewportWidth + 1 < previous.fitViewportWidth) {
+    recordFitState(body, { ...previous, fitViewportWidth: viewportWidth });
+    return previous.scale;
+  }
+
+  const captureOwnTransform = () => ({
     transform: body.style.getPropertyValue('transform'),
     transformPriority: body.style.getPropertyPriority('transform'),
     origin: body.style.getPropertyValue('transform-origin'),
     originPriority: body.style.getPropertyPriority('transform-origin'),
-  };
-  body.style.setProperty('transform', `scale(${Math.round(scale * 10000) / 10000})`, 'important');
-  body.style.setProperty('transform-origin', 'top left', 'important');
-  body.setAttribute(FIT_MARKER, JSON.stringify(saved));
+  });
+
+  if (contentWidth <= viewportWidth + 1) {
+    // The email reflowed into the frame; record the natural state so a later
+    // zoom step is recognised as a viewport shrink over unchanged content.
+    recordFitState(body, { scale: 1, ...captureOwnTransform(), contentWidth, fitViewportWidth: viewportWidth });
+    return 1;
+  }
+
+  const scale = Math.min(1, viewportWidth / contentWidth);
+  recordFitState(body, { scale, ...captureOwnTransform(), contentWidth, fitViewportWidth: viewportWidth });
   return scale;
 }

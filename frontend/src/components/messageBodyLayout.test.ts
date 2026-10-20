@@ -151,6 +151,12 @@ describe('scale-to-width fit for wide email bodies', () => {
       attributes,
     };
   };
+  const marker = (attributes: Map<string, string>) => JSON.parse(attributes.get('data-mailflow-fit-scale') ?? 'null') as {
+    scale: number;
+    transform?: string;
+    contentWidth?: number | null;
+    fitViewportWidth?: number | null;
+  };
 
   it('scales a body laid out wider than the frame down to the frame width', async () => {
     const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
@@ -158,16 +164,88 @@ describe('scale-to-width fit for wide email bodies', () => {
     assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
     assert.deepEqual(props.get('transform'), ['scale(0.5)', 'important']);
     assert.deepEqual(props.get('transform-origin'), ['top left', 'important']);
-    const saved = JSON.parse(attributes.get('data-mailflow-fit-scale') ?? '{}') as { scale?: number };
+    const saved = marker(attributes);
     assert.equal(saved.scale, 0.5);
+    assert.equal(saved.contentWidth, 700);
+    assert.equal(saved.fitViewportWidth, 350);
   });
 
-  it('leaves a body that already fits at its natural size', async () => {
+  it('records a body that already fits at its natural size', async () => {
     const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
     const { frame, props, attributes } = fitFrame(() => 350, () => 350);
     assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 1);
     assert.equal(props.has('transform'), false);
-    assert.equal(attributes.size, 0);
+    const saved = marker(attributes);
+    assert.equal(saved.scale, 1);
+    assert.equal(saved.contentWidth, 350);
+    assert.equal(saved.fitViewportWidth, 350);
+  });
+
+  it('keeps the fitted scale when the viewport shrinks over unchanged content (pinch zoom)', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    let viewportWidth = 350;
+    const { frame, props, attributes } = fitFrame(() => viewportWidth, () => 700);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    viewportWidth = 175;
+    // A pinch zoom reflows the WebView layout: the viewport halves while the
+    // fixed-width content keeps its size. Recomputing the fit would scale the
+    // body down to the shrunk viewport and cancel the zoom; the scale must
+    // survive so the zoomed email pans inside the frame instead.
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    assert.deepEqual(props.get('transform'), ['scale(0.5)', 'important']);
+    const saved = marker(attributes);
+    assert.equal(saved.scale, 0.5);
+    assert.equal(saved.contentWidth, 700);
+    assert.equal(saved.fitViewportWidth, 175);
+  });
+
+  it('keeps a naturally sized body unscaled when the viewport shrinks over unchanged content', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    let viewportWidth = 350;
+    const { frame, props, attributes } = fitFrame(() => viewportWidth, () => 350);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 1);
+    viewportWidth = 175;
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 1);
+    assert.equal(props.has('transform'), false);
+    const saved = marker(attributes);
+    assert.equal(saved.scale, 1);
+    assert.equal(saved.fitViewportWidth, 175);
+  });
+
+  it('re-derives the fit when the viewport grows', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    let viewportWidth = 350;
+    const { frame, props, attributes } = fitFrame(() => viewportWidth, () => 700);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    viewportWidth = 700;
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 1);
+    assert.equal(props.has('transform'), false);
+    const saved = marker(attributes);
+    assert.equal(saved.scale, 1);
+    assert.equal(saved.fitViewportWidth, 700);
+  });
+
+  it('re-derives the fit when the content width changes', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    let contentWidth = 700;
+    const { frame, props } = fitFrame(() => 350, () => contentWidth);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    contentWidth = 1050;
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 350 / 1050);
+    assert.deepEqual(props.get('transform'), [`scale(${Math.round((350 / 1050) * 10000) / 10000})`, 'important']);
+  });
+
+  it('treats a first-format marker without recorded widths as a reflow', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    const { frame, props, attributes } = fitFrame(() => 175, () => 700);
+    attributes.set('data-mailflow-fit-scale', JSON.stringify({ scale: 0.5, transform: '', transformPriority: '', origin: '', originPriority: '' }));
+    // Without the recorded widths the zoom guard cannot fire, so the fit is
+    // recomputed from scratch instead of silently keeping a stale scale.
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.25);
+    assert.deepEqual(props.get('transform'), ['scale(0.25)', 'important']);
+    const saved = marker(attributes);
+    assert.equal(saved.scale, 0.25);
+    assert.equal(saved.fitViewportWidth, 175);
   });
 
   it('restores the email own inline transform once the body fits again', async () => {
@@ -179,7 +257,9 @@ describe('scale-to-width fit for wide email bodies', () => {
     contentWidth = 350;
     assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 1);
     assert.deepEqual(props.get('transform'), ['rotate(1deg)', '']);
-    assert.equal(attributes.size, 0);
+    const saved = marker(attributes);
+    assert.equal(saved.scale, 1);
+    assert.equal(saved.transform, 'rotate(1deg)');
   });
 
   it('does not touch the frame when the fit is disabled', async () => {
