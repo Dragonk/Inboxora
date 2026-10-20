@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
-import { isRowGestureSuppressed, setRowGestureSuppressed } from './mobileGestureArbiter.ts';
+import { isRowGestureSuppressed, setRowGestureSuppressed, isVisualViewportZoomed } from './mobileGestureArbiter.ts';
 
 const SWIPE_THRESHOLD = 72;
 
@@ -127,6 +127,18 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
       const t = e.touches[0];
       const dx = t.clientX - s.startX;
       const dy = t.clientY - s.startY;
+      // The pinch-zoomed visual viewport owns this drag: the row must not
+      // claim it (no preventDefault, no translate) or the compositor cannot
+      // pan the zoomed view horizontally. Direction is still recorded so
+      // touchend can tell a genuine tap from the end of a pan.
+      if (isVisualViewportZoomed()) {
+        if (!s.dir) {
+          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+          cancelLongPress();
+          s.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+        }
+        return;
+      }
       if (!s.dir) {
         if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
         cancelLongPress();
@@ -164,6 +176,13 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
         longPressActivatedRef.current = false;
         springBack();
         setRowGestureSuppressed(false);
+        return;
+      }
+      // A pan of the pinch-zoomed viewport just ended (direction was recorded
+      // by the zoom gate in onMove): neither a tap nor a swipe action.
+      if (isVisualViewportZoomed() && s.dir) {
+        resetSwipeState();
+        hideBgs();
         return;
       }
       if (!s.active) {
@@ -208,7 +227,12 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
 
     const bgLeft = swipeBgLeftRef.current;
     const bgRight = swipeBgRightRef.current;
-    el.style.touchAction = 'pan-y';
+    // `pan-y pinch-zoom` keeps horizontal drags for the swipe gesture while
+    // letting the user START a pinch over a row (plain pan-y forbids it).
+    // While the visual viewport is zoomed, index.css pairs the data attribute
+    // with `touch-action: auto !important` so the compositor pans both axes.
+    el.style.touchAction = 'pan-y pinch-zoom';
+    el.dataset.swipeSurface = 'true';
     el.addEventListener('touchstart', onStart, { passive: true });
     el.addEventListener('touchmove', onMove, { passive: false });
     el.addEventListener('touchend', onEnd, { passive: true });
@@ -229,6 +253,7 @@ export function useSwipeRow<M extends SwipeRowMessage>({ isMobile, message, onSw
       el.removeEventListener('touchend', onEnd);
       el.removeEventListener('touchcancel', onCancel);
       el.style.touchAction = '';
+      delete el.dataset.swipeSurface;
       el.style.transform = 'translateX(0)';
       el.style.transition = '';
       el.style.boxShadow = '';
