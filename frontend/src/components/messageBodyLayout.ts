@@ -162,14 +162,17 @@ export function fitMessageFrameToWidth(iframe: HTMLIFrameElement, enabled = true
   const contentWidth = Math.max(body.scrollWidth, root.scrollWidth);
 
   // Zoom-in: the viewport shrank over unchanged content, so keep the recorded
-  // state (fit or natural size) and let the zoomed email pan. Re-anchoring the
-  // recorded viewport width keeps the guard tracking the current zoom level.
+  // state (fit or natural size) and let the zoomed email pan. A repeated pass
+  // at the same shrunk width (a height-only ResizeObserver callback, the
+  // iframe height measure itself, a resize at gesture end) must keep the state
+  // too, so recomputing there cannot snap the body back mid-zoom. The anchor
+  // never drifts upward: it keeps the smaller of the two widths.
   if (previous
     && previous.contentWidth !== null
     && previous.fitViewportWidth !== null
     && Math.abs(previous.contentWidth - contentWidth) <= 1
-    && viewportWidth + 1 < previous.fitViewportWidth) {
-    recordFitState(body, { ...previous, fitViewportWidth: viewportWidth });
+    && viewportWidth <= previous.fitViewportWidth + 1) {
+    recordFitState(body, { ...previous, fitViewportWidth: Math.min(viewportWidth, previous.fitViewportWidth) });
     return previous.scale;
   }
 

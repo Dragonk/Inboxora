@@ -199,6 +199,24 @@ describe('scale-to-width fit for wide email bodies', () => {
     assert.equal(saved.fitViewportWidth, 175);
   });
 
+  it('keeps the fitted scale across repeated passes at the shrunk viewport (pinch zoom)', async () => {
+    const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
+    let viewportWidth = 350;
+    const { frame, props, attributes } = fitFrame(() => viewportWidth, () => 700);
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    viewportWidth = 175;
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    // The observer fires again at the same zoom level: a height-only resize,
+    // the gesture settling, the frame height measure itself. A recompute at
+    // 175/700 would scale the body right back down and cancel the zoom.
+    assert.equal(fitMessageFrameToWidth(frame as unknown as HTMLIFrameElement), 0.5);
+    assert.deepEqual(props.get('transform'), ['scale(0.5)', 'important']);
+    const saved = marker(attributes);
+    assert.equal(saved.scale, 0.5);
+    assert.equal(saved.contentWidth, 700);
+    assert.equal(saved.fitViewportWidth, 175);
+  });
+
   it('keeps a naturally sized body unscaled when the viewport shrinks over unchanged content', async () => {
     const { fitMessageFrameToWidth } = await import('./messageBodyLayout.ts');
     let viewportWidth = 350;

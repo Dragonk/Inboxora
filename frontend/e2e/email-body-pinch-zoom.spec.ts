@@ -34,7 +34,10 @@ const fitState = (page: Page) => page.evaluate(() => {
   return { marker: JSON.parse(raw) as { scale: number; fitViewportWidth: number }, vpScale: window.visualViewport.scale };
 });
 
-test('pinch zoom stays effective over a fitted email body', async ({ page, fixtureApi }) => {
+test('pinch zoom stays effective over a fitted email body', async ({ page, fixtureApi }, testInfo) => {
+  // The synthesized pinch needs a touch-enabled context; the desktop project
+  // emulates a mouse-only device and does not zoom the visual viewport.
+  test.skip(!testInfo.project.use.hasTouch, 'pinch zoom needs a touch-enabled mobile context');
   await openFittedEmail(page, fixtureApi);
   const before = await fitState(page);
   expect(before.marker.scale).toBeLessThan(1);
