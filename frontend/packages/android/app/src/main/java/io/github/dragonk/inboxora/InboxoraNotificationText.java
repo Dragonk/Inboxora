@@ -21,6 +21,9 @@ final class InboxoraNotificationText {
     static String first(JSONObject message, String... keys) {
         for (String key : keys) {
             if (message == null) break;
+            // An explicit JSON null is not a value: optString would coerce it into
+            // the literal string "null" and put it in the notification text.
+            if (message.isNull(key)) continue;
             String value = message.optString(key, "");
             if (value != null && !value.isEmpty()) return value;
         }

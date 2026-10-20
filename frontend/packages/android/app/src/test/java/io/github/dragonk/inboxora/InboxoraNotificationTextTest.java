@@ -65,6 +65,18 @@ public class InboxoraNotificationTextTest {
     }
 
     @Test
+    public void treatsAnExplicitJsonNullAsMissingSoTheLocalizedFallbackApplies() throws Exception {
+        JSONObject message = new JSONObject()
+            .put("title", JSONObject.NULL)
+            .put("body", JSONObject.NULL)
+            .put("snippet", JSONObject.NULL)
+            .put("from_name", "Ada");
+        assertEquals("Ada", InboxoraNotificationText.title(message, FALLBACK_TITLE));
+        assertEquals(FALLBACK_BODY,
+            InboxoraNotificationText.body(message, 1, FALLBACK_BODY, FALLBACK_COUNT));
+    }
+
+    @Test
     public void survivesAMissingMessageObject() throws Exception {
         assertEquals(FALLBACK_TITLE, InboxoraNotificationText.title(null, FALLBACK_TITLE));
         assertEquals(FALLBACK_BODY,

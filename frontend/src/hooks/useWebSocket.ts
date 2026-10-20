@@ -97,7 +97,8 @@ function isWsMessageRow(value: unknown): value is WsMessageRow {
     && typeof value.id === 'string'
     && (value.fromName === undefined || value.fromName === null || typeof value.fromName === 'string')
     && (value.fromEmail === undefined || value.fromEmail === null || typeof value.fromEmail === 'string')
-    && (value.subject === undefined || value.subject === null || typeof value.subject === 'string');
+    && (value.subject === undefined || value.subject === null || typeof value.subject === 'string')
+    && (value.snippet === undefined || value.snippet === null || typeof value.snippet === 'string');
 }
 
 function isWsMessageFlagChange(value: unknown): value is WsMessageFlagChange {
