@@ -84,7 +84,9 @@ html, body, #root {
    in BOTH axes instead. useZoomedViewportPan toggles this class together with
    the overscroll release; the !important is required to beat the inline style.
    Without it a one-finger drag panned the zoomed view vertically only. */
-html.zoomed-viewport [data-swipe-surface] { touch-action: auto !important; }
+html.zoomed-viewport [data-swipe-surface],
+html.zoomed-viewport .mailflow-window [data-window-drag],
+html.zoomed-viewport .ui-dialog.ui-sheet .ui-dialog-header { touch-action: auto !important; }
 
 body, #root {
   height: 100%;

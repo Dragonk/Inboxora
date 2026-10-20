@@ -9,6 +9,7 @@ const drawer = src('./useMobileDrawerGesture.ts');
 const zoomHook = src('./useZoomedViewportPan.ts');
 const pane = src('../components/MessagePane.tsx');
 const sidebar = src('../components/Sidebar.tsx');
+const floating = src('../components/FloatingWindow.tsx');
 const css = src('../index.css');
 
 const before = (haystack: string, first: string, second: string) => {
@@ -29,7 +30,9 @@ const before = (haystack: string, first: string, second: string) => {
 // sideways.
 describe('zoomed viewport horizontal pan contract', () => {
   it('relaxes the swipe surfaces touch-action while zoomed, beating the inline style', () => {
-    assert.ok(css.includes('html.zoomed-viewport [data-swipe-surface] { touch-action: auto !important; }'));
+    assert.ok(css.includes('html.zoomed-viewport [data-swipe-surface],'));
+    assert.ok(css.includes('html.zoomed-viewport .mailflow-window [data-window-drag],'));
+    assert.ok(css.includes('touch-action: auto !important;'));
   });
 
   it('marks swipe rows as surfaces and keeps a pinch startable over a row', () => {
@@ -55,6 +58,10 @@ describe('zoomed viewport horizontal pan contract', () => {
     assert.ok(effect.includes('let ignored = false;'));
     before(effect, 'ignored = isVisualViewportZoomed();', 'e.preventDefault();');
     assert.ok(effect.includes('if (ignored) return;'));
+  });
+
+  it('marks the floating window drag zones as zoomed pan surfaces', () => {
+    assert.ok(floating.includes('data-swipe-surface={ true }'));
   });
 
   it('keeps the sidebar touch preventDefault off while zoomed', () => {

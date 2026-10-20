@@ -188,56 +188,42 @@ test('a layout-viewport shrink keeps the fitted scale instead of cancelling the 
   expect(grown.marker.scale).toBeGreaterThanOrEqual(shrunk.marker.scale);
 });
 
-test('a pinch-zoomed viewport pans horizontally over the message pane', async ({ page, fixtureApi }, testInfo) => {
+test('a pinch-zoomed viewport pans horizontally over the message body', async ({ page, fixtureApi }, testInfo) => {
   test.skip(!testInfo.project.use.hasTouch, 'pinch zoom needs a touch-enabled mobile context');
   await openFittedEmail(page, fixtureApi);
   const cdp = await page.context().newCDPSession(page);
-  // At rest a swipe row reserves horizontal drags for its JS gesture; the
-  // pinch-zoom action stays startable over the row thanks to pinch-zoom.
-  const restingRowAction = await page.evaluate(() => {
+  // In the mobile layout a swipe row reserves horizontal drags for its JS
+  // gesture at rest; the landscape split layout has no swipe rows at all.
+  const rowAction = () => page.evaluate(() => {
     const row = document.querySelector('[data-swipe-surface]');
     return row ? getComputedStyle(row).touchAction : null;
   });
-  expect(restingRowAction).toBe('pan-y pinch-zoom');
-  // A point over the pane's header area (below the mobile back bar, above
-  // the sanitized body frame, never over an interactive control): drags
-  // there used to be claimed by the pane swipe-back gesture.
-  const overHeader = await page.evaluate(() => {
-    const bar = document.querySelector('[data-testid="message-pane-back"]');
+  const restingRowAction = await rowAction();
+  if (restingRowAction !== null) expect(restingRowAction).toBe('pan-y pinch-zoom');
+  // The real user flow: pinch over the message body itself, then pan around
+  // the zoomed view with one finger over the content.
+  const overBody = await page.evaluate(() => {
     const iframe = document.querySelector('iframe[sandbox]');
-    if (!bar || !iframe) throw new Error('pane chrome not found');
-    const barRect = bar.getBoundingClientRect();
-    const frameRect = iframe.getBoundingClientRect();
-    for (let y = Math.floor(barRect.bottom) + 8; y < Math.floor(frameRect.top) - 8; y += 8) {
-      const x = Math.floor(barRect.left + barRect.width / 2);
-      const el = document.elementFromPoint(x, y);
-      if (el && !el.closest('button, a, input, textarea, [role="button"]')) return { x, y };
-    }
-    throw new Error('no non-interactive pane header point found');
+    if (!iframe) throw new Error('message frame not found');
+    const rect = iframe.getBoundingClientRect();
+    return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + 80) };
   });
-  await pinch(page, cdp, overHeader, 10, 170, 15);
+  await pinch(page, cdp, overBody, 10, 170, 15);
   const zoomed = await panState(page);
   expect(zoomed.scale).toBeGreaterThan(1);
-  // While zoomed the stylesheet override beats the row's inline value so the
-  // compositor may pan over a row in BOTH axes.
-  const zoomedRowAction = await page.evaluate(() => {
-    const row = document.querySelector('[data-swipe-surface]');
-    return row ? getComputedStyle(row).touchAction : null;
-  });
-  expect(zoomedRowAction).toBe('auto');
-  // One-finger horizontal drag over the pane: the swipe-back gesture must
-  // not claim it (that preventDefault was what killed the horizontal pan),
-  // so the visual viewport moves sideways instead.
-  await dragOneFinger(page, cdp, overHeader.x, overHeader.y, -60, 0);
+  // While zoomed the stylesheet override beats the rows' inline value so the
+  // compositor may pan over them in BOTH axes.
+  const zoomedRowAction = await rowAction();
+  if (zoomedRowAction !== null) expect(zoomedRowAction).toBe('auto');
+  // A pure horizontal one-finger drag must move the visual viewport sideways
+  // (the pane swipe-back and the swipe rows used to claim exactly this).
+  await dragOneFinger(page, cdp, overBody.x, overBody.y, -60, 0);
   const panned = await panState(page);
   expect(Math.abs(panned.left - zoomed.left)).toBeGreaterThan(20);
   // The pane must not have been swiped away or switched messages.
   await expect(page.locator('iframe[sandbox]').first()).toBeVisible();
   // Zooming back out restores the swipe rows' reserved touch-action.
-  await pinch(page, cdp, overHeader, 170, 10, 15);
-  const restoredRowAction = await page.evaluate(() => {
-    const row = document.querySelector('[data-swipe-surface]');
-    return row ? getComputedStyle(row).touchAction : null;
-  });
-  expect(restoredRowAction).toBe('pan-y pinch-zoom');
+  await pinch(page, cdp, overBody, 170, 10, 15);
+  const restoredRowAction = await rowAction();
+  if (restoredRowAction !== null) expect(restoredRowAction).toBe('pan-y pinch-zoom');
 });
