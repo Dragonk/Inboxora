@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.4.1](wiki/Release-notes-4.4.1.md). Older release notes are collected in
+[Release notes 4.4.2](wiki/Release-notes-4.4.2.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -18,7 +18,7 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
-## [Unreleased]
+## [4.4.2] - 2026-10-20
 
 ### Changed
 - Pinch zoom is now explicitly enabled in the Android WebView (`android.zoomEnabled` in the Capacitor config). Capacitor disables WebView zoom by default, so on most devices the APK had no pinch zoom at all; the config now makes the intended behaviour explicit on every device.
