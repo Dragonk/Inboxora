@@ -21,6 +21,7 @@ import ProfileModal from './ProfileModal.tsx';
 import { useUiScale, descale } from '../hooks/useUiScale.ts';
 import type { ReactNode } from 'react';
 import { toAppError } from '../utils/errors.ts';
+import { isVisualViewportZoomed } from '../hooks/mobileGestureArbiter.ts';
 
 const ICONS = {
   inbox: (
@@ -1453,6 +1454,10 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                     onClick={() => { if (!isRenamingThis) setSelectedAccount(accountId, path); }}
                     onTouchStart={ (e: React.TouchEvent<HTMLElement>) => {
                       if (isRenamingThis) return;
+                      // While pinch-zoomed the visual viewport owns the drag; the
+                      // preventDefault below (iOS callout suppression) would also
+                      // block the compositor's pan of the zoomed view.
+                      if (isVisualViewportZoomed()) return;
                       // Prevent iOS from processing this touch natively (drag mode,
                       // text selection, "Copy | Look Up | Translate" callout).
                       // touch-action: pan-y on the row lets the sidebar still scroll
@@ -1492,6 +1497,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                         if (!isRenamingThis) setSelectedAccount(accountId, path);
                       }
                     }}
+                    data-swipe-surface={ true }
                     onTouchCancel={() => {
                       if (favLongPressTimer.current) clearTimeout(favLongPressTimer.current);
                       favLongPressTimer.current = null;
@@ -1512,7 +1518,7 @@ export default function Sidebar({ onEditProfile = null }: { onEditProfile?: (() 
                       display: 'flex', alignItems: 'center',
                       gap: 8, padding: '7px 10px',
                       borderRadius: 7, cursor: 'pointer',
-                      touchAction: 'pan-y',
+                      touchAction: 'pan-y pinch-zoom',
                       background: (msgDragTarget === `${accountId}:${path}`) ? 'var(--accent-dim)' : isActive ? 'var(--bg-hover)' : 'transparent',
                       color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                       transition: 'background 0.1s, color 0.1s',

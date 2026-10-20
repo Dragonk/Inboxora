@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { setVisualViewportZoomed } from './mobileGestureArbiter.ts';
 
 // Pinch zoom on Android can leave the user zoomed into the message view with
 // no way to move around: the app shell pins `overscroll-behavior: none` on the
@@ -12,6 +13,9 @@ import { useEffect } from 'react';
 // stylesheet value returns as soon as the zoom is released.
 
 const OVERSCROLL_PROPERTY = 'overscroll-behavior';
+// Toggled on the root element while zoomed; the stylesheet pairs it with a
+// `touch-action: auto !important` override for swipe surfaces (index.css).
+const ZOOMED_CLASS = 'zoomed-viewport';
 // visualViewport.scale floats around 1 at rest; tiny deviations must not
 // count as a zoom.
 const ZOOM_EPSILON = 0.001;
@@ -58,10 +62,17 @@ export function useZoomedViewportPan(enabled = true): void {
     const viewport = window.visualViewport;
     if (!enabled || !viewport) return;
     const sync = () => {
+      const zoomed = isViewportZoomed(viewport.scale);
       applyZoomedPanOverride(
         { documentElement: document.documentElement, body: document.body },
-        isViewportZoomed(viewport.scale),
+        zoomed,
       );
+      // Share the state with the mobile horizontal gestures (drawer, swipe
+      // rows, pane swipe-back) so none of them claims a drag that belongs to
+      // the zoomed viewport, and pair it with the CSS class whose rules relax
+      // the swipe surfaces' inline `touch-action: pan-y`.
+      setVisualViewportZoomed(zoomed);
+      document.documentElement.classList.toggle(ZOOMED_CLASS, zoomed);
     };
     sync();
     viewport.addEventListener('resize', sync);
@@ -71,6 +82,8 @@ export function useZoomedViewportPan(enabled = true): void {
         { documentElement: document.documentElement, body: document.body },
         false,
       );
+      setVisualViewportZoomed(false);
+      document.documentElement.classList.remove(ZOOMED_CLASS);
     };
   }, [enabled]);
 }

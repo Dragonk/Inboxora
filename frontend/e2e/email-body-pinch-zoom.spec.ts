@@ -16,6 +16,14 @@ import type { Page } from '@playwright/test';
 // lock swallow the one-finger drag instead of handing it to the zoomed visual
 // viewport, so the lock is relaxed while `visualViewport.scale > 1` and reapplied
 // at rest.
+//
+// Follow-up (4.4.3): the release above was necessary but not sufficient - the
+// JS gestures that reserve the X axis (the pane swipe-back, the swipe rows
+// with their inline `touch-action: pan-y`, the drawer capture claim) still
+// claimed horizontal drags while zoomed, so a one-finger drag panned the
+// zoomed view VERTICALLY ONLY. While zoomed those claimants must stand down
+// and the `html.zoomed-viewport` stylesheet rule must relax the rows' inline
+// touch-action so the compositor can pan sideways.
 
 const WIDE = `<div style="width:700px;background:#ffffff;padding:16px">
 <p style="font-size:23px;color:#222222;text-align:left;margin:0">Wide newsletter body, hard-coded 700px table</p>
@@ -178,4 +186,58 @@ test('a layout-viewport shrink keeps the fitted scale instead of cancelling the 
   const grown = await fitState(page);
   expect(grown.marker.fitViewportWidth).toBeGreaterThan(shrunk.marker.fitViewportWidth);
   expect(grown.marker.scale).toBeGreaterThanOrEqual(shrunk.marker.scale);
+});
+
+test('a pinch-zoomed viewport pans horizontally over the message pane', async ({ page, fixtureApi }, testInfo) => {
+  test.skip(!testInfo.project.use.hasTouch, 'pinch zoom needs a touch-enabled mobile context');
+  await openFittedEmail(page, fixtureApi);
+  const cdp = await page.context().newCDPSession(page);
+  // At rest a swipe row reserves horizontal drags for its JS gesture; the
+  // pinch-zoom action stays startable over the row thanks to pinch-zoom.
+  const restingRowAction = await page.evaluate(() => {
+    const row = document.querySelector('[data-swipe-surface]');
+    return row ? getComputedStyle(row).touchAction : null;
+  });
+  expect(restingRowAction).toBe('pan-y pinch-zoom');
+  // A point over the pane's header area (below the mobile back bar, above
+  // the sanitized body frame, never over an interactive control): drags
+  // there used to be claimed by the pane swipe-back gesture.
+  const overHeader = await page.evaluate(() => {
+    const bar = document.querySelector('[data-testid="message-pane-back"]');
+    const iframe = document.querySelector('iframe[sandbox]');
+    if (!bar || !iframe) throw new Error('pane chrome not found');
+    const barRect = bar.getBoundingClientRect();
+    const frameRect = iframe.getBoundingClientRect();
+    for (let y = Math.floor(barRect.bottom) + 8; y < Math.floor(frameRect.top) - 8; y += 8) {
+      const x = Math.floor(barRect.left + barRect.width / 2);
+      const el = document.elementFromPoint(x, y);
+      if (el && !el.closest('button, a, input, textarea, [role="button"]')) return { x, y };
+    }
+    throw new Error('no non-interactive pane header point found');
+  });
+  await pinch(page, cdp, overHeader, 10, 170, 15);
+  const zoomed = await panState(page);
+  expect(zoomed.scale).toBeGreaterThan(1);
+  // While zoomed the stylesheet override beats the row's inline value so the
+  // compositor may pan over a row in BOTH axes.
+  const zoomedRowAction = await page.evaluate(() => {
+    const row = document.querySelector('[data-swipe-surface]');
+    return row ? getComputedStyle(row).touchAction : null;
+  });
+  expect(zoomedRowAction).toBe('auto');
+  // One-finger horizontal drag over the pane: the swipe-back gesture must
+  // not claim it (that preventDefault was what killed the horizontal pan),
+  // so the visual viewport moves sideways instead.
+  await dragOneFinger(page, cdp, overHeader.x, overHeader.y, -60, 0);
+  const panned = await panState(page);
+  expect(Math.abs(panned.left - zoomed.left)).toBeGreaterThan(20);
+  // The pane must not have been swiped away or switched messages.
+  await expect(page.locator('iframe[sandbox]').first()).toBeVisible();
+  // Zooming back out restores the swipe rows' reserved touch-action.
+  await pinch(page, cdp, overHeader, 170, 10, 15);
+  const restoredRowAction = await page.evaluate(() => {
+    const row = document.querySelector('[data-swipe-surface]');
+    return row ? getComputedStyle(row).touchAction : null;
+  });
+  expect(restoredRowAction).toBe('pan-y pinch-zoom');
 });

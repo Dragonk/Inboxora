@@ -78,6 +78,14 @@ html, body, #root {
   overscroll-behavior: none;
 }
 
+/* Pinch-zoomed pan (4.4.3): while the visual viewport is zoomed in, the
+   surfaces whose inline `touch-action: pan-y pinch-zoom` normally reserves
+   horizontal drags for JS gestures must let the compositor pan the zoomed view
+   in BOTH axes instead. useZoomedViewportPan toggles this class together with
+   the overscroll release; the !important is required to beat the inline style.
+   Without it a one-finger drag panned the zoomed view vertically only. */
+html.zoomed-viewport [data-swipe-surface] { touch-action: auto !important; }
+
 body, #root {
   height: 100%;
   min-height: -webkit-fill-available;

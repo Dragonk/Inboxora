@@ -29,3 +29,22 @@ export function setRowGestureSuppressed(value: boolean): void {
 export function resetGestureArbitration(): void {
   rowSuppressed = false;
 }
+
+let viewportZoomed = false;
+
+/**
+ * True while the pinch-zoomed visual viewport owns every drag gesture.
+ * `useZoomedViewportPan` sets this on every visualViewport resize; the mobile
+ * horizontal gestures (drawer, swipe rows, pane swipe-back) stand down while
+ * it is set so the compositor is free to pan the zoomed view with one finger
+ * in BOTH axes. Vertical drags were never claimed by anyone, which is why
+ * only horizontal panning was broken before this gate existed.
+ */
+export function isVisualViewportZoomed(): boolean {
+  return viewportZoomed;
+}
+
+/** Called by useZoomedViewportPan on every visualViewport resize. */
+export function setVisualViewportZoomed(value: boolean): void {
+  viewportZoomed = value;
+}
