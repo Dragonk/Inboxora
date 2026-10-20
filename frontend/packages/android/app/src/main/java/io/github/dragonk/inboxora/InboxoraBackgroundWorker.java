@@ -98,17 +98,18 @@ public class InboxoraBackgroundWorker extends Worker {
     }
 
     private static void notify(Context context, JSONObject message, int delta) {
-        String title = message.optString("from_name", message.optString("fromName",
-            message.optString("from_email", message.optString("fromEmail", "New mail"))));
-        String subject = message.optString("subject", null);
-        String body = subject == null || subject.isEmpty()
-            ? (delta > 1 ? delta + " new messages" : "You have new mail.")
-            : subject;
-
+        // Gmail-style: sender in the title, subject plus preview in the text.
+        // Every fallback line is localized on the device (app language pref), so
+        // no English placeholder can leak onto a phone set to another language.
         InboxoraNativePlugin.postNewMailNotification(
             context,
-            title == null || title.isEmpty() ? "New mail" : title,
-            body,
+            InboxoraNotificationText.title(
+                message, InboxoraNativeLocale.text(context, R.string.native_new_mail)),
+            InboxoraNotificationText.body(
+                message,
+                delta,
+                InboxoraNativeLocale.text(context, R.string.native_new_mail_body),
+                InboxoraNativeLocale.text(context, R.string.native_new_mail_count)),
             // The native endpoints return messageId; the legacy list endpoint returns id.
             message.optString("messageId", message.optString("id", null)),
             message.optString("accountId", message.optString("account_id", null)),

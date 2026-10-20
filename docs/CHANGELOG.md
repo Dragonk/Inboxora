@@ -22,9 +22,11 @@ configuration requirements, the **known safe limitations**, and what was verifie
 
 ### Changed
 - Pinch zoom is now explicitly enabled in the Android WebView (`android.zoomEnabled` in the Capacitor config). Capacitor disables WebView zoom by default, so on most devices the APK had no pinch zoom at all; the config now makes the intended behaviour explicit on every device.
+- New-mail notifications on Android now follow Gmail’s layout: the sender as the title, the subject plus a short preview of the body (a new `snippet` field on the notification API) as the text.
 
 ### Fixed
 - One-finger panning of a pinch-zoomed message view on Android: the root-level `overscroll-behavior: none` lock (kept for pull-to-refresh and history-swipe protection) stopped WebView builds from handing a one-finger drag over to the zoomed visual viewport, so after pinching the view could only be panned with a two-finger drag. The lock is now released while `visualViewport.scale > 1` and the stylesheet value applies again at rest.
+- New-mail notifications delivered by native push or the background reconciliation worker showed a generic hardcoded-English card ("New mail" / "You have new mail.") on phones set to any other language, and dropped the sender and subject the server actually sent: all three Android notification paths now share one text builder with localized (`native_new_mail*`) fallbacks, and the notification API no longer forces English placeholder fallbacks — it returns `null` when the sender or subject is unknown so the device localizes.
 
 ## [4.4.1] - 2026-10-20
 

@@ -46,6 +46,7 @@ interface WsMessageRow {
   fromName?: string | null;
   fromEmail?: string | null;
   subject?: string | null;
+  snippet?: string | null;
   [key: string]: unknown;
 }
 
@@ -215,7 +216,7 @@ export function useWebSocket() {
               messageId: latest.id,
               message: latest,
               title: latest.fromName || latest.fromEmail || t('notifications.newMessage'),
-              body: latest.subject || t('common.noSubject'),
+              body: [latest.subject, latest.snippet].filter(Boolean).join('\n') || t('common.noSubject'),
               count: alertCount,
             };
 

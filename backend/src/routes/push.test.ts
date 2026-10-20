@@ -152,7 +152,7 @@ describe('native background API', () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       eventId: EVENT_ID,
-      message: { messageId: EVENT_ID, accountId: 'acct-1', folder: 'INBOX', title: 'Ada', body: 'Hello' },
+      message: { messageId: EVENT_ID, accountId: 'acct-1', folder: 'INBOX', title: 'Ada', body: 'Hello', snippet: null },
       unreadCount: 5,
     });
     // Ownership is enforced in SQL against the device's user.
@@ -173,7 +173,7 @@ describe('native background API', () => {
 
   it('returns the reconciliation snapshot for the fallback worker', async () => {
     query.mockImplementation((sql: string) => {
-      if (sql.includes('ORDER BY m.date')) return Promise.resolve({ rows: [{ id: 'msg-9', subject: 'Latest', from_name: '', from_email: 'bob@example.com', account_id: 'acct-1', folder: 'INBOX' }] });
+      if (sql.includes('ORDER BY m.date')) return Promise.resolve({ rows: [{ id: 'msg-9', subject: 'Latest', from_name: '', from_email: 'bob@example.com', account_id: 'acct-1', folder: 'INBOX', snippet: 'Latest preview text' }] });
       return Promise.resolve({ rows: [{ total: 2 }] });
     });
     const response = await fetch(`${base}/api/push/native/inbox`);
@@ -181,7 +181,22 @@ describe('native background API', () => {
     assert.ok(body.message);
     expect(body.eventId).toBe('msg-9');
     expect(body.message.title).toBe('bob@example.com');
+    expect(body.message.snippet).toBe('Latest preview text');
     expect(body.unreadCount).toBe(2);
+  });
+
+  it('leaves fallback wording to the device and trims the preview to 200 characters', async () => {
+    query.mockImplementation((sql: string) => {
+      if (sql.includes('COUNT(*)::int AS total')) return Promise.resolve({ rows: [{ total: 1 }] });
+      return Promise.resolve({ rows: [{ id: EVENT_ID, subject: null, from_name: null, from_email: null, account_id: 'acct-1', folder: 'INBOX', snippet: 'x'.repeat(250) }] });
+    });
+    const response = await fetch(`${base}/api/push/native/messages/${EVENT_ID}`);
+    const body = (await response.json()) as JsonBody;
+    assert.ok(body.message);
+    // No hardcoded English placeholders: the device picks the localized fallback.
+    expect(body.message.title).toBeNull();
+    expect(body.message.body).toBeNull();
+    expect((body.message.snippet as string)).toHaveLength(200);
   });
 
   it('answers the read-check with only the still-unread subset', async () => {
