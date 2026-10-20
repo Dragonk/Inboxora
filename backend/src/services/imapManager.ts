@@ -328,6 +328,41 @@ export function planModseqSync({ storedModseq, serverModseq, uidValidityChanged,
 // Body parts that cover ~99% of real-world email structures (used for full body caching)
 const BODY_PREFETCH_PARTS = ['1', '1.1', '1.2', '2', '2.1', '2.2', '1.1.1', '1.2.1'];
 
+// Gmail-style notification previews: the live sync is metadata-only (no body parts),
+// so freshly ingested rows carry no snippet yet. New mail is rare and the alert
+// candidates are few, so this re-fetches just their snippet text parts - bounded and
+// best-effort; on any failure the notification simply stays subject-only. The DB row
+// is updated too, so the native push endpoints and the message list see the same
+// preview without waiting for the background snippet indexer.
+async function hydrateAlertSnippets(
+  client: ImapClient,
+  folder: string,
+  account: EmailAccountRow,
+  rows: IngestUnreadMessage[],
+): Promise<void> {
+  const targets = rows.filter(row => row && row.uid !== undefined && row.uid !== null);
+  if (!targets.length) return;
+  const uids = targets.map(row => String(row.uid));
+  try {
+    for await (const msg of client.fetch(uids.join(','), {
+      uid: true, bodyStructure: true, bodyParts: BODY_PREFETCH_PARTS,
+    }, { uid: true })) {
+      try {
+        const parsed = await parseMessage(msg);
+        if (!parsed.snippet) continue;
+        const row = targets.find(r => String(r.uid) === String(msg.uid));
+        if (row) row.snippet = parsed.snippet;
+        await query(
+          `UPDATE messages SET snippet = $1
+            WHERE account_id = $2 AND uid = $3 AND folder = $4
+              AND (snippet IS NULL OR snippet = '')`,
+          [sanitizeStr(parsed.snippet), account.id, msg.uid, folder]
+        );
+      } catch { /* skip this row's snippet on parse/update failure */ }
+    }
+  } catch { /* best-effort: the notification falls back to subject-only */ }
+}
+
 // The flag-change scan in syncMessages gets its OWN budget, shorter than the whole-sync
 // wall-clock. When a provider throttles the connection (iCloud right after a startup backfill
 // burst), the flag scan crawls. A deferred delta scan simply retries next tick because its
@@ -3460,6 +3495,11 @@ export class ImapManager {
           // alertMessages: remaining messages not silenced by a mark_read rule.
           const alertMessages = newMessages.filter(m => !mutedIds.has(m.id));
           const alertCount = alertMessages.length;
+          if (folder === 'INBOX' && alertCount > 0) {
+            // Gmail-style preview: the sync is metadata-only, so fresh rows have no
+            // snippet yet; hydrate the few alert candidates before broadcasting.
+            await hydrateAlertSnippets(client, folder, account, alertMessages);
+          }
           if (newMessages.length > 0) manager.broadcast({
             type: 'new_messages', accountId: account.id,
             folder, messages: newMessages.slice(-5), count: newMessages.length,

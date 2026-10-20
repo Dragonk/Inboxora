@@ -69,8 +69,13 @@ public class InboxoraPushFetchWorker extends Worker {
 
             InboxoraNativePlugin.postNewMailNotification(
                 context,
-                message.optString("title", "New mail"),
-                message.optString("body", "You have new mail."),
+                InboxoraNotificationText.title(
+                    message, InboxoraNativeLocale.text(context, R.string.native_new_mail)),
+                InboxoraNotificationText.body(
+                    message,
+                    1,
+                    InboxoraNativeLocale.text(context, R.string.native_new_mail_body),
+                    InboxoraNativeLocale.text(context, R.string.native_new_mail_count)),
                 message.optString("messageId", null),
                 message.optString("accountId", null),
                 message.optString("folder", "INBOX"),

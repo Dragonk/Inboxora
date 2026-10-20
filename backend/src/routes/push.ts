@@ -31,6 +31,7 @@ interface MessageSummaryRow {
   from_name: string | null;
   from_email: string | null;
   subject: string | null;
+  snippet: string | null;
 }
 
 const router = Router();
@@ -131,13 +132,16 @@ function unreadTotalSql() {
             AND m.is_read = false AND m.is_deleted = false`;
 }
 
+// Raw message fields only: fallback wording is localized on the device,
+// so the server never forces English placeholders onto a notification.
 function messageSummary(row: MessageSummaryRow) {
   return {
     messageId: row.id,
     accountId: row.account_id,
     folder: row.folder,
-    title: row.from_name || row.from_email || 'New mail',
-    body: row.subject || '(no subject)',
+    title: row.from_name || row.from_email || null,
+    body: row.subject || null,
+    snippet: row.snippet ? row.snippet.slice(0, 200) : null,
   };
 }
 
@@ -150,7 +154,7 @@ router.get('/native/messages/:id', requireDeviceAuth, async (req: Request, res: 
   if (!UUID_RE.test(id)) return res.status(400).json({ error: 'Invalid message id' });
 
   const result = await query<MessageSummaryRow>(
-    `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder
+    `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder, m.snippet
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id
       WHERE m.id = $1 AND a.user_id = $2 AND m.is_deleted = false`,
@@ -172,7 +176,7 @@ router.get('/native/messages/:id', requireDeviceAuth, async (req: Request, res: 
 router.get('/native/inbox', requireDeviceAuth, async (req: Request, res: Response) => {
   const userId = deviceUserId(req);
   const latest = await query<MessageSummaryRow>(
-    `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder
+    `SELECT m.id, m.subject, m.from_name, m.from_email, m.account_id, m.folder, m.snippet
        FROM messages m
        JOIN email_accounts a ON a.id = m.account_id
       WHERE a.user_id = $1 AND a.enabled = true AND m.folder = 'INBOX'
