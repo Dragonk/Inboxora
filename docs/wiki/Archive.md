@@ -8,6 +8,7 @@ and URLs are unchanged so existing release links and bookmarks keep working.
 
 ## Previous releases
 
+- [4.4.2](Release-notes-4.4.2.md)
 - [4.4.1](Release-notes-4.4.1.md)
 - [4.4.0](Release-notes-4.4.0.md)
 - [4.3.8](Release-notes-4.3.8.md)

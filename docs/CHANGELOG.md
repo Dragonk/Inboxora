@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.4.2](wiki/Release-notes-4.4.2.md). Older release notes are collected in
+[Release notes 4.4.3](wiki/Release-notes-4.4.3.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -17,6 +17,11 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
+
+## [4.4.3] - 2026-10-20
+
+### Fixed
+- Horizontal one-finger panning of the pinch-zoomed message view on Android: while zoomed in, a one-finger drag moved the view vertically only, because the mobile swipe surfaces reserve horizontal drags for their JavaScript gestures (inline `touch-action: pan-y pinch-zoom`) and the pane edge swipe-back consumed them with `preventDefault()`. While the visual viewport is zoomed the swipe surfaces now relax to `touch-action: auto !important` and the horizontal gestures (drawer, swipe rows, pane swipe-back, floating-window drag zones) stand down through a shared zoomed-viewport gate, so the compositor pans the zoomed view in both axes with one finger.
 
 ## [4.4.2] - 2026-10-20
 
