@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.4.0](wiki/Release-notes-4.4.0.md). Older release notes are collected in
+[Release notes 4.4.1](wiki/Release-notes-4.4.1.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -18,7 +18,7 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
-## [Unreleased]
+## [4.4.1] - 2026-10-20
 
 ### Fixed
 - Pinch zoom in the message view on Android: the shrink-to-fit pass recomputed its scale whenever a pinch gesture reflowed the WebView layout, scaling the body right back down and silently cancelling the zoom. A viewport that shrank over unchanged content now keeps the fitted state, so the zoomed message pans inside the frame; zooming out, rotating the device or widening the pane re-derives the fit.

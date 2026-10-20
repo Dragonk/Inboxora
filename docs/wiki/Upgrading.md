@@ -59,6 +59,14 @@ docker compose logs --tail=100 backend
 Replace all backend replicas together. Allow startup migrations to finish before directing
 users to the new application, then check its health through the configured public URL.
 
+## Upgrading to 4.4.1
+
+From 4.4.0, use the standard upgrade steps and deploy matching backend and frontend
+**4.4.1** images or install the updated desktop/Android apps. There is no database
+migration, no new environment variable and no compose change. Android 4.4.1 uses
+`versionCode 4040100`; update the APK so its bundled web build keeps pinch zoom
+working. See [Release notes 4.4.1](Release-notes-4.4.1.md).
+
 ## Upgrading to 4.4.0
 
 From 4.3.8, use the standard upgrade steps and deploy matching backend and frontend

@@ -3,15 +3,14 @@
 **Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
 IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest release: **[Inboxora 4.4.0](Release-notes-4.4.0.md)**.
-[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.0) ·
-[Upgrading](Upgrading.md#upgrading-to-440) · [Archive](Archive.md)
+Latest release: **[Inboxora 4.4.1](Release-notes-4.4.1.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.1) ·
+[Upgrading](Upgrading.md#upgrading-to-441) · [Archive](Archive.md)
 
-4.4.0 improves how mail reads: wide fixed-layout emails fit the phone without horizontal
-scrolling, and light-designed emails are re-themed for the dark appearance the way Gmail
-renders them. It follows [4.3.8](Release-notes-4.3.8.md), which added MCP tools for calendar
-reminder settings, and [4.3.6](Release-notes-4.3.6.md)/[4.3.7](Release-notes-4.3.7.md), which
-brought native live push and calendar reminders.
+4.4.1 is a hotfix for 4.4.0: pinch zoom works again in the message view on Android, where
+the shrink-to-fit introduced in 4.4.0 cancelled the gesture mid-zoom. It follows
+[4.4.0](Release-notes-4.4.0.md), which made wide emails fit the phone without horizontal
+scrolling and re-themed light-designed emails for the dark appearance.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
@@ -37,9 +36,9 @@ brought native live push and calendar reminders.
 
 ## Release documentation
 
-[Release notes 4.4.0](Release-notes-4.4.0.md) contains the current maintenance changes,
+[Release notes 4.4.1](Release-notes-4.4.1.md) contains the current maintenance changes,
 limitations and upgrade instructions. **[Archive](Archive.md)** contains every older release-note
-page, including 4.3.8, 4.3.7 and 4.3.6. The Archive sidebar group is collapsed; existing page URLs and release
+page, including 4.4.0, 4.3.8 and 4.3.7. The Archive sidebar group is collapsed; existing page URLs and release
 bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for
 work after the latest release.
 
