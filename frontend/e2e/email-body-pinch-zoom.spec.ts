@@ -121,7 +121,9 @@ test('a pinch-zoomed viewport pans with one finger and releases the root overscr
   });
   const cdp = await page.context().newCDPSession(page);
   const resting = await panState(page);
-  expect(resting.scale).toBe(1);
+  // Same tolerance as the hook's isViewportZoomed: resting scale may carry
+  // float noise around 1 and still count as unzoomed.
+  expect(resting.scale).toBeLessThan(1.001);
   // At rest no inline override exists: the stylesheet's
   // `overscroll-behavior: none` (pull-to-refresh / history-swipe protection)
   // is the active value.
