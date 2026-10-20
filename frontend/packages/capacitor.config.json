@@ -3,7 +3,8 @@
   "appName": "Inboxora",
   "webDir": "../dist",
   "android": {
-    "path": "android"
+    "path": "android",
+    "zoomEnabled": true
   },
   "plugins": {
     "SystemBars": {

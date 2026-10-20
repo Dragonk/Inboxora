@@ -254,16 +254,20 @@ public class InboxoraLivePushService extends android.app.Service {
             if (message == null) continue;
             String id = message.optString("id", null);
             if (id == null || id.isEmpty()) continue;
-            String from = message.optString("fromName", null);
-            if (from == null || from.isEmpty()) from = message.optString("fromEmail", null);
-            String title = (from == null || from.isEmpty())
-                ? InboxoraNativeLocale.text(this, R.string.native_new_mail)
-                : from;
-            String bodyText = message.optString("subject", null);
-            if (bodyText == null || bodyText.isEmpty()) {
-                bodyText = InboxoraNativeLocale.text(this, R.string.native_new_mail_body);
-            }
-            InboxoraNativePlugin.postNewMailNotification(this, title, bodyText, id, accountId, "INBOX", null);
+            InboxoraNativePlugin.postNewMailNotification(
+                this,
+                InboxoraNotificationText.title(
+                    message, InboxoraNativeLocale.text(this, R.string.native_new_mail)),
+                InboxoraNotificationText.body(
+                    message,
+                    1,
+                    InboxoraNativeLocale.text(this, R.string.native_new_mail_body),
+                    InboxoraNativeLocale.text(this, R.string.native_new_mail_count)),
+                id,
+                accountId,
+                "INBOX",
+                null
+            );
         }
     }
 

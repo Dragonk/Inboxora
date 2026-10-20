@@ -7,25 +7,27 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.4.1-informational" alt="Version 4.4.1">
+  <img src="https://img.shields.io/badge/version-4.4.2-informational" alt="Version 4.4.2">
 </p>
 
 Inboxora brings email, contacts and calendars into one self-hosted workspace. Use existing
 accounts over **IMAP/SMTP**, or connect **Gmail, Google Calendar and People APIs** and
 **Microsoft Graph**. CalDAV and CardDAV keep your other applications and devices connected.
 
-**Current release: 4.4.1.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.1)
+**Current release: 4.4.2.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.2)
 or deploy the versioned Docker images. Full documentation lives in the
 [Wiki](https://github.com/Dragonk/Inboxora/wiki).
 
-## What's new in 4.4.1
+## What's new in 4.4.2
 
-- **Pinch zoom works again.** The 4.4.0 shrink-to-fit re-derived its scale on every layout pass,
-  which cancelled a pinch zoom in the Android app mid-gesture; the fit now keeps its state while
-  the viewport shrinks, so the zoomed message pans instead of snapping back.
+- **One-finger panning after pinch zoom.** The zoomed message view on Android can now be panned
+  with a single finger; the overscroll lock that protects against pull-to-refresh no longer
+  swallows the drag over the zoomed viewport, and pinch zoom is explicitly enabled in the APK.
+- **Gmail-style notifications, localized.** New-mail notifications show the sender, the subject and
+  a short preview of the body in the phone's language instead of a generic English card.
 
-See the release notes for [4.4.1](docs/wiki/Release-notes-4.4.1.md) and
-[4.4.0](docs/wiki/Release-notes-4.4.0.md) for the full changes and upgrade notes.
+See the release notes for [4.4.2](docs/wiki/Release-notes-4.4.2.md) and
+[4.4.1](docs/wiki/Release-notes-4.4.1.md) for the full changes and upgrade notes.
 
 ## Highlights
 
@@ -95,10 +97,10 @@ Use Docker Compose with the prebuilt release images:
 
 ```bash
 mkdir inboxora && cd inboxora
-curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.1/docker-compose.ghcr.yml
-curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.1/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.2/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.2/.env.example
 # Edit .env: set APP_URL, SESSION_SECRET, DB_PASSWORD and ENCRYPTION_KEY.
-# Add INBOXORA_VERSION=4.4.1 to pin both app images.
+# Add INBOXORA_VERSION=4.4.2 to pin both app images.
 docker compose up -d
 docker compose ps
 ```
@@ -109,8 +111,8 @@ and Redis use persistent storage. Keep `.env` private and preserve
 not expose internal service ports publicly. The Wiki covers proxy, DAV and notification setup.
 
 ```text
-ghcr.io/dragonk/inboxora-backend:4.4.1
-ghcr.io/dragonk/inboxora-frontend:4.4.1
+ghcr.io/dragonk/inboxora-backend:4.4.2
+ghcr.io/dragonk/inboxora-frontend:4.4.2
 ```
 
 Both images support AMD64 and ARM64. `latest` follows the current stable release; `dev` is a
@@ -118,7 +120,7 @@ separate, mutable test build. Native apps connect to your server rather than rep
 
 **Upgrading?** Back up PostgreSQL and the matching `.env`, retain your current database/volume
 names, and update backend and frontend together. Startup applies the migration chain through
-**0173**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-441); do not delete an
+**0173**. Follow the [upgrade guide](docs/wiki/Upgrading.md#upgrading-to-442); do not delete an
 account, reset cursors or recreate volumes to clear a migration error.
 
 ## Platforms
