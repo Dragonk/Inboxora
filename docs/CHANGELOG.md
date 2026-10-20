@@ -18,6 +18,14 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
+## [Unreleased]
+
+### Fixed
+- One-finger panning of a pinch-zoomed message view on Android: the root-level `overscroll-behavior: none` lock (kept for pull-to-refresh and history-swipe protection) stopped WebView builds from handing a one-finger drag over to the zoomed visual viewport, so after pinching the view could only be panned with a two-finger drag. The lock is now released while `visualViewport.scale > 1` and the stylesheet value applies again at rest.
+
+### Changed
+- Pinch zoom is now explicitly enabled in the Android WebView (`android.zoomEnabled` in the Capacitor config). Capacitor disables WebView zoom by default, so on most devices the APK had no pinch zoom at all; the config now makes the intended behaviour explicit on every device.
+
 ## [4.4.1] - 2026-10-20
 
 ### Fixed

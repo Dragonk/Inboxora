@@ -14,6 +14,7 @@ import { useWebSocket } from '../hooks/useWebSocket.ts';
 import { useBackLayer, useBackNavigation } from '../hooks/useBackNavigation.ts';
 import { useMobile } from '../hooks/useMobile.ts';
 import { useMobileDrawerGesture } from '../hooks/useMobileDrawerGesture.ts';
+import { useZoomedViewportPan } from '../hooks/useZoomedViewportPan.ts';
 import { useCompactLayout } from '../hooks/useCompactLayout.ts';
 import { Button, PanelResizeHandle } from './ui.tsx';
 import { MobileHeaderHost } from './MobileModuleHeader.tsx';
@@ -374,6 +375,14 @@ export default function MailApp() {
     // Changing account or module invalidates an in-flight sequence.
     resetKey: `${selectedAccountId ?? ''}:${showContacts}:${showCalendar}:${showScheduled}`,
   });
+
+  // While the visual viewport is pinch-zoomed in, release the root-level
+  // `overscroll-behavior: none` lock (src/index.css) so a one-finger drag can pan
+  // the zoomed view instead of being swallowed by the root scroller. At scale 1
+  // the stylesheet value - and its pull-to-refresh protection - applies again.
+  // The gate is touch capability, not the mobile layout: a phone in landscape
+  // leaves the mobile layout but the WebView can still be pinched.
+  useZoomedViewportPan(isMobile || navigator.maxTouchPoints > 0);
 
   // Keep the right sidebar's width CSS var in sync with the persisted preference.
   useEffect(() => {
