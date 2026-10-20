@@ -7355,6 +7355,7 @@ function RulesTab() {
         return (
           <div
             key={rule.id}
+            data-swipe-surface={ true }
             className="no-callout au-rule-card"
             onDragOver={e => {
               e.preventDefault();
@@ -7374,7 +7375,7 @@ function RulesTab() {
               padding: '12px 14px',
               marginBottom: 8,
               borderRadius: 8,
-              touchAction: 'pan-y',
+              touchAction: 'pan-y pinch-zoom',
               background: 'var(--bg-primary)',
               opacity: isDragging ? 0.4 : 1,
               border: '1px solid var(--border)',

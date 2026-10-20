@@ -2,8 +2,10 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isRowGestureSuppressed,
+  isVisualViewportZoomed,
   resetGestureArbitration,
   setRowGestureSuppressed,
+  setVisualViewportZoomed,
 } from './mobileGestureArbiter.ts';
 
 describe('mobile gesture arbiter', () => {
@@ -31,5 +33,29 @@ describe('mobile gesture arbiter', () => {
     setRowGestureSuppressed(true);
     resetGestureArbitration();
     assert.equal(isRowGestureSuppressed(), false);
+  });
+});
+
+describe('visual viewport zoom state', () => {
+  beforeEach(() => {
+    resetGestureArbitration();
+    setVisualViewportZoomed(false);
+  });
+
+  it('starts unzoomed so horizontal gestures behave normally', () => {
+    assert.equal(isVisualViewportZoomed(), false);
+  });
+
+  it('marks the zoomed viewport as the owner of every drag', () => {
+    setVisualViewportZoomed(true);
+    assert.equal(isVisualViewportZoomed(), true);
+  });
+
+  it('is independent of row suppression state', () => {
+    setRowGestureSuppressed(true);
+    setVisualViewportZoomed(true);
+    assert.equal(isVisualViewportZoomed(), true);
+    setVisualViewportZoomed(false);
+    assert.equal(isRowGestureSuppressed(), true);
   });
 });

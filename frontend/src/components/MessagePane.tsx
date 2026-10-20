@@ -3,6 +3,7 @@ import { requestMailRefresh } from '../utils/mailRefresh.ts';
 import { useBackLayer } from '../hooks/useBackNavigation.ts';
  
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import { isVisualViewportZoomed } from '../hooks/mobileGestureArbiter.ts';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store/index.ts';
 // CE v2 conversation reader — lazy so single-message users never load it.
@@ -978,15 +979,21 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     if (!el) return;
 
     let startX = 0, startY = 0, dir: 'h' | 'v' | null = null, active = false, fromEdge = false;
+    // Set when the sequence starts while the pinch-zoomed viewport owns drags;
+    // the whole sequence is then ignored so the compositor can pan the zoomed
+    // view horizontally (this gesture's preventDefault was the blocker).
+    let ignored = false;
 
     const onStart = (e: TouchEvent) => {
       const t = e.touches[0];
+      ignored = isVisualViewportZoomed();
       startX = t.clientX; startY = t.clientY;
       fromEdge = t.clientX <= 32;
       dir = null; active = false;
     };
 
     const onMove = (e: TouchEvent) => {
+      if (ignored) return;
       const t = e.touches[0];
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
@@ -1009,6 +1016,10 @@ export default function MessagePane({ windowMessageId = null, onWindowClose = nu
     };
 
     const onEnd = (e: TouchEvent) => {
+      if (ignored) {
+        ignored = false;
+        return;
+      }
       if (!active) return;
       active = false;
       const dx = e.changedTouches[0].clientX - startX;

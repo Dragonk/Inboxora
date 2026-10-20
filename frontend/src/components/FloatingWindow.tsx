@@ -179,6 +179,7 @@ export default function FloatingWindow({
       {/* Title bar — drag handle */}
       {!contentTitlebar && <div
         className="mailflow-window-titlebar"
+        data-swipe-surface={ true }
         onPointerDown={beginTitleDrag}
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
@@ -233,6 +234,7 @@ export default function FloatingWindow({
       {/* Bottom-right resize handle */}
       <div
         onPointerDown={beginResize}
+        data-swipe-surface={ true }
         title=""
         style={{
           position: 'absolute', right: 0, bottom: 0, width: 18, height: 18,

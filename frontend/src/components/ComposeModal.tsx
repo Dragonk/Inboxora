@@ -3855,6 +3855,7 @@ export function ChipInput({ disabled = false, inputTestId, chips, onChipsChange,
       {!disabled && suggestions.length > 0 && dropStyle && (
         <div
           onMouseDown={ (e: React.MouseEvent<HTMLElement>) => e.preventDefault()} /* keep the input focused; don't clear on interaction */
+          data-swipe-surface={ true }
           style={{
             position: 'fixed',
             top: descale(dropStyle.top, uiScale), left: descale(dropStyle.left, uiScale), width: descale(dropStyle.width, uiScale),
@@ -3862,7 +3863,7 @@ export function ChipInput({ disabled = false, inputTestId, chips, onChipsChange,
             zIndex: 9800,
             background: 'var(--bg-elevated)', border: '1px solid var(--border)',
             borderRadius: 8, boxShadow: 'var(--shadow-popover)',
-            overflowY: 'auto', overflowX: 'hidden', touchAction: 'pan-y',
+            overflowY: 'auto', overflowX: 'hidden', touchAction: 'pan-y pinch-zoom',
             WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain',
           }}>
           {suggestions.map((contact, i) => (

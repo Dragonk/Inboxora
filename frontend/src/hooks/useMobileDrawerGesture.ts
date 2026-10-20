@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { IDLE_GESTURE_STATE, stepGesture } from './mobileGestureMachine.ts';
 import type { GestureContext, GestureState } from './mobileGestureMachine.ts';
-import { resetGestureArbitration, setRowGestureSuppressed } from './mobileGestureArbiter.ts';
+import { resetGestureArbitration, setRowGestureSuppressed, isVisualViewportZoomed } from './mobileGestureArbiter.ts';
 
 export interface UseMobileDrawerGestureOptions {
   /** Mobile viewport. The gesture is desktop-inert. */
@@ -160,6 +160,13 @@ export function useMobileDrawerGesture(options: UseMobileDrawerGestureOptions): 
         abort(false);
         return;
       }
+      // While pinch-zoomed the visual viewport owns every drag: never start a
+      // sequence (the capture-phase preventDefault on owned moves would kill
+      // the compositor's horizontal pan of the zoomed view).
+      if (isVisualViewportZoomed()) {
+        stateRef.current = IDLE_GESTURE_STATE;
+        return;
+      }
       const rect = surface.getBoundingClientRect();
       const drawer = latest.current.drawerRef.current;
       const drawerRect = drawer?.getBoundingClientRect();
@@ -187,6 +194,12 @@ export function useMobileDrawerGesture(options: UseMobileDrawerGestureOptions): 
     const onTouchMove = (e: TouchEvent) => {
       const state = stateRef.current;
       if (state.phase !== 'pending' && state.phase !== 'owned') return;
+      // The pinch zoom crossed the threshold mid-sequence: hand the drag to
+      // the visual viewport instead of claiming the remaining moves.
+      if (isVisualViewportZoomed()) {
+        abort(false);
+        return;
+      }
       const touch = e.touches[0];
       if (!touch) return;
       const result = stepGesture(state, {
