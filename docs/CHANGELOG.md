@@ -18,6 +18,10 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
+## [Unreleased]
+
+### Fixed
+- Pinch zoom in the message view on Android: the shrink-to-fit pass recomputed its scale whenever a pinch gesture reflowed the WebView layout, scaling the body right back down and silently cancelling the zoom. A viewport that shrank over unchanged content now keeps the fitted state, so the zoomed message pans inside the frame; zooming out, rotating the device or widening the pane re-derives the fit.
 ## [4.4.0] - 2026-10-19
 
 ### Fixed
