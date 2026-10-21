@@ -301,7 +301,7 @@ async function deleteProviderDraftByIdentity(userId: string, identity: ExistingD
     const messageId = await gmailDraftMessageIdForLocalRow(previous.id, identity.uid, identity.folder);
     if (!messageId) return false;
     const api = { userId, connectionId: target.connectionId, config: target.config };
-    const draftId = await findGmailDraftIdForMessage(api, messageId);
+    const draftId = await findGmailDraftIdForMessage(api, messageId, { attempts: 2, delayMs: 400 });
     if (!draftId) return false;
     await deleteGmailUserDraft(api, draftId);
   } else {
@@ -379,6 +379,14 @@ router.post('/draft', async (req, res) => {
         await deleteGraphUserDraft(api, saved.supersededId)
           .catch(caught => console.error(`Draft: failed to remove superseded provider draft: ${toAppError(caught).message}`));
       }
+      // A superseded Graph draft received a fresh provider id, so the local row mirroring the
+      // old id must not survive as a second draft next to the row this save just recorded.
+      if (sameAccountDraft && record.rowId) {
+        await query(
+          'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id <> $4',
+          [account.id, String(sameAccountDraft.uid), sameAccountDraft.folder, record.rowId],
+        );
+      }
       if (existingDraft && existingDraft.accountId !== account.id) {
         await deleteProviderDraftByIdentity(sessionUserId(req), existingDraft)
           .catch(caught => console.error(`Draft: failed to remove the previous account's provider draft: ${toAppError(caught).message}`));
@@ -404,7 +412,10 @@ router.post('/draft', async (req, res) => {
       const existingMessageId = sameAccountDraft
         ? await gmailDraftMessageIdForLocalRow(account.id, sameAccountDraft.uid, sameAccountDraft.folder)
         : null;
-      const existingDraftId = existingMessageId ? await findGmailDraftIdForMessage(api, existingMessageId) : null;
+      // drafts.list is eventually consistent: a draft saved moments ago can be absent from
+      // the listing, and treating that as "no such draft" creates a second provider draft
+      // while the first one survives. The lookup is retried before that conclusion is drawn.
+      const existingDraftId = existingMessageId ? await findGmailDraftIdForMessage(api, existingMessageId, { attempts: 3, delayMs: 750 }) : null;
       let parentThreadId: string | null = null;
       const physicalParentId = typeof replyToMessageId === 'string' && replyToMessageId ? replyToMessageId : null;
       const durableParentId = typeof replyParentMessageId === 'string' && replyParentMessageId.trim()
@@ -469,6 +480,27 @@ router.post('/draft', async (req, res) => {
       if (saved.supersededId) {
         await deleteGmailUserDraft(api, saved.supersededId)
           .catch(caught => console.error(`Draft: failed to remove superseded Gmail draft: ${toAppError(caught).message}`));
+      }
+      // The drafts.list lookup above can lag a just-saved draft: when it missed, the save created
+      // a fresh provider draft while the previous one is still at Gmail. The listing has usually
+      // caught up by now, so the superseded draft is resolved again and removed. A miss here is
+      // logged, never fatal — the next sync surfaces it if it survives.
+      if (existingMessageId && saved.created && !saved.supersededId) {
+        const staleDraftId = await findGmailDraftIdForMessage(api, existingMessageId, { attempts: 2, delayMs: 500 });
+        if (staleDraftId) {
+          await deleteGmailUserDraft(api, staleDraftId)
+            .catch(caught => console.error(`Draft: failed to remove the superseded Gmail draft after a late lookup: ${toAppError(caught).message}`));
+        }
+      }
+      // Gmail mints a new message id for every saved version of a draft, so the row the composer
+      // held is superseded by the row this save just recorded. Without this delete every autosave
+      // left the previous row behind and the Drafts list accumulated one visible "version" per
+      // save, even though Gmail held a single draft object.
+      if (sameAccountDraft && record.rowId) {
+        await query(
+          'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND id <> $4',
+          [account.id, String(sameAccountDraft.uid), sameAccountDraft.folder, record.rowId],
+        );
       }
       if (existingDraft && existingDraft.accountId !== account.id) {
         await deleteProviderDraftByIdentity(sessionUserId(req), existingDraft)
@@ -605,10 +637,13 @@ router.delete('/draft/:uid', async (req, res) => {
       const api = { userId: sessionUserId(req), connectionId: target.connectionId, config: target.config };
       const messageId = await gmailDraftMessageIdForLocalRow(account.id, uid, folder);
       if (!messageId) return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
-      const draftId = await findGmailDraftIdForMessage(api, messageId);
-      // A draft the provider no longer holds is the end state the caller asked for, so
-      // the local row still goes; only a provider refusal stops the removal.
-      if (draftId) await deleteGmailUserDraft(api, draftId);
+      // The drafts.list read is eventually consistent, so the lookup is retried before it is
+      // believed. A miss that survives the retries is ambiguous between "already gone" and
+      // "the listing lags": dropping the local row on a lagging miss is exactly what let the
+      // next sync resurrect the draft, so the row is retained and the sync reconciles it.
+      const draftId = await findGmailDraftIdForMessage(api, messageId, { attempts: 3, delayMs: 500 });
+      if (!draftId) return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
+      await deleteGmailUserDraft(api, draftId);
       await query(
         'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND provider_message_id = $4',
         [account.id, uid, folder, messageId],

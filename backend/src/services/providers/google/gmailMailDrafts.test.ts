@@ -167,4 +167,49 @@ describe('resolving the draft id from the message identity', () => {
     await expect(findGmailDraftIdForMessage(OPTIONS, 'msg-1')).resolves.toBeNull();
     expect(requests).toBe(10);
   });
+
+  it('retries the listing before concluding the draft is gone', async () => {
+    let requests = 0;
+    const sleeps: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      requests += 1;
+      return jsonResponse({ drafts: requests >= 3 ? [DRAFT] : [] });
+    }));
+
+    // Gmail's list reads are eventually consistent: a just-saved draft can be absent from the
+    // first listing, and answering null on that miss is what leaked a second provider draft.
+    await expect(findGmailDraftIdForMessage(OPTIONS, 'msg-1', {
+      attempts: 3, delayMs: 120, sleep: async ms => { sleeps.push(ms); },
+    })).resolves.toBe('draft-1');
+    expect(requests).toBe(3);
+    expect(sleeps).toEqual([120, 120]);
+  });
+
+  it('waits between attempts but not after the last one', async () => {
+    let requests = 0;
+    const sleeps: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      requests += 1;
+      return jsonResponse({ drafts: [] });
+    }));
+
+    await expect(findGmailDraftIdForMessage(OPTIONS, 'msg-1', {
+      attempts: 2, delayMs: 50, sleep: async ms => { sleeps.push(ms); },
+    })).resolves.toBeNull();
+    expect(requests).toBe(2);
+    expect(sleeps).toEqual([50]);
+  });
+
+  it('caps the retry budget so a lagging listing cannot stall a save', async () => {
+    let requests = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      requests += 1;
+      return jsonResponse({ drafts: [] });
+    }));
+
+    await expect(findGmailDraftIdForMessage(OPTIONS, 'msg-1', {
+      attempts: 99, delayMs: 1, sleep: async () => undefined,
+    })).resolves.toBeNull();
+    expect(requests).toBe(5);
+  });
 });

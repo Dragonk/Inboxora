@@ -27,6 +27,7 @@ import { resolveSenderIdentity } from '../services/senderIdentity.js';
 import { resolveIncomingBodyIsHtml, resolveOutgoingBodyIsHtml } from '../services/composeFormat.js';
 import { resolveGraphMessageIdentity } from '../services/providers/microsoft/graphLegacyMessageBindings.js';
 import { recordReplyDiagnostic } from '../services/diagnosticsRing.js';
+import { consumeSentDrafts } from './sentDraftConsumption.js';
 import type { InlineAttachment } from '../utils/inlineImages.js';
 
 /** One client-supplied attachment of an outgoing message (base64 payload). */
@@ -107,6 +108,14 @@ export interface SendRequestBody {
   editedSignatureIsHtml?: boolean;
   forwardedAttachments?: ForwardedAttachmentRef[];
   priority?: string;
+  /**
+   * The composer's saved draft this send supersedes, as the draft save identified it. Once
+   * delivery is confirmed the draft is consumed — the provider object removed and the local
+   * rows deleted — so no draft survives the message it became.
+   */
+  existingDraft?: { accountId: string; uid: number | string; folder: string; uidValidity?: number | string | null };
+  /** A draft row an MCP compose flow saved and this send supersedes; consumed the same way. */
+  draftMessageId?: string;
 }
 
 type EmailPriority = 'high' | 'normal' | 'low';
@@ -1324,6 +1333,14 @@ export async function executeSend(userId: string, payload: SendRequestBody, idem
       }
     }
 
+    // The delivered message supersedes the composer's saved draft: the provider object and
+    // its local rows are removed here, so a draft never survives the message it became. The
+    // client's own fire-and-forget delete stays as a fallback; this server-side consumption is
+    // what closes the gap for MCP sends, which have no client to clean up after them.
+    if (!rejectedRecipients.length) {
+      await consumeSentDrafts(userId, payload)
+        .catch(caught => console.error(`Post-send draft cleanup failed: ${toAppError(caught).message}`));
+    }
     const sendResult: { ok: boolean; sentReference?: typeof sentReference; sentCopySaved?: boolean; sentFolder?: string; accepted?: string[]; rejected?: string[]; partialDelivery?: boolean } = { ok: true, ...(sentReference ? { sentReference } : {}) };
     // A server can accept some RCPT commands and reject others without throwing. Preserve
     // that non-retryable partial outcome so the client never assumes every recipient got it.
