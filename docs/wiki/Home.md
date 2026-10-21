@@ -3,15 +3,15 @@
 **Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
 IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest release: **[Inboxora 4.4.3](Release-notes-4.4.3.md)**.
-[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.3) ·
-[Upgrading](Upgrading.md#upgrading-to-443) · [Archive](Archive.md)
+Latest release: **[Inboxora 4.4.4](Release-notes-4.4.4.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.4) ·
+[Upgrading](Upgrading.md#upgrading-to-444) · [Archive](Archive.md)
 
-4.4.3 completes one-finger panning of the pinch-zoomed Android message view: a one-finger
-drag now moves the zoomed view in both axes, because the app's own swipe gestures stand down
-while it is zoomed. It follows [4.4.2](Release-notes-4.4.2.md), which unlocked vertical panning
-and made new-mail notifications read like Gmail's, and [4.4.1](Release-notes-4.4.1.md), which kept
-pinch zoom working during WebView reflows.
+4.4.4 repairs the draft lifecycle across Gmail, Microsoft Graph and IMAP/SMTP accounts: a
+composed email leaves exactly one draft while it is being written and none after it is sent.
+It follows [4.4.3](Release-notes-4.4.3.md), which completed one-finger panning of the
+pinch-zoomed Android message view, and [4.4.2](Release-notes-4.4.2.md), which unlocked vertical
+panning and made new-mail notifications read like Gmail's.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
@@ -37,9 +37,9 @@ pinch zoom working during WebView reflows.
 
 ## Release documentation
 
-[Release notes 4.4.3](Release-notes-4.4.3.md) contains the current maintenance changes,
+[Release notes 4.4.4](Release-notes-4.4.4.md) contains the current maintenance changes,
 limitations and upgrade instructions. **[Archive](Archive.md)** contains every older release-note
-page, including 4.4.2, 4.4.1 and 4.4.0. The Archive sidebar group is collapsed; existing page URLs and release
+page, including 4.4.3, 4.4.2 and 4.4.1. The Archive sidebar group is collapsed; existing page URLs and release
 bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for
 work after the latest release.
 

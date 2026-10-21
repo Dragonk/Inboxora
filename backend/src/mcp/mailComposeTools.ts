@@ -27,6 +27,9 @@ export const composeShape = {
 };
 const _composeSchema = z.object(composeShape);
 type Compose = z.output<typeof _composeSchema>;
+/** A send may name the saved draft it supersedes so the draft is consumed on delivery. */
+type ComposeSend = Compose & { draftMessageId?: string };
+const draftCleanupRef = id.optional().describe('The saved draft this send replaces. Once delivery is confirmed the draft is removed, so no draft survives the sent message. Omit unless a draft of this message was already saved.');
 async function authorizeCompose(grant: Grant, args: Compose): Promise<void> {
   await requireAccount(grant, args.accountId);
   if (args.forwardedAttachments.length) requireScope(grant, 'mail.read');
@@ -36,7 +39,7 @@ async function authorizeCompose(grant: Grant, args: Compose): Promise<void> {
     if (!alias.rows.length) throw new McpError('SENDER_UNAVAILABLE', 'The selected sender alias is unavailable.', 404);
   }
 }
-async function composePayload(grant: Grant, args: Compose): Promise<SendRequestBody> {
+async function composePayload(grant: Grant, args: ComposeSend): Promise<SendRequestBody> {
   const account = (await query<EmailAccountRow>('SELECT * FROM email_accounts WHERE id=$1 AND user_id=$2 AND enabled=true', [args.accountId, grant.user_id])).rows[0];
   if (!account) throw new McpError('RESOURCE_UNAVAILABLE', 'Sending account is unavailable.', 404);
   const bytes = args.attachments.map(item => Buffer.from(item.content, 'base64'));
@@ -47,6 +50,7 @@ async function composePayload(grant: Grant, args: Compose): Promise<SendRequestB
     to: args.to, cc: args.cc ?? account.default_cc ?? [], bcc: args.bcc ?? account.default_bcc ?? [],
     subject: args.subject, body: args.body, bodyIsHtml: args.bodyIsHtml, attachments: resolvedAttachments,
     forwardedAttachments: [], priority: args.priority,
+    ...(args.draftMessageId ? { draftMessageId: args.draftMessageId } : {}),
     ...(args.signature !== undefined ? { editedSignature: args.signature, editedSignatureIsHtml: args.signatureIsHtml } : {}) };
 }
 async function materializeAttachments(grant: Grant, args: Compose) {
@@ -91,7 +95,7 @@ async function dispatchPrepared(grant: Grant, operationId: string, prepared: Rec
       catch { return false; }
     } });
 }
-async function replyPayload(grant: Grant, args: Compose & { messageId: string }, kind: 'reply' | 'reply_all' | 'forward'): Promise<SendRequestBody> {
+async function replyPayload(grant: Grant, args: ComposeSend & { messageId: string }, kind: 'reply' | 'reply_all' | 'forward'): Promise<SendRequestBody> {
   const source = await requireMessage(grant, args.messageId);
   const metadata = await domainRead(grant.user_id, `/mail/messages/${args.messageId}`);
   const body = await domainRead(grant.user_id, `/mail/messages/${args.messageId}/body`);
@@ -114,6 +118,12 @@ async function authorizeDraft(grant: Grant, args: Compose & { messageId?: string
   }
   const folder = account.folder_mappings?.drafts ?? (await query<{ path: string }>("SELECT path FROM folders WHERE account_id=$1 AND special_use=$2 ORDER BY path LIMIT 1", [args.accountId, '\\Drafts'])).rows[0]?.path ?? 'Drafts';
   await requireFolder(grant, args.accountId, folder);
+}
+
+/** A send may name the draft it supersedes: it must be a draft of the sending account. */
+async function authorizeDraftCleanup(grant: Grant, args: ComposeSend): Promise<void> {
+  if (!args.draftMessageId) { await authorizeCompose(grant, args); return; }
+  await authorizeDraft(grant, { ...args, messageId: args.draftMessageId });
 }
 async function prepareDraft(grant: Grant, args: Compose & { messageId?: string }): Promise<Record<string, unknown>> {
   const payload = await composePayload(grant, args);
@@ -167,17 +177,17 @@ export const mailComposeTools = [
       body:composition.authoredBody ?? body.text ?? plainMailText(body.html),bodyIsHtml:composition.bodyIsHtml===true,priority:composition.priority ?? 'normal',
       attachments:records(body.attachments).map(item=>({messageId:args.messageId,part:item.part,filename:item.filename,type:item.type,size:item.size}))},contentIsUntrusted:true};
   }),
-  writeTool('send_email', 'Compose and send a new email through its account provider. Recipients are explicit; omitted CC/BCC and alias use account defaults. Omit signature to use the selected sender configured signature, provide signature to override it for this message, or provide an empty signature to suppress it. The exact resolved signature is shown in the approval preview. An explicit empty CC/BCC disables recipient defaults.', 'mail.send', composeShape,
-    authorizeCompose, (grant, _args, operationId, prepared) => dispatchPrepared(grant, operationId, prepared),
+  writeTool('send_email', 'Compose and send a new email through its account provider. Recipients are explicit; omitted CC/BCC and alias use account defaults. Omit signature to use the selected sender configured signature, provide signature to override it for this message, or provide an empty signature to suppress it. The exact resolved signature is shown in the approval preview. An explicit empty CC/BCC disables recipient defaults. When a draft of this message was already saved, pass draftMessageId so the draft is removed once delivery is confirmed.', 'mail.send', { ...composeShape, draftMessageId: draftCleanupRef },
+    authorizeDraftCleanup, (grant, _args, operationId, prepared) => dispatchPrepared(grant, operationId, prepared),
     async (grant, args) => prepareMail(grant, await composePayload(grant, args))),
   ...(['reply', 'reply_all', 'forward'] as const).map(kind => writeTool(`${kind}_email`,
     `${kind === 'forward' ? 'Forward an email' : kind === 'reply_all' ? 'Reply to all intended recipients of an email' : 'Reply to an email'}. Supply the exact to/cc/bcc lists after reading the original headers; Inboxora never guesses recipients. Original body and attachments are frozen before approval. Omit signature to use the selected sender configured signature, provide signature to override it for this message, or provide an empty signature to suppress it. The exact resolved signature is frozen and shown before approval.`,
-    'mail.send', { ...composeShape, messageId: id }, async (grant, args) => { requireScope(grant, 'mail.read'); await requireMessage(grant, args.messageId); await authorizeCompose(grant, args); },
+    'mail.send', { ...composeShape, messageId: id, draftMessageId: draftCleanupRef }, async (grant, args) => { requireScope(grant, 'mail.read'); await requireMessage(grant, args.messageId); await authorizeDraftCleanup(grant, args); },
     (grant, _args, operationId, prepared) => dispatchPrepared(grant, operationId, prepared),
     async (grant, args) => prepareMail(grant, await replyPayload(grant, args, kind)))),
-  writeTool('create_draft', 'Save a new draft using the account provider, selected/default alias and signature. Does not send. Empty recipient lists are allowed. Forwarded attachments are frozen before approval.', 'mail.draft', composeShape,
+  writeTool('create_draft', 'Save a new draft using the account provider, selected/default alias and signature. Does not send. Empty recipient lists are allowed. Forwarded attachments are frozen before approval. Each call saves a separate draft: to revise one, read it with get_draft and replace it with update_draft instead of calling create_draft again.', 'mail.draft', composeShape,
     authorizeDraft, (grant, _args, operationId, prepared) => dispatchDraft(grant, operationId, prepared), prepareDraft),
-  writeTool('update_draft', 'Replace the editable fields and attachments of an existing draft. Read it first and supply every field to preserve; omitted CC/BCC use account defaults. This never sends the draft.', 'mail.draft', { ...composeShape, messageId: id },
+  writeTool('update_draft', 'Replace the editable fields and attachments of an existing draft, in place. Read it first and supply every field to preserve; omitted CC/BCC use account defaults. This never sends the draft; when it is later sent, pass its messageId as draftMessageId to the send tool so the draft is removed.', 'mail.draft', { ...composeShape, messageId: id },
     async (grant, args) => { requireScope(grant, 'mail.read'); await authorizeDraft(grant, args); },
     (grant, args, operationId, prepared) => dispatchDraft(grant, operationId, prepared, args.messageId), prepareDraft),
 ];

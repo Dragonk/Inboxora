@@ -25,13 +25,13 @@ candidates for testing only and must not be used for a server people depend on.
 
    ```bash
    mkdir inboxora && cd inboxora
-   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.3/docker-compose.ghcr.yml
+   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.4/docker-compose.ghcr.yml
    mv docker-compose.ghcr.yml docker-compose.yml
-   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.3/.env.example
+   curl -O https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.4/.env.example
    cp .env.example .env
    ```
 
-2. Set a pinned `INBOXORA_VERSION` in `.env` (`4.4.3`) instead of relying on a
+2. Set a pinned `INBOXORA_VERSION` in `.env` (`4.4.4`) instead of relying on a
    mutable tag.
 
 3. Generate unique secrets and write them into `.env`:
@@ -185,14 +185,14 @@ procedure with its own traps around database and volume names: see
 [Migrating from MailFlow](Migrating-from-MailFlow.md). Only MailFlow 3.3.0 is supported as a
 migration source.
 
-## Application downloads for 4.4.3
+## Application downloads for 4.4.4
 
-The [4.4.3 release](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.3) provides a Windows
+The [4.4.4 release](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.4) provides a Windows
 installer, Linux DEB/RPM packages for x64 and ARM64, and Android APK/AAB files. These clients
 connect to your server. Install the APK directly on Android; the AAB is for distribution tooling.
-The Android versionCode is **4040300**, above 4.4.2, and uses the existing release identity.
+The Android versionCode is **4040400**, above 4.4.3, and uses the existing release identity.
 Checksums and their detached GPG signature accompany the downloads. No macOS package is published.
 
-Stable backend/frontend tags are `4.4.3`, `v4.4.3` and `latest`, with both AMD64 and ARM64 in
+Stable backend/frontend tags are `4.4.4`, `v4.4.4` and `latest`, with both AMD64 and ARM64 in
 each manifest. The versioned tag is preferable for a controlled rollout. See
-[Upgrading](Upgrading.md#upgrading-to-443) before replacing an existing deployment.
+[Upgrading](Upgrading.md#upgrading-to-444) before replacing an existing deployment.

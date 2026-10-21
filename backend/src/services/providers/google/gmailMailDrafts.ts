@@ -162,6 +162,18 @@ interface DraftListPage {
 export const GMAIL_DRAFT_LOOKUP_MAX_PAGES = 10;
 const DRAFT_LOOKUP_PAGE_SIZE = 100;
 
+/** Options for the bounded-retry draft id lookup. */
+export interface GmailDraftLookupOptions {
+  /** Total listing attempts, including the first. The default is a single pass. */
+  attempts?: number;
+  /** Pause between attempts. Tests inject a short value; production uses the default. */
+  delayMs?: number;
+  /** Sleep implementation, injectable so tests never wait for the real delay. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const gmailDraftLookupSleep = (ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); });
+
 /**
  * The provider draft id that wraps the message a local row holds.
  *
@@ -171,8 +183,30 @@ const DRAFT_LOOKUP_PAGE_SIZE = 100;
  * {@link GMAIL_DRAFT_LOOKUP_MAX_PAGES} pages: a draft beyond that bound is treated as
  * "not found", which creates a fresh draft rather than patching one this adapter
  * cannot address.
+ *
+ * Gmail's list reads are eventually consistent: a draft that was just created or
+ * replaced can be absent from `drafts.list` for a short window. A caller that holds a
+ * message identity should therefore retry (`attempts` > 1) before concluding the draft
+ * is gone — a premature "not found" makes the next save create a second provider draft
+ * and leaks the one the composer already saved.
  */
-export async function findGmailDraftIdForMessage(api: GoogleApiOptions, messageId: string): Promise<string | null> {
+export async function findGmailDraftIdForMessage(
+  api: GoogleApiOptions,
+  messageId: string,
+  options: GmailDraftLookupOptions = {},
+): Promise<string | null> {
+  const attempts = Math.max(1, Math.min(5, Math.floor(options.attempts ?? 1)));
+  const sleep = options.sleep ?? gmailDraftLookupSleep;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const draftId = await lookupGmailDraftIdForMessage(api, messageId);
+    if (draftId) return draftId;
+    if (attempt + 1 < attempts) await sleep(options.delayMs ?? 750);
+  }
+  return null;
+}
+
+/** One full `drafts.list` pass, paged, matching the message id a local row holds. */
+async function lookupGmailDraftIdForMessage(api: GoogleApiOptions, messageId: string): Promise<string | null> {
   let pageToken: string | null = null;
   for (let page = 0; page < GMAIL_DRAFT_LOOKUP_MAX_PAGES; page++) {
     const listed: DraftListPage = await gmailGet<DraftListPage>(
