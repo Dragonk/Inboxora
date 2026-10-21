@@ -18,6 +18,13 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
+## [Unreleased]
+
+### Fixed
+- Draft "versions" multiplying in the Drafts list on Gmail accounts: Gmail mints a new provider message id for every save of a draft, and the local row mirroring the previous id was left in place, so every autosave (the composer saves every 15-30 s) added another visible "version" of the same single Gmail draft. The superseded local row is now removed with the save that replaces it.
+- Duplicate drafts leaking at Gmail: the `drafts.list` read the save path uses to resolve a draft id is eventually consistent, so a draft saved moments earlier could be missing from the listing, the save then created a second provider draft while the first survived at Gmail. The lookup is retried before that conclusion is drawn, and a lookup that still missed is retried again after the save so the superseded provider draft is found and removed.
+- Drafts surviving the message they became: removal was the client's fire-and-forget delete (a path MCP sends never had), and a draft delete that could not confirm the draft's identity dropped the local row anyway, letting the next sync resurrect the provider draft. A delivered send now consumes the superseded draft server-side (the provider object first, then the local rows); the MCP send tools (`send_email`, replies, forward) accept a `draftMessageId` naming the draft the send replaces and consume it after delivery; and an unconfirmable draft delete retains the local row for the sync to reconcile instead of dropping it.
+
 ## [4.4.3] - 2026-10-20
 
 ### Fixed

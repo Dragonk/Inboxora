@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Grant } from './policy.js';
-const f = vi.hoisted(() => ({ query: vi.fn(), read: vi.fn(), request: vi.fn(), source: vi.fn(), scan: vi.fn(), send: vi.fn() }));
+const f = vi.hoisted(() => ({ query: vi.fn(), read: vi.fn(), request: vi.fn(), source: vi.fn(), scan: vi.fn(), send: vi.fn(), requireMessage: vi.fn() }));
 vi.mock('../index.js', () => ({imapManager:{fetchAttachment:vi.fn()}}));
 vi.mock('../services/db.js', () => ({query:f.query,withTransaction:vi.fn()}));
 vi.mock('./bridge.js', () => ({domainRead:f.read,domainRequest:f.request}));
@@ -9,7 +9,7 @@ vi.mock('../services/attachments/scan.js', () => ({scanAttachment:f.scan}));
 vi.mock('../services/sendMail.js', () => ({executeSend:f.send}));
 vi.mock('../utils/mailUtils.js', () => ({resolveAllDraftsPaths:async()=>new Set(['Drafts'])}));
 vi.mock('./policy.js', async original => ({...await original<typeof import('./policy.js')>(),
-  requireAccount:vi.fn(), requireFolder:vi.fn(), requireMessage:async()=>({id:'22222222-2222-4222-8222-222222222222',account_id:'11111111-1111-4111-8111-111111111111',folder:'Drafts'}),
+  requireAccount:vi.fn(), requireFolder:vi.fn(), requireMessage:f.requireMessage,
 }));
 vi.mock('./operations.js', () => ({runOperation:async (...args:Parameters<typeof import('./operations.js')['runOperation']>) => {
   const [grant,,,authorize,execute,prepare] = args;
@@ -30,6 +30,7 @@ async function invoke(name:string, values:Record<string,unknown>) {
 }
 beforeEach(()=>{
   vi.clearAllMocks();
+  f.requireMessage.mockImplementation(async()=>({id:messageId,account_id:accountId,folder:'Drafts'}));
   f.query.mockImplementation(async(sql:string)=>{
     if(sql.includes('FROM email_accounts')) return {rows:[{id:accountId,user_id:messageId,email_address:'me@example.test',signature:'Signature',folder_mappings:{drafts:'Drafts'},default_cc:['default@example.test'],default_bcc:['private@example.test']}]};
     if(sql.includes('SELECT uid,draft_uid_validity')) return {rows:[{uid:'42',draft_uid_validity:'7'}]};
@@ -89,5 +90,18 @@ describe('MCP composition passes the real domain contract',()=>{
     f.source.mockResolvedValue(Buffer.alloc(1024*1024+1));
     await expect(invoke('send_email',{...args,forwardedAttachments:[{messageId,part:'2'}]})).rejects.toThrow('byte budget');
     expect(f.send).not.toHaveBeenCalled();
+  });
+  it('passes the superseded draft identity so the send consumes the draft',async()=>{
+    await invoke('send_email',{...args,draftMessageId:messageId});
+    expect(f.send).toHaveBeenCalledWith(messageId,expect.objectContaining({draftMessageId:messageId}),null,{prepareOnly:true});
+  });
+  it('refuses a cleanup reference to a draft of another account',async()=>{
+    f.requireMessage.mockResolvedValueOnce({id:'33333333-3333-4333-8333-333333333333',account_id:'99999999-9999-4999-8999-999999999999',folder:'Drafts'});
+    await expect(invoke('send_email',{...args,draftMessageId:'33333333-3333-4333-8333-333333333333'})).rejects.toThrow('Only an existing draft in the selected account');
+    expect(f.send).not.toHaveBeenCalled();
+  });
+  it('consumes the draft a reply send supersedes',async()=>{
+    await invoke('reply_email',{...args,messageId,draftMessageId:messageId,cc:[],bcc:[]});
+    expect(f.send).toHaveBeenCalledWith(messageId,expect.objectContaining({draftMessageId:messageId}),null,{prepareOnly:true});
   });
 });
