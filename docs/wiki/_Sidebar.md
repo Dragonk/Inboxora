@@ -21,7 +21,7 @@
 - **Reference**
   - [V3 interface](V3-interface.md)
 - **Releases**
-  - [4.4.3 — latest](Release-notes-4.4.3.md)
+  - [4.4.4 — latest](Release-notes-4.4.4.md)
   - [Development changes](Release-notes-Unreleased.md)
 
 <details>
@@ -29,6 +29,7 @@
 
 [All previous release notes](Archive.md)
 
+- [4.4.3](Release-notes-4.4.3.md)
 - [4.4.2](Release-notes-4.4.2.md)
 - [4.4.1](Release-notes-4.4.1.md)
 - [4.4.0](Release-notes-4.4.0.md)
