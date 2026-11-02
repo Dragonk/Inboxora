@@ -1267,7 +1267,7 @@ async function deleteMessageOverGraph(input: {
   message: ReadMessageRow;
   destinationPath: string | null;
 }): Promise<
-  | { ok: true; moved: false }
+  | { ok: true; moved: false; providerGone?: true }
   | { ok: true; moved: true; newProviderMessageId: string; newUid: string }
   | { ok: false; status: number; error: string; code?: string }
 > {
@@ -1291,7 +1291,11 @@ async function deleteMessageOverGraph(input: {
       config: microsoftConfigFromEnv(), immutableIds: await immutableIdsEnabled(account.provider_connection_id!), resourceId: identity.canonicalMessageId, providerMessageId: identity.providerMessageId,
     });
     if (deleted.deleted) return { ok: true, moved: false };
-    const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
+    // A ghost row: the provider no longer has the message, so no delete can ever be
+    // confirmed. Answer as a completed delete so the caller drops the stale local row
+    // instead of refusing an action that can never succeed.
+    if (deleted.code === 'RESOURCE_NOT_FOUND') return { ok: true, moved: false, providerGone: true };
+    const refused = deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
     return {
       ok: false,
       status: refused ? 409 : 502,
@@ -1324,7 +1328,10 @@ async function deleteMessageOverGraph(input: {
   if (moved.moved) {
     return { ok: true, moved: true, newProviderMessageId: moved.newProviderMessageId, newUid: moved.newUid };
   }
-  const permanent = moved.code === 'RESOURCE_NOT_FOUND' || moved.code === 'PROVIDER_AUTH_REQUIRED' || moved.code === 'INSUFFICIENT_SCOPES' || moved.code === 'OPERATION_FORBIDDEN';
+  // A ghost row: the provider no longer has the message, so no move to Trash can ever be
+  // confirmed. Answer as a completed delete so the caller drops the stale local row.
+  if (moved.code === 'RESOURCE_NOT_FOUND') return { ok: true, moved: false, providerGone: true };
+  const permanent = moved.code === 'PROVIDER_AUTH_REQUIRED' || moved.code === 'INSUFFICIENT_SCOPES' || moved.code === 'OPERATION_FORBIDDEN';
   return {
     ok: false,
     status: permanent ? 409 : 502,
@@ -1348,7 +1355,7 @@ async function deleteMessageOverGmail(input: {
   message: ReadMessageRow;
   destinationPath: string | null;
 }): Promise<
-  | { ok: true; moved: false }
+  | { ok: true; moved: false; providerGone?: true }
   | { ok: true; moved: true }
   | { ok: false; status: number; error: string; code?: string }
 > {
@@ -1370,7 +1377,11 @@ async function deleteMessageOverGmail(input: {
       config: googleConfigFromEnv(), resourceId: message.id, providerMessageId: identity.providerMessageId,
     });
     if (deleted.deleted) return { ok: true, moved: false };
-    const refused = deleted.code === 'RESOURCE_NOT_FOUND' || deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
+    // A ghost row: the provider no longer has the message, so no delete can ever be
+    // confirmed. Answer as a completed delete so the caller drops the stale local row
+    // instead of refusing an action that can never succeed.
+    if (deleted.code === 'RESOURCE_NOT_FOUND') return { ok: true, moved: false, providerGone: true };
+    const refused = deleted.code === 'PROVIDER_AUTH_REQUIRED' || deleted.code === 'INSUFFICIENT_SCOPES' || deleted.code === 'OPERATION_FORBIDDEN';
     return {
       ok: false,
       status: refused ? 409 : 502,
@@ -1390,7 +1401,10 @@ async function deleteMessageOverGmail(input: {
     sourcePath: message.folder,
   });
   if (moved.moved) return { ok: true, moved: true };
-  const permanent = moved.code === 'RESOURCE_NOT_FOUND' || moved.code === 'PROVIDER_AUTH_REQUIRED' || moved.code === 'INSUFFICIENT_SCOPES' || moved.code === 'OPERATION_FORBIDDEN';
+  // A ghost row: the provider no longer has the message, so no move to Trash can ever be
+  // confirmed. Answer as a completed delete so the caller drops the stale local row.
+  if (moved.code === 'RESOURCE_NOT_FOUND') return { ok: true, moved: false, providerGone: true };
+  const permanent = moved.code === 'PROVIDER_AUTH_REQUIRED' || moved.code === 'INSUFFICIENT_SCOPES' || moved.code === 'OPERATION_FORBIDDEN';
   return {
     ok: false,
     status: permanent ? 409 : 502,
@@ -1416,12 +1430,15 @@ async function moveMessagesOverGraph(input: {
   /** Only what a move needs: the local id and the provider identity to address. */
   messages: ReadonlyArray<{ id: string; provider_message_id?: string | null }>;
   destinationPath: string;
-}): Promise<{ movedIds: string[]; failedIds: string[]; newUids: Record<string, string> }> {
+}): Promise<{ movedIds: string[]; failedIds: string[]; newUids: Record<string, string>; failures: Array<{ id: string; code: string | null }> }> {
   const movedIds: string[] = [];
   const failedIds: string[] = [];
   const newUids: Record<string, string> = {};
+  // Every failed move with the provider's own refusal code, so a caller can tell a ghost
+  // (RESOURCE_NOT_FOUND: the provider object no longer exists) from an ordinary refusal.
+  const failures: Array<{ id: string; code: string | null }> = [];
   if (!input.account.provider_connection_id) {
-    return { movedIds, failedIds: input.messages.map(message => message.id), newUids };
+    return { movedIds, failedIds: input.messages.map(message => message.id), newUids, failures: input.messages.map(message => ({ id: message.id, code: null })) };
   }
 
   const movedCanonicalIds = new Set<string>();
@@ -1433,6 +1450,7 @@ async function moveMessagesOverGraph(input: {
     });
     if (identity.kind !== 'resolved') {
       failedIds.push(message.id);
+      failures.push({ id: message.id, code: null });
       continue;
     }
     // An old IMAP row and its canonical Graph projection may both be selected.
@@ -1451,13 +1469,14 @@ async function moveMessagesOverGraph(input: {
     if (!result.moved) {
       console.error(`bulk-move: Graph refused or did not confirm the move of ${message.id} (${result.code ?? 'unknown'})`);
       failedIds.push(message.id);
+      failures.push({ id: message.id, code: result.code ?? null });
       continue;
     }
     movedCanonicalIds.add(identity.canonicalMessageId);
     movedIds.push(identity.canonicalMessageId);
     newUids[identity.canonicalMessageId] = result.newUid;
   }
-  return { movedIds, failedIds, newUids };
+  return { movedIds, failedIds, newUids, failures };
 }
 
 /**
@@ -1474,15 +1493,17 @@ async function moveMessagesOverGmail(input: {
   account: EmailAccountRow;
   messages: ReadonlyArray<{ id: string; folder?: string | null; provider_message_id?: string | null }>;
   destinationPath: string;
-}): Promise<{ movedIds: string[]; failedIds: string[]; newUids: Record<string, string> }> {
+}): Promise<{ movedIds: string[]; failedIds: string[]; newUids: Record<string, string>; failures: Array<{ id: string; code: string | null }> }> {
   const movedIds: string[] = [];
   const failedIds: string[] = [];
+  const failures: Array<{ id: string; code: string | null }> = [];
   if (!input.account.provider_connection_id) {
-    return { movedIds, failedIds: input.messages.map(message => message.id), newUids: {} };
+    return { movedIds, failedIds: input.messages.map(message => message.id), newUids: {}, failures: input.messages.map(message => ({ id: message.id, code: null })) };
   }
   for (const message of input.messages) {
     if (!message.provider_message_id) {
       failedIds.push(message.id);
+      failures.push({ id: message.id, code: null });
       continue;
     }
     const result = await moveGmailMessageToLabel({
@@ -1498,11 +1519,12 @@ async function moveMessagesOverGmail(input: {
     if (!result.moved) {
       console.error(`bulk-move: Gmail refused or did not confirm the move of ${message.id} (${result.code ?? 'unknown'})`);
       failedIds.push(message.id);
+      failures.push({ id: message.id, code: result.code ?? null });
       continue;
     }
     movedIds.push(message.id);
   }
-  return { movedIds, failedIds, newUids: {} };
+  return { movedIds, failedIds, newUids: {}, failures };
 }
 
 /**
@@ -2580,6 +2602,9 @@ router.post('/messages/bulk-move', async (req, res) => {
     // and broadcast pass, not in the CTE that re-inserts an IMAP row.
     const graphMovedIds: string[] = [];
     const graphFailedIds: string[] = [];
+    // Rows whose provider object no longer exists: the move is answered as done and the
+    // stale row deleted, instead of failing an action that can never succeed.
+    const graphGoneIds: string[] = [];
     const uidUpdates = [];
     const resyncAccounts = []; // accounts whose moved msgs lacked new UIDs (non-UIDPLUS)
     for (const [accountId, msgs] of Object.entries(byAccount)) {
@@ -2606,6 +2631,7 @@ router.post('/messages/bulk-move', async (req, res) => {
         // row and re-insert it under a UID the provider does not have.
         graphMovedIds.push(...graphMove.movedIds);
         graphFailedIds.push(...graphMove.failedIds);
+        graphGoneIds.push(...graphMove.failures.filter(failure => failure.code === 'RESOURCE_NOT_FOUND').map(failure => failure.id));
         continue;
       }
       // Gmail keeps the message's identity across a move, so the caller's UIDPLUS
@@ -2616,6 +2642,8 @@ router.post('/messages/bulk-move', async (req, res) => {
           userId: sessionUserId(req), accountId, account, messages: msgs, destinationPath: folder,
         });
         graphMovedIds.push(...gmailMove.movedIds);
+        graphFailedIds.push(...gmailMove.failedIds);
+        graphGoneIds.push(...gmailMove.failures.filter(failure => failure.code === 'RESOURCE_NOT_FOUND').map(failure => failure.id));
         continue;
       }
       const byFolder: Record<string, MailMessageRow[]> = {};
@@ -2637,6 +2665,28 @@ router.post('/messages/bulk-move', async (req, res) => {
         for (const uid of failed) console.error(`bulk-move IMAP uid ${uid}: IMAP move failed`);
       }
       if (accountMissingUid) resyncAccounts.push(account);
+    }
+
+    // A ghost row whose provider object no longer exists did not fail the move — there is
+    // nothing at the provider to move. Delete the stale row and report it as moved so the
+    // client drops it, instead of answering "failed" for an object that can never succeed.
+    if (graphGoneIds.length > 0) {
+      const goneRows = owned.filter(m => graphGoneIds.includes(m.id));
+      if (goneRows.length > 0) {
+        await query('DELETE FROM messages WHERE id = ANY($1::uuid[])', [goneRows.map(m => m.id)]);
+        const goneSrcTotals: Record<string, { accountId: string; path: string; total: number; unread: number }> = {};
+        for (const msg of goneRows) {
+          const key = `${msg.account_id}:${msg.folder}`;
+          if (!goneSrcTotals[key]) goneSrcTotals[key] = { accountId: msg.account_id, path: msg.folder, total: 0, unread: 0 };
+          goneSrcTotals[key].total++;
+          if (!msg.is_read) goneSrcTotals[key].unread++;
+        }
+        for (const { accountId, path, total, unread } of Object.values(goneSrcTotals)) {
+          // Only the source loses a message: nothing arrives in the destination.
+          adjustFolderCounts(accountId, path, -total, -unread);
+          imapManager.broadcast({ type: 'folder_updated', folder: path, accountId }, sessionUserId(req));
+        }
+      }
     }
 
     if (movedIds.length > 0 || graphMovedIds.length > 0) {
@@ -2697,9 +2747,12 @@ router.post('/messages/bulk-move', async (req, res) => {
     // Refresh GTD section data for any moved thread that still carries a GTD label sibling.
     notifyMailMutation(owned, sessionUserId(req));
 
-    const moved = [...movedIds, ...graphMovedIds];
-    res.json(graphFailedIds.length > 0
-      ? { ok: false, moved, failed: graphFailedIds }
+    // Ghosts are reported as moved (their stale rows are already deleted above), not
+    // as failures — the client would just restore them into the list they came from.
+    const moved = [...movedIds, ...graphMovedIds, ...graphGoneIds];
+    const failedIds = graphFailedIds.filter(id => !graphGoneIds.includes(id));
+    res.json(failedIds.length > 0
+      ? { ok: false, moved, failed: failedIds }
       : { ok: true, moved });
   } catch (err) {
     console.error('bulk-move error:', err);
@@ -3196,7 +3249,8 @@ router.delete('/messages/:id', async (req, res) => {
     }
     imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, sessionUserId(req));
     notifyMailMutation([message], sessionUserId(req));
-    return res.json({ ok: true });
+    // `providerGone`: the row was dropped because the provider no longer has the message.
+    return res.json({ ok: true, ...('providerGone' in outcome && outcome.providerGone ? { providerGone: true } : {}) });
   }
 
   if (account.mail_transport === 'gmail_api') {
@@ -3227,7 +3281,8 @@ router.delete('/messages/:id', async (req, res) => {
     }
     imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: message.account_id }, sessionUserId(req));
     notifyMailMutation([message], sessionUserId(req));
-    return res.json({ ok: true });
+    // `providerGone`: the row was dropped because the provider no longer has the message.
+    return res.json({ ok: true, ...('providerGone' in outcome && outcome.providerGone ? { providerGone: true } : {}) });
   }
 
   if (isDraft) {
@@ -3418,6 +3473,17 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
     const move = await moveMessagesOverGraph({
       userId, accountId: account.id, account, messages: [message], destinationPath: destinationFolder,
     });
+    if (move.failures.some(failure => failure.code === 'RESOURCE_NOT_FOUND')) {
+      // A ghost row: the provider no longer has this message, so no move can be confirmed
+      // and no verdict can be trained. Delete the stale row instead of answering with an
+      // error the user cannot act on — this is exactly the "cannot be marked as spam"
+      // deadlock a ghost otherwise creates.
+      await query('DELETE FROM messages WHERE id = $1', [message.id]);
+      adjustFolderCounts(account.id, message.folder, -1, !message.is_read ? -1 : 0);
+      imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: account.id }, userId);
+      notifyMailMutation([message], userId);
+      return { ok: true, status: 200, body: { ok: true, providerGone: true, folder: destinationFolder } };
+    }
     if (move.movedIds.length === 0) {
       // The message stays where the user can see it; the verdict is not recorded,
       // because a training row for a move that did not happen would be a lie.
@@ -3435,6 +3501,16 @@ async function moveForSpamLabel(messageId: string, userId: string, destinationFo
     const move = await moveMessagesOverGmail({
       userId, accountId: account.id, account, messages: [message], destinationPath: destinationFolder,
     });
+    if (move.failures.some(failure => failure.code === 'RESOURCE_NOT_FOUND')) {
+      // A ghost row: the provider no longer has this message, so no move can be confirmed
+      // and no verdict can be trained. Delete the stale row instead of answering with an
+      // error the user cannot act on.
+      await query('DELETE FROM messages WHERE id = $1', [message.id]);
+      adjustFolderCounts(account.id, message.folder, -1, !message.is_read ? -1 : 0);
+      imapManager.broadcast({ type: 'folder_updated', folder: message.folder, accountId: account.id }, userId);
+      notifyMailMutation([message], userId);
+      return { ok: true, status: 200, body: { ok: true, providerGone: true, folder: destinationFolder } };
+    }
     if (move.movedIds.length === 0) {
       // The message stays where the user can see it; the verdict is not recorded,
       // because a training row for a move that did not happen would be a lie.

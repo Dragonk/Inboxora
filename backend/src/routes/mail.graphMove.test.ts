@@ -236,13 +236,29 @@ describe('bulk-move files a Graph message through the provider', () => {
 
   it('reports only the messages the provider confirmed', async () => {
     arrangeOwnedMessages();
-    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'RESOURCE_NOT_FOUND', replayed: false });
+    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'OPERATION_FORBIDDEN', replayed: false });
 
     const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID], folder: 'Archive' });
     expect(await response.json()).toEqual({ ok: false, moved: [], failed: [MESSAGE_ID] });
     // Nothing is re-homed, so the message stays where the user can still see it.
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('provider_message_id = $3'))).toBe(false);
     expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('deletes a ghost row and reports it as moved, since no move can ever be confirmed', async () => {
+    arrangeOwnedMessages();
+    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'RESOURCE_NOT_FOUND', replayed: false });
+
+    const response = await post('/messages/bulk-move', { ids: [MESSAGE_ID], folder: 'Archive' });
+    expect(await response.json()).toEqual({ ok: true, moved: [MESSAGE_ID] });
+    // The stale row is deleted outright; nothing is re-homed and nothing lands in the destination.
+    const removal = mocks.query.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM messages WHERE id = ANY') && !String(sql).includes('RETURNING'));
+    expect(removal).toBeDefined();
+    expect(removal?.[1]).toEqual([[MESSAGE_ID]]);
+    expect(mocks.adjustFolderCounts).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', -1, -1);
+    expect(mocks.adjustFolderCounts).not.toHaveBeenCalledWith(ACCOUNT_ID, 'Archive', 1, 1);
+    expect(mocks.broadcast).toHaveBeenCalledWith({ type: 'folder_updated', folder: 'INBOX', accountId: ACCOUNT_ID }, 'user-1');
+    expect(mocks.broadcast).not.toHaveBeenCalledWith({ type: 'folder_updated', folder: 'Archive', accountId: ACCOUNT_ID }, 'user-1');
   });
 
   it('leaves an IMAP account on the IMAP bulk path', async () => {

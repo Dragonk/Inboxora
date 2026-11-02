@@ -66,7 +66,11 @@ type RawDraftInput = {
 
 type ExistingDraftIdentity = {
   accountId: string;
-  uid: number;
+  /**
+   * The compatibility number exactly as the row stores it. A Gmail draft's uid is a 63-bit
+   * hash that does not fit a JS number, so it is carried as the exact decimal string.
+   */
+  uid: string;
   folder: string;
   /**
    * The IMAP UIDVALIDITY that guards the identity. It is **absent for a provider account**, whose
@@ -91,11 +95,31 @@ function positiveInteger(value: unknown): number | null {
   return Number.isSafeInteger(numeric) && numeric > 0 ? numeric : null;
 }
 
+/**
+ * A draft uid as an exact decimal string.
+ *
+ * A Gmail draft's `uid` is the 63-bit hash `providerUidForGmailMessage` mints, which does not
+ * fit in a JS number: funnelling it through `positiveInteger` rejected it, the identity was
+ * discarded as unusable, and every autosave minted a brand-new provider draft — the
+ * multiplying drafts. The value is kept as the exact digit string the row stores (the column
+ * is BIGINT and the driver returns strings), bounded by the signed 64-bit range.
+ */
+function messageUidString(value: unknown): string | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
+  }
+  if (typeof value !== 'string' || !/^[1-9]\d{0,18}$/.test(value)) return null;
+  const maxInt64 = '9223372036854775807';
+  if (value.length > maxInt64.length) return null;
+  if (value.length === maxInt64.length && value > maxInt64) return null;
+  return value;
+}
+
 function existingDraftIdentity(value: unknown): ExistingDraftIdentity | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
   if (typeof candidate.accountId !== 'string' || !candidate.accountId) return null;
-  const uid = positiveInteger(candidate.uid);
+  const uid = messageUidString(candidate.uid);
   if (uid === null) return null;
   if (typeof candidate.folder !== 'string' || !candidate.folder || candidate.folder.length > 1024 || /[\0\r\n]/.test(candidate.folder)) return null;
   if (candidate.uidValidity === undefined || candidate.uidValidity === null) {
@@ -566,11 +590,17 @@ router.post('/draft', async (req, res) => {
           if (previousDraftsFolder !== existingDraft.folder || storedUidValidity !== existingDraft.uidValidity) {
             console.warn(`Draft: previous draft identity cannot be confirmed; retaining uid=${existingDraft.uid}`);
           } else {
-            await imapManager.permanentDeleteMessage(previous, existingDraft.uid, existingDraft.folder, existingDraft.uidValidity);
-            await query(
-              'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND draft_uid_validity = $4',
-              [previous.id, existingDraft.uid, existingDraft.folder, existingDraft.uidValidity],
-            );
+            // An IMAP uid is a safe integer; the exact string reaches the DB untouched.
+            const previousUid = positiveInteger(existingDraft.uid);
+            if (previousUid === null) {
+              console.warn(`Draft: previous draft uid cannot be addressed; retaining uid=${existingDraft.uid}`);
+            } else {
+              await imapManager.permanentDeleteMessage(previous, previousUid, existingDraft.folder, existingDraft.uidValidity);
+              await query(
+                'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND draft_uid_validity = $4',
+                [previous.id, previousUid, existingDraft.folder, existingDraft.uidValidity],
+              );
+            }
           }
         }
       } catch (caught) {
@@ -589,8 +619,11 @@ router.post('/draft', async (req, res) => {
 });
 
 router.delete('/draft/:uid', async (req, res) => {
-  const uid = parseInt(req.params.uid, 10);
-  if (!uid || !Number.isFinite(uid)) return res.status(400).json({ error: 'Invalid uid' });
+  // A Gmail draft's uid is a 63-bit hash: `parseInt` silently rounded it to a number no
+  // row holds, and the delete failed as "identity cannot be confirmed", leaving a draft
+  // that could never be discarded. The exact decimal string addresses the row instead.
+  const uid = messageUidString(req.params.uid);
+  if (uid === null) return res.status(400).json({ error: 'Invalid uid' });
 
   const accountId = queryString(req.query.accountId);
   const folder = queryString(req.query.folder);
@@ -652,14 +685,16 @@ router.delete('/draft/:uid', async (req, res) => {
     }
 
     if (uidValidity === null) return res.status(400).json({ error: 'uidValidity required' });
+    const uidNumber = positiveInteger(uid);
+    if (uidNumber === null) return res.status(400).json({ error: 'uid must be a positive integer' });
     const storedIdentity = await query<{ draft_uid_validity: number | string | null }>(
       'SELECT draft_uid_validity FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3',
-      [account.id, uid, folder],
+      [account.id, uidNumber, folder],
     );
     if (Number(storedIdentity.rows[0]?.draft_uid_validity) !== uidValidity) {
       return res.status(409).json({ error: 'Draft identity cannot be confirmed' });
     }
-    await imapManager.permanentDeleteMessage(account, uid, folder, uidValidity);
+    await imapManager.permanentDeleteMessage(account, uidNumber, folder, uidValidity);
     await query(
       'DELETE FROM messages WHERE account_id = $1 AND uid = $2 AND folder = $3 AND draft_uid_validity = $4',
       [account.id, uid, folder, uidValidity]

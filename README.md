@@ -7,28 +7,29 @@
 <p align="center">
   <a href="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml"><img src="https://github.com/Dragonk/Inboxora/actions/workflows/ci.yml/badge.svg?branch=dev" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0"></a>
-  <img src="https://img.shields.io/badge/version-4.4.4-informational" alt="Version 4.4.4">
+  <img src="https://img.shields.io/badge/version-4.4.5-informational" alt="Version 4.4.5">
 </p>
 
 Inboxora brings email, contacts and calendars into one self-hosted workspace. Use existing
 accounts over **IMAP/SMTP**, or connect **Gmail, Google Calendar and People APIs** and
 **Microsoft Graph**. CalDAV and CardDAV keep your other applications and devices connected.
 
-**Current release: 4.4.4.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.4)
+**Current release: 4.4.5.** [Download the apps](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.5)
 or deploy the versioned Docker images. Full documentation lives in the
 [Wiki](https://github.com/Dragonk/Inboxora/wiki).
 
-## What's new in 4.4.4
+## What's new in 4.4.5
 
-- **The draft lifecycle is repaired.** Composing an email leaves exactly one draft while
-  writing and none after sending, across Gmail, Microsoft Graph and IMAP/SMTP accounts: the
-  superseded draft row no longer survives every autosave on Gmail, duplicate provider
-  drafts no longer leak through Gmail's eventually consistent draft listing, and a
-  delivered send consumes the draft it replaces server-side instead of relying on a
-  fire-and-forget client delete.
+- **Draft identity and ghost messages are fixed.** Gmail drafts no longer multiply on
+  every autosave: the ids Gmail mints exceed JavaScript's safe-integer range, so the
+  identity of the draft being resumed was rejected and each save created a new draft; ids
+  are now carried as strings end-to-end, previously undeletable drafts delete cleanly,
+  the app composer consumes the draft it supersedes on send, and a message that no longer
+  exists at the provider can be deleted, trained as spam or moved instead of blocking
+  every action with an error.
 
-See the release notes for [4.4.4](docs/wiki/Release-notes-4.4.4.md) and
-[4.4.3](docs/wiki/Release-notes-4.4.3.md) for the full changes and upgrade notes.
+See the release notes for [4.4.5](docs/wiki/Release-notes-4.4.5.md) and
+[4.4.4](docs/wiki/Release-notes-4.4.4.md) for the full changes and upgrade notes.
 
 ## Highlights
 
@@ -98,10 +99,10 @@ Use Docker Compose with the prebuilt release images:
 
 ```bash
 mkdir inboxora && cd inboxora
-curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.4/docker-compose.ghcr.yml
-curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.4/.env.example
+curl -o docker-compose.yml https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.5/docker-compose.ghcr.yml
+curl -o .env https://raw.githubusercontent.com/Dragonk/Inboxora/v4.4.5/.env.example
 # Edit .env: set APP_URL, SESSION_SECRET, DB_PASSWORD and ENCRYPTION_KEY.
-# Add INBOXORA_VERSION=4.4.4 to pin both app images.
+# Add INBOXORA_VERSION=4.4.5 to pin both app images.
 docker compose up -d
 docker compose ps
 ```
@@ -112,8 +113,8 @@ and Redis use persistent storage. Keep `.env` private and preserve
 not expose internal service ports publicly. The Wiki covers proxy, DAV and notification setup.
 
 ```text
-ghcr.io/dragonk/inboxora-backend:4.4.4
-ghcr.io/dragonk/inboxora-frontend:4.4.4
+ghcr.io/dragonk/inboxora-backend:4.4.5
+ghcr.io/dragonk/inboxora-frontend:4.4.5
 ```
 
 Both images support AMD64 and ARM64. `latest` follows the current stable release; `dev` is a
