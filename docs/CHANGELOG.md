@@ -27,6 +27,9 @@ configuration requirements, the **known safe limitations**, and what was verifie
 - Ghost messages that could not be moved, trained as spam or deleted: a message that no longer exists at the provider (already removed server-side) made every Inboxora action on it fail with 409/502 and left the undeletable row in the list. Delete, spam-move and bulk moves now recognise "gone at the provider" as a success case: the provider call confirms the message is gone, the local row is removed, folder counts are adjusted and the client is notified, so the ghost disappears with the action instead of blocking it. A bulk move that meets ghosts reports them as moved rather than failed, so the client no longer restores them into the source list.
 - Mover failures conflated with vanished messages: a folder or label that could not be resolved was reported as `RESOURCE_NOT_FOUND` - the same code a missing message returns - so a misconfigured destination could be mistaken for a message gone at the provider. Destination resolution failures now report `DESTINATION_NOT_FOUND`, distinct from the message-gone case the ghost cleanup keys on.
 
+### Security
+- Production dependencies patched for advisories published since 4.4.4: backend `body-parser` (DoS via trailing bytes after a compressed request body), `zod` (memory exhaustion while validating oversized constrained collections), `deepmerge` (prototype poisoning of objects returned by `mergeObject`) and `fast-uri` (URI scheme confusion), and frontend `dompurify` (DOMPurify template/hook bypass series, critical).
+
 ## [4.4.4] - 2026-10-21
 
 ### Fixed

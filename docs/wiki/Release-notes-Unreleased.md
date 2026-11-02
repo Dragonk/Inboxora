@@ -47,6 +47,14 @@ not be moved, trained as spam or deleted from Inboxora at all.
   `DESTINATION_NOT_FOUND`, distinct from the message-gone case the ghost
   cleanup keys on.
 
+## Security
+
+- Production dependencies were patched for advisories published since 4.4.4:
+  frontend `dompurify` (critical - DOMPurify template bypass, IN_PLACE hook
+  arming, SMIL href guard skip in XHTML mode) and backend `body-parser`,
+  `deepmerge`, `fast-uri` and `zod`. Both CI audit gates pass at
+  `--audit-level=high` again.
+
 ## Known safe limitations
 
 - Marking a ghost as read or flagging it remains best-effort (the asynchronous
