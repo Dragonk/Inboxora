@@ -154,7 +154,7 @@ describe('deleting a draft for a native Gmail account', () => {
     expect(imapManager.permanentDeleteMessage).not.toHaveBeenCalled();
     const deletion = query.mock.calls.find(call => String(call[0]).includes('DELETE FROM messages'));
     expect(deletion).toBeDefined();
-    expect(deletion![1]).toEqual([ACCOUNT_ID, 4242, 'Drafts', 'msg-1']);
+    expect(deletion![1]).toEqual([ACCOUNT_ID, '4242', 'Drafts', 'msg-1']);
   });
 
   it('retains the local row when the listing cannot confirm the draft identity', async () => {
@@ -176,5 +176,45 @@ describe('deleting a draft for a native Gmail account', () => {
 
     expect(response.status).toBe(409);
     expect(gmailDrafts.remove).not.toHaveBeenCalled();
+  });
+});
+
+
+// Gmail's draft uid is a 63-bit hash, far beyond Number.MAX_SAFE_INTEGER. Any path that
+// routes it through a JS number mints a second provider draft per autosave (the
+// multiplying-drafts bug) and makes the draft impossible to discard.
+describe('a Gmail draft uid beyond Number.MAX_SAFE_INTEGER', () => {
+  const BIG_UID = '9144899129188073162';
+
+  it('keeps the autosave updating the same provider draft instead of minting one', async () => {
+    const response = await post({
+      accountId: ACCOUNT_ID, to: ['you@example.com'], subject: 'Hi', body: 'Body',
+      existingDraft: { accountId: ACCOUNT_ID, uid: BIG_UID, folder: 'Drafts' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(gmailDrafts.rowMessageId).toHaveBeenCalledWith(ACCOUNT_ID, BIG_UID, 'Drafts');
+    expect(gmailDrafts.save).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ existingDraftId: 'draft-1' }));
+    const superseded = query.mock.calls.find(call => String(call[0]).includes('DELETE FROM messages') && String(call[0]).includes('id <> $4'));
+    expect(superseded).toBeDefined();
+    expect(superseded![1]).toEqual([ACCOUNT_ID, BIG_UID, 'Drafts', 'row-2']);
+  });
+
+  it('discards the draft addressed by the exact uid', async () => {
+    const response = await fetch(`${base}/api/mail/draft/${BIG_UID}?accountId=${ACCOUNT_ID}&folder=Drafts`, { method: 'DELETE' });
+
+    expect(response.status).toBe(200);
+    expect(gmailDrafts.rowMessageId).toHaveBeenCalledWith(ACCOUNT_ID, BIG_UID, 'Drafts');
+    expect(gmailDrafts.find).toHaveBeenCalledWith(expect.anything(), 'msg-1', { attempts: 3, delayMs: 500 });
+    expect(gmailDrafts.remove).toHaveBeenCalledWith(expect.anything(), 'draft-1');
+    const deletion = query.mock.calls.find(call => String(call[0]).includes('DELETE FROM messages'));
+    expect(deletion).toBeDefined();
+    expect(deletion![1]).toEqual([ACCOUNT_ID, BIG_UID, 'Drafts', 'msg-1']);
+  });
+
+  it('rejects a uid that overflows the signed 64-bit range', async () => {
+    const response = await fetch(`${base}/api/mail/draft/99999999999999999999?accountId=${ACCOUNT_ID}&folder=Drafts`, { method: 'DELETE' });
+    expect(response.status).toBe(400);
+    expect(gmailDrafts.rowMessageId).not.toHaveBeenCalled();
   });
 });

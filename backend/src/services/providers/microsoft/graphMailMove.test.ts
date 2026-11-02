@@ -65,7 +65,7 @@ describe('moving one Graph message onto a local folder', () => {
 
   it('refuses a destination the account never discovered, without calling the provider', async () => {
     mocks.graphFolderIdForPath.mockResolvedValue(null);
-    await expect(moveGraphMessageToFolder(input)).resolves.toEqual({ moved: false, code: 'RESOURCE_NOT_FOUND' });
+    await expect(moveGraphMessageToFolder(input)).resolves.toEqual({ moved: false, code: 'DESTINATION_NOT_FOUND' });
     expect(mocks.runProviderMutation).not.toHaveBeenCalled();
   });
 

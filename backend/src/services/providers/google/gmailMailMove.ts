@@ -86,7 +86,10 @@ export async function moveGmailMessageToLabel(input: {
     accountId: input.accountId,
     path: input.destinationPath,
   });
-  if (!destinationLabelId) return { moved: false, code: 'RESOURCE_NOT_FOUND' };
+  // The destination label failing to resolve is NOT the message being gone: callers
+  // distinguish a ghost (the provider answered RESOURCE_NOT_FOUND about the message
+  // itself) from an unresolvable destination, so this failure carries its own code.
+  if (!destinationLabelId) return { moved: false, code: 'DESTINATION_NOT_FOUND' };
 
   const sourceLabelId = input.sourcePath
     ? await gmailLabelIdForPath({ connectionId: input.connectionId, accountId: input.accountId, path: input.sourcePath })

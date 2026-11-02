@@ -1036,6 +1036,13 @@ export default function ComposeModal() {
     return {
         accountId,
         ...(aliasId ? { aliasId } : {}),
+        // The saved draft this send supersedes. The backend consumes the provider draft
+        // and its local rows once delivery is confirmed, so no draft survives the message
+        // it became — including sends routed through the undo/scheduled queue or a merge,
+        // which carry this same body to the same send pipeline.
+        ...(draftUid != null && draftFolder != null && draftAccountId
+          ? { existingDraft: { accountId: draftAccountId, uid: draftUid, folder: draftFolder, ...(draftUidValidity != null ? { uidValidity: draftUidValidity } : {}) } }
+          : {}),
         to: toFinal,
         cc: ccFinal,
         bcc: bccFinal,

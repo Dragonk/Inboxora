@@ -18,6 +18,15 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
+## [Unreleased]
+
+### Fixed
+- Draft "versions" still multiplying in the Drafts list on Gmail accounts: Gmail mints draft ids that exceed JavaScript's safe-integer range (63-bit integers, ~9.1e18), so the draft-identity check rejected the id of the very draft it was resuming and every autosave (the composer saves every 15-30 s) created a new provider draft instead of updating the existing one. Draft ids are now carried and compared as strings end-to-end, so an autosave resolves to the draft it is continuing.
+- Drafts that could not be deleted: the draft delete route read the uid with `parseInt`, which silently rounds ids beyond the safe-integer range, so the identity of the draft being deleted could never be confirmed and the delete always failed with 409. The route now reads the uid without narrowing its precision.
+- Drafts surviving a send composed in the app: the composer did not include the draft identity in the send request, so the server-side draft consumption shipped in 4.4.4 never ran for sends made from the compose dialog - only MCP sends carried the identity. The composer now includes the draft identity on send, scheduled send and merge, so the superseded draft is consumed after delivery.
+- Ghost messages that could not be moved, trained as spam or deleted: a message that no longer exists at the provider (already removed server-side) made every Inboxora action on it fail with 409/502 and left the undeletable row in the list. Delete, spam-move and bulk moves now recognise "gone at the provider" as a success case: the provider call confirms the message is gone, the local row is removed, folder counts are adjusted and the client is notified, so the ghost disappears with the action instead of blocking it. A bulk move that meets ghosts reports them as moved rather than failed, so the client no longer restores them into the source list.
+- Mover failures conflated with vanished messages: a folder or label that could not be resolved was reported as `RESOURCE_NOT_FOUND` - the same code a missing message returns - so a misconfigured destination could be mistaken for a message gone at the provider. Destination resolution failures now report `DESTINATION_NOT_FOUND`, distinct from the message-gone case the ghost cleanup keys on.
+
 ## [4.4.4] - 2026-10-21
 
 ### Fixed
