@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.4.4](wiki/Release-notes-4.4.4.md). Older release notes are collected in
+[Release notes 4.4.5](wiki/Release-notes-4.4.5.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -18,7 +18,7 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
 
-## [Unreleased]
+## [4.4.5] - 2026-11-02
 
 ### Fixed
 - Draft "versions" still multiplying in the Drafts list on Gmail accounts: Gmail mints draft ids that exceed JavaScript's safe-integer range (63-bit integers, ~9.1e18), so the draft-identity check rejected the id of the very draft it was resuming and every autosave (the composer saves every 15-30 s) created a new provider draft instead of updating the existing one. Draft ids are now carried and compared as strings end-to-end, so an autosave resolves to the draft it is continuing.
