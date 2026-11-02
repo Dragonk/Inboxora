@@ -41,7 +41,10 @@ export async function moveGraphMessageToFolder(input: {
     accountId: input.accountId,
     path: input.destinationPath,
   });
-  if (!destinationFolderId) return { moved: false, code: 'RESOURCE_NOT_FOUND' };
+  // The destination folder failing to resolve is NOT the message being gone: callers
+  // distinguish a ghost (the provider answered RESOURCE_NOT_FOUND about the message
+  // itself) from an unresolvable destination, so this failure carries its own code.
+  if (!destinationFolderId) return { moved: false, code: 'DESTINATION_NOT_FOUND' };
 
   const payload = {
     providerMessageId: input.providerMessageId,

@@ -192,9 +192,27 @@ describe('spam marking on a Microsoft Graph account', () => {
     expect(mocks.moveMessage).not.toHaveBeenCalled();
   });
 
-  it('records nothing when the provider refuses the move', async () => {
+  it('removes the ghost row when the provider no longer has the message', async () => {
     arrangeSpam();
     mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'RESOURCE_NOT_FOUND', replayed: false });
+
+    const response = await markSpam();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, providerGone: true, folder: 'Spam' });
+    // The stale row is deleted: keeping it is what made the message impossible to file away.
+    const removal = mocks.query.mock.calls.find(([sql]) => String(sql).includes('DELETE FROM messages'));
+    expect(removal?.[1]).toEqual([MESSAGE_ID]);
+    expect(mocks.adjustFolderCounts).toHaveBeenCalledWith(ACCOUNT_ID, 'INBOX', -1, -1);
+    // A training row for a message that no longer exists would be a lie.
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('spam_user_override'))).toBe(false);
+    expect(mocks.query.mock.calls.some(([sql]) => String(sql).includes('spam_training_log'))).toBe(false);
+    expect(mocks.broadcast).toHaveBeenCalledWith({ type: 'folder_updated', folder: 'INBOX', accountId: ACCOUNT_ID }, 'user-1');
+    expect(mocks.broadcast).not.toHaveBeenCalledWith({ type: 'folder_updated', folder: 'Spam', accountId: ACCOUNT_ID }, 'user-1');
+  });
+
+  it('records nothing when the provider refuses the move', async () => {
+    arrangeSpam();
+    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-1', code: 'OPERATION_FORBIDDEN', replayed: false });
 
     const response = await markSpam();
     expect(response.status).toBe(502);

@@ -221,13 +221,38 @@ describe('a Graph message goes to Trash through the provider', () => {
     expect(mocks.runProviderMutation).not.toHaveBeenCalled();
   });
 
-  it('keeps the local row where it was when the provider refuses the delete', async () => {
+  it('drops the stale local row when the provider no longer has the message', async () => {
     arrangeDelete();
     mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-4', code: 'RESOURCE_NOT_FOUND', replayed: false });
 
     const response = await deleteMessage();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, providerGone: true });
+    // The ghost row is deleted instead of being kept as an undeletable message.
+    const removal = mocks.query.mock.calls.find(([sql]) => String(sql).trim().startsWith('DELETE FROM messages WHERE id = $1'));
+    expect(removal?.[1]).toEqual([MESSAGE_ID]);
+    expect(mocks.broadcast).toHaveBeenCalledWith({ type: 'folder_updated', folder: 'INBOX', accountId: ACCOUNT_ID }, 'user-1');
+  });
+
+  it('drops the stale local row when a permanent delete finds nothing at the provider', async () => {
+    arrangeDelete({ folder: 'Trash' });
+    mocks.getDeleteStrategy.mockReturnValue({ action: 'expunge' });
+    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-6', code: 'RESOURCE_NOT_FOUND', replayed: false });
+
+    const response = await deleteMessage();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, providerGone: true });
+    const removal = mocks.query.mock.calls.find(([sql]) => String(sql).trim().startsWith('DELETE FROM messages WHERE id = $1'));
+    expect(removal?.[1]).toEqual([MESSAGE_ID]);
+  });
+
+  it('keeps the local row where it was when the provider refuses the delete', async () => {
+    arrangeDelete();
+    mocks.runProviderMutation.mockResolvedValue({ status: 'permanent', operationId: 'op-7', code: 'OPERATION_FORBIDDEN', replayed: false });
+
+    const response = await deleteMessage();
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    expect(await response.json()).toMatchObject({ code: 'OPERATION_FORBIDDEN' });
     expect(mocks.query.mock.calls.some(([sql]) => String(sql).trim().startsWith('DELETE FROM messages WHERE id = $1'))).toBe(false);
     expect(mocks.broadcast).not.toHaveBeenCalled();
   });
