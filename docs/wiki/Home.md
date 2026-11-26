@@ -3,17 +3,16 @@
 **Inboxora** is a self-hosted unified inbox for email, contacts and calendars, with
 IMAP/SMTP, native Google/Microsoft APIs, CalDAV and CardDAV.
 
-Latest release: **[Inboxora 4.4.5](Release-notes-4.4.5.md)**.
-[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.5) ·
-[Upgrading](Upgrading.md#upgrading-to-445) · [Archive](Archive.md)
+Latest release: **[Inboxora 4.4.6](Release-notes-4.4.6.md)**.
+[Downloads](https://github.com/Dragonk/Inboxora/releases/tag/v4.4.6) ·
+[Upgrading](Upgrading.md#upgrading-to-446) · [Archive](Archive.md)
 
-4.4.5 completes the draft and message lifecycle repairs: Gmail draft ids that exceed
-JavaScript's safe-integer range are carried without precision loss, so drafts stop
-multiplying, become deletable and are consumed when the app composer sends them, and a
-message that no longer exists at the provider can be deleted, trained as spam or moved
-instead of blocking every action. It follows [4.4.4](Release-notes-4.4.4.md), which repaired
-the draft lifecycle across providers, and [4.4.3](Release-notes-4.4.3.md), which completed
-one-finger panning of the pinch-zoomed Android message view.
+4.4.6 is a security-only patch release with no functional changes to the Inboxora
+application itself: it updates `nginx:alpine` and `node:22-alpine` system packages via
+`apk upgrade --no-cache` (`CVE-2026-111497` in `brotli-libs`, `CVE-2026-125350` in
+`libxslt`) and upgrades `certifi` to `2026.11.20` in the backend preview environment
+(`GHSA-6q48-6c7w-9gw2`). It follows [4.4.5](Release-notes-4.4.5.md), which completed the
+draft and message lifecycle repairs.
 
 ![Inboxora mail list](https://raw.githubusercontent.com/Dragonk/Inboxora/main/media/screenshots/mail-inbox-desktop.png)
 
@@ -39,7 +38,7 @@ one-finger panning of the pinch-zoomed Android message view.
 
 ## Release documentation
 
-[Release notes 4.4.5](Release-notes-4.4.5.md) contains the current maintenance changes,
+[Release notes 4.4.6](Release-notes-4.4.6.md) contains the current maintenance changes,
 limitations and upgrade instructions. **[Archive](Archive.md)** contains every older release-note
 page, including 4.4.4, 4.4.3 and 4.4.2. The Archive sidebar group is collapsed; existing page URLs and release
 bookmarks remain valid. [Development changes](Release-notes-Unreleased.md) is reserved for

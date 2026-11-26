@@ -5,7 +5,7 @@ All notable changes to Inboxora are recorded here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 For user-facing changes, upgrade requirements and limitations, see
-[Release notes 4.4.5](wiki/Release-notes-4.4.5.md). Older release notes are collected in
+[Release notes 4.4.6](wiki/Release-notes-4.4.6.md). Older release notes are collected in
 [Archive](wiki/Archive.md).
 
 ## How entries are kept
@@ -17,6 +17,13 @@ in the same commit that makes it, not gathered afterwards from the commit log, w
 
 The matching `wiki/Release-notes-<x.y.z>.md` is the narrative — user and operator impact, migration and
 configuration requirements, the **known safe limitations**, and what was verified.
+
+## [4.4.6] - 2026-11-26
+
+### Security
+- **Security-only container and dependency patch release — no functional changes to the Inboxora application itself.**
+- Frontend Docker image (`frontend/Dockerfile`): added `apk upgrade --no-cache` on `nginx:alpine` so base system packages are upgraded at build time, patching `brotli-libs` (`1.2.0-r1` -> `>= 1.2.1-r0`, critical `CVE-2026-111497`) and `libxslt` (`1.1.43-r3` -> `>= 1.1.43-r4`, high `CVE-2026-125350`).
+- Backend Docker image (`backend/Dockerfile`, `backend/preview/requirements.txt`): upgraded Python preview dependency `certifi` from `2026.7.22` to `2026.11.20` (`>= 2026.10.18`, critical `GHSA-6q48-6c7w-9gw2`) and added `apk upgrade --no-cache` on `node:22-alpine` so runtime system packages (`libcrypto3`, `libssl3`, `zlib`, etc.) are upgraded at build time.
 
 ## [4.4.5] - 2026-11-02
 
